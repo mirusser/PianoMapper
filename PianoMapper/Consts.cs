@@ -16,7 +16,7 @@ public static class Consts
             { ConsoleKey.E, 3 },   // D#
             { ConsoleKey.D, 4 },   // E
             { ConsoleKey.F, 5 },   // F
-            { ConsoleKey.T, 6 },   // F#
+            { ConsoleKey.R, 6 },   // F#
             { ConsoleKey.J, 7 },   // G
             { ConsoleKey.U, 8 },   // G#
             { ConsoleKey.K, 9 },   // A

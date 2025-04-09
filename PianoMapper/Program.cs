@@ -57,7 +57,7 @@ Task PlayNoteAsync(float frequency, float durationSeconds)
     return tcs.Task;
 }
 
-Console.WriteLine("Press piano keys (A, W, S, E, D, F, T, J, U, K, I, L, ;) to play notes concurrently.");
+Console.WriteLine("Press piano keys (A, W, S, E, D, F, R, J, U, K, I, L, ;) to play notes concurrently.");
 Console.WriteLine("Press Spacebar to clear all active notes.");
 Console.WriteLine("Press Q to exit.");
 
@@ -72,58 +72,37 @@ while (true)
     if (Console.KeyAvailable)
     {
         var keyInfo = Console.ReadKey(intercept: true);
+        var key = keyInfo.Key;
         Console.WriteLine($"{++counter} - Key pressed: {keyInfo.Key} ");
 
-        switch (keyInfo.Key)
+        // Check for octave change actions.
+        int? newOctave = key switch
         {
-            case ConsoleKey.UpArrow:
-                Console.WriteLine($"Changing octave to: {++octave}");
-                keyToFrequencyMap = Consts.GenerateKeyToFrequencyMapping(octave);
-                continue;
-            case ConsoleKey.DownArrow:
-                Console.WriteLine($"Changing octave to: {--octave}");
-                keyToFrequencyMap = Consts.GenerateKeyToFrequencyMapping(octave);
-                continue;
-            case ConsoleKey.D1:
-                octave = 1;
-                Console.WriteLine($"Changing octave to: {octave}");
-                keyToFrequencyMap = Consts.GenerateKeyToFrequencyMapping(octave);
-                continue;
-            case ConsoleKey.D2:
-                octave = 2;
-                Console.WriteLine($"Changing octave to: {octave}");
-                keyToFrequencyMap = Consts.GenerateKeyToFrequencyMapping(octave);
-                continue;
-            case ConsoleKey.D3:
-                octave = 3;
-                Console.WriteLine($"Changing octave to: {octave}");
-                keyToFrequencyMap = Consts.GenerateKeyToFrequencyMapping(octave);
-                continue;
-            case ConsoleKey.D4:
-                octave = 4;
-                Console.WriteLine($"Changing octave to: {octave}");
-                keyToFrequencyMap = Consts.GenerateKeyToFrequencyMapping(octave);
-                continue;
-            case ConsoleKey.D5:
-                octave = 5;
-                Console.WriteLine($"Changing octave to: {octave}");
-                keyToFrequencyMap = Consts.GenerateKeyToFrequencyMapping(octave);
-                continue;
-            case ConsoleKey.D6:
-                octave = 6;
-                Console.WriteLine($"Changing octave to: {octave}");
-                keyToFrequencyMap = Consts.GenerateKeyToFrequencyMapping(octave);
-                continue;
-            case ConsoleKey.D7:
-                octave = 7;
-                Console.WriteLine($"Changing octave to: {octave}");
-                keyToFrequencyMap = Consts.GenerateKeyToFrequencyMapping(octave);
-                continue;
-            case ConsoleKey.D8:
-                octave = 8;
-                Console.WriteLine($"Changing octave to: {octave}");
-                keyToFrequencyMap = Consts.GenerateKeyToFrequencyMapping(octave);
-                continue;
+            ConsoleKey.UpArrow => octave + 1,
+            ConsoleKey.DownArrow => octave - 1,
+            ConsoleKey.D1 => 1,
+            ConsoleKey.D2 => 2,
+            ConsoleKey.D3 => 3,
+            ConsoleKey.D4 => 4,
+            ConsoleKey.D5 => 5,
+            ConsoleKey.D6 => 6,
+            ConsoleKey.D7 => 7,
+            ConsoleKey.D8 => 8,
+            _ => null
+        };
+
+        if (newOctave.HasValue)
+        {
+            octave = newOctave.Value;
+            Console.WriteLine($"Changing octave to: {octave}");
+            keyToFrequencyMap = Consts.GenerateKeyToFrequencyMapping(octave);
+            // Skip further processing on an octave-change key.
+            continue;
+        }
+
+        switch (key)
+        {
+            // Special keys: exit and clear.
             case ConsoleKey.Q:
                 Console.WriteLine("Exiting...");
                 return;
