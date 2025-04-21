@@ -144,33 +144,166 @@ public static class PCM
         return buffer;
     }
     
+    // /// <summary>
+    // /// Returns a recommended note duration (in seconds) based on its frequency.
+    // /// Lower notes sustain longer, higher notes decay faster.
+    // /// </summary>
+    // /// <remarks>
+    // /// For example, A4 (440 Hz) is set to about 3 seconds, A1 (~55 Hz) to about 5 seconds, 
+    // /// and A8 (~3520 Hz) to around 1.5 seconds.
+    // /// </remarks>
+    // /// <param name="frequency">The frequency of the note in Hz.</param>
+    // /// <returns>Duration in seconds for a natural decay.</returns>
+    // public static float GetNoteDuration(double frequency)
+    // {
+    //     // Calculate how many octaves away from A4 (440 Hz) the note is.
+    //     // For frequencies below 440, octaveDifference will be negative; above, positive.
+    //     var octaveDifference = Math.Log(frequency / 440.0, 2);
+    //
+    //     // For A4 (octaveDifference = 0), we want about 3 seconds.
+    //     // Using a linear model in octaves: duration = 3 - k * octaveDifference.
+    //     // For A1 (~55 Hz), octaveDifference = log2(55/440) = -3.
+    //     // To target a duration of about 5 seconds for A1: 3 - k * (-3) = 3 + 3k ≈ 5 => k ≈ 0.67.
+    //     var duration = (3.0 - 0.67 * octaveDifference);
+    //
+    //     // For A8 (~3520 Hz), octaveDifference = log2(3520/440) = 3,
+    //     // which gives duration = 3 - 0.67*3 = 3 - 2.01 ≈ 0.99 seconds.
+    //     // Since that might be too short, we clamp the duration.
+    //     duration = Math.Max(1.5, Math.Min(5.0, duration));
+    //     
+    //     return (float)duration;
+    // }
+    
+    // }
+    
     /// <summary>
-    /// Returns a recommended note duration (in seconds) based on its frequency.
-    /// Lower notes sustain longer, higher notes decay faster.
+    /// Returns a recommended note duration (in seconds) based on its frequency,
+    /// using an exponential scaling model so that duration falls off more naturally
+    /// with higher pitches.
+    /// 
+    /// Formulation:
+    ///     duration = D₀ * (frequency / 440.0)ᵏ
+    /// where D₀ is the reference duration at A4 (e.g. 3 s) and k is a negative
+    /// exponent (e.g. –0.4) that controls how sharply sustain decreases with pitch.
+    /// Lower notes (frequency lower than 440 Hz) thus sustain longer, and higher notes
+    /// (frequency higher than 440 Hz) decay faster, with optional soft clamping to
+    /// avoid extremes.
     /// </summary>
-    /// <remarks>
-    /// For example, A4 (440 Hz) is set to about 3 seconds, A1 (~55 Hz) to about 5 seconds, 
-    /// and A8 (~3520 Hz) to around 1.5 seconds.
-    /// </remarks>
     /// <param name="frequency">The frequency of the note in Hz.</param>
     /// <returns>Duration in seconds for a natural decay.</returns>
     public static float GetNoteDuration(double frequency)
     {
-        // Calculate how many octaves away from A4 (440 Hz) the note is.
-        // For frequencies below 440, octaveDifference will be negative; above, positive.
-        var octaveDifference = Math.Log(frequency / 440.0, 2);
-    
-        // For A4 (octaveDifference = 0), we want about 3 seconds.
-        // Using a linear model in octaves: duration = 3 - k * octaveDifference.
-        // For A1 (~55 Hz), octaveDifference = log2(55/440) = -3.
-        // To target a duration of about 5 seconds for A1: 3 - k * (-3) = 3 + 3k ≈ 5 => k ≈ 0.67.
-        var duration = (3.0 - 0.67 * octaveDifference);
-    
-        // For A8 (~3520 Hz), octaveDifference = log2(3520/440) = 3,
-        // which gives duration = 3 - 0.67*3 = 3 - 2.01 ≈ 0.99 seconds.
-        // Since that might be too short, we clamp the duration.
-        duration = Math.Max(1.5, Math.Min(5.0, duration));
-        
+        const double referenceFreq = 440.0;    // A4
+        const double referenceDur = 3.0;       // seconds at A4
+        const double exponent = -0.4;          // controls falloff rate
+
+        // Exponential model: duration scales as (freq/440)^exponent
+        double duration = referenceDur * Math.Pow(frequency / referenceFreq, exponent);
+
+        // Optional soft clamps to prevent extreme outliers:
+        const double minDur = 1.2;  // lower bound
+        const double maxDur = 6.0;  // upper bound
+        duration = Math.Max(minDur, Math.Min(maxDur, duration));
+
         return (float)duration;
     }
+
+    /// <summary>
+    /// Returns the playback length (in seconds) for a note of a given frequency,
+    /// constrained by its natural decay and by its rhythmic duration.
+    /// </summary>
+    /// <param name="frequency">
+    ///   Frequency of the note in Hz (e.g. 440.0 for A4).
+    /// </param>
+    /// <param name="beatsPerMeasure">
+    ///   Time signature numerator: number of beats in each measure (e.g., 3 for 3/4).
+    /// </param>
+    /// <param name="beatNoteValue">
+    ///   Time signature denominator: which note value equals one beat  
+    ///   (e.g., 4 for quarter‑note beats in 3/4; 8 for eighth‑note beats in 6/8)
+    /// </param>
+    /// <param name="measureDuration">
+    ///   Total duration of one measure in seconds (e.g., from BPM × beatsPerMeasure)
+    /// </param>
+    /// <param name="noteDenominator">
+    ///   Denominator of the target note’s value  
+    ///   (e.g., 4=quarter, 8=eighth, 2=half, 1=whole)
+    /// </param>
+    /// <returns>
+    ///   Playback length in seconds: min(naturalDecay, rhythmicDuration).
+    /// </returns>
+    public static float GetTimedNoteDuration(
+        double frequency,
+        int beatsPerMeasure,
+        int beatNoteValue,
+        double measureDuration,
+        int noteDenominator = 1)
+    {
+        // 1. Natural decay (exponential model)
+        const double referenceFreq = 440.0;  // A4
+        const double referenceDur = 3.0;     // seconds at A4
+        const double exponent     = -0.4;    // decay falloff rate
+        double naturalDecay =
+            referenceDur *
+            Math.Pow(frequency / referenceFreq, exponent);
+
+        // 2. Rhythmic duration
+        // 2.1 Duration of one beat
+        double beatDuration = measureDuration / beatsPerMeasure;            
+
+        // 2.2 Beats spanned by the target note value
+        double noteBeats = (double)beatNoteValue / noteDenominator;        
+
+        // 2.3 Total rhythmic duration
+        double rhythmicDuration = beatDuration * noteBeats;              
+
+        // 3. Return the shorter of natural decay and rhythmic length
+        return (float)Math.Min(naturalDecay, rhythmicDuration);
+    }
+
+    /// <summary>
+    /// Returns the playback length (in seconds) for a note of a given frequency,
+    /// constrained by its natural exponential decay and by its rhythmic duration
+    /// based on BPM and time signature.
+    /// </summary>
+    /// <param name="frequency">
+    ///   Frequency of the note in Hz (e.g. 440.0 for A4).
+    /// </param>
+    /// <param name="bpm">
+    ///   Tempo in beats per minute (e.g. 120 for allegro).
+    /// </param>
+    /// <param name="beatNoteValue">
+    ///   Time signature denominator: which note value equals one beat  
+    ///   (e.g., 4 for quarter‐note beats in 4/4; 8 for eighth‐note beats in 6/8).
+    /// </param>
+    /// <param name="noteDenominator">
+    ///   Denominator of the target note’s value  
+    ///   (e.g., 4=quarter, 8=eighth, 2=half, 1=whole).
+    /// </param>
+    /// <returns>
+    ///   Playback length in seconds: minimum of naturalDecay and rhythmicDuration.
+    /// </returns>
+    public static float GetTimedNoteDuration(
+        double frequency,
+        double bpm,
+        int beatNoteValue,
+        int noteDenominator)
+    {
+        // 1. Natural decay (exponential model)
+        const double referenceFreq = 440.0;  // A4
+        const double referenceDur = 3.0;     // seconds at A4
+        const double exponent     = -0.4;    // decay falloff rate
+        double naturalDecay =
+            referenceDur *
+            Math.Pow(frequency / referenceFreq, exponent);
+
+        // 2. Rhythmic duration
+        double beatDuration      = 60.0 / bpm;                      // seconds per beat
+        double noteBeats         = (double)beatNoteValue / noteDenominator;
+        double rhythmicDuration  = beatDuration * noteBeats;
+
+        // 3. Return the shorter of natural decay and rhythmic length
+        return (float)Math.Min(naturalDecay, rhythmicDuration);
+    }
+
 }

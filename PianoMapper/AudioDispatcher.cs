@@ -2,15 +2,16 @@ using OpenTK.Audio.OpenAL;
 
 namespace PianoMapper;
 
-// A helper class to dispatch all OpenAL calls on a dedicated thread.
+/// <summary>
+/// A helper class to dispatch all OpenAL calls on a dedicated thread. 
+/// </summary>
 public class AudioDispatcher : IDisposable
 {
     private readonly Thread thread;
     private readonly Queue<Action> queue = new();
     private readonly AutoResetEvent signal = new(false);
     private bool running = true;
-    private readonly object lockObj = new object();
-
+    private readonly Lock queLock = new ();
     public AudioDispatcher()
     {
         thread = new Thread(Run)
@@ -24,13 +25,13 @@ public class AudioDispatcher : IDisposable
     {
         // Create OpenAL context on this thread.
         var device = ALC.OpenDevice(null);
-        if (device == IntPtr.Zero)
+        if (device== IntPtr.Zero)
         {
             Console.WriteLine("Failed to open audio device.");
             return;
         }
 
-        var context = ALC.CreateContext(device, new int[] { 0 });
+        var context = ALC.CreateContext(device, [0]);
         if (context == IntPtr.Zero)
         {
             Console.WriteLine("Failed to create audio context.");
@@ -43,8 +44,8 @@ public class AudioDispatcher : IDisposable
 
         while (running)
         {
-            Action action = null;
-            lock (lockObj)
+            Action? action = null;
+            lock (queLock)
             {
                 if (queue.Count > 0)
                     action = queue.Dequeue();
@@ -87,10 +88,12 @@ public class AudioDispatcher : IDisposable
         });
     }
 
-    // Enqueue an action to run on the audio thread.
+    /// <summary>
+    /// Enqueue an action to run on the audio thread.
+    /// </summary>
     public void Enqueue(Action action)
     {
-        lock (lockObj)
+        lock (queLock)
         {
             queue.Enqueue(action);
         }
@@ -104,5 +107,6 @@ public class AudioDispatcher : IDisposable
         signal.Set();
         thread.Join();
         signal.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

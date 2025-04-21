@@ -4,58 +4,11 @@ using OpenTK.Audio.OpenAL;
 using PianoMapper;
 
 // Our dedicated audio dispatcher.
-AudioDispatcher audioDispatcher = new AudioDispatcher();
+AudioDispatcher audioDispatcher = new();
 
 // A list to store all currently active notes.
-List<NoteInstance> activeNotes = new List<NoteInstance>();
+List<NoteInstance> activeNotes = [];
 object activeNotesLock = new object();
-
-/// <summary>
-/// Plays a note asynchronously. Each note gets its own source and buffer.
-/// </summary>
-Task PlayNoteAsync(float frequency, float durationSeconds)
-{
-    var tcs = new TaskCompletionSource<bool>();
-
-    audioDispatcher.Enqueue(() =>
-    {
-        var samples = PCM.GeneratePianoWave(frequency, durationSeconds);
-
-        int bufferId = AL.GenBuffer();
-        // Using the overload that calculates size automatically.
-        AL.BufferData(bufferId, ALFormat.Mono16, samples, Consts.SampleRate);
-        int sourceId = AL.GenSource();
-        AL.Source(sourceId, ALSourcei.Buffer, bufferId);
-
-        // Create a note instance and add it to activeNotes.
-        var note = new NoteInstance { SourceId = sourceId, BufferId = bufferId };
-        lock (activeNotesLock)
-        {
-            activeNotes.Add(note);
-        }
-
-        AL.SourcePlay(sourceId);
-
-        // Schedule cleanup after the note duration.
-        Task.Delay((int)(durationSeconds * 1000)).ContinueWith(_ =>
-        {
-            audioDispatcher.Enqueue(() =>
-            {
-                AL.SourceStop(sourceId);
-                AL.DeleteSource(sourceId);
-                AL.DeleteBuffer(bufferId);
-                lock (activeNotesLock)
-                {
-                    activeNotes.Remove(note);
-                }
-
-                tcs.SetResult(true);
-            });
-        });
-    });
-
-    return tcs.Task;
-}
 
 Console.WriteLine("Press piano keys (A, W, S, E, D, F, R, J, U, K, I, L, ;) to play notes concurrently.");
 Console.WriteLine("Press Spacebar to clear all active notes.");
@@ -115,7 +68,8 @@ while (true)
 
         if (keyToFrequencyMap.TryGetValue(keyInfo.Key, out var note))
         {
-            var durationInSeconds = PCM.GetNoteDuration(note.Frequency);
+            //var durationInSeconds = PCM.GetNoteDuration(note.Frequency);
+            var durationInSeconds = PCM.GetTimedNoteDuration(note.Frequency, 60, 4, 1);
             // Fire off note playback asynchronously.
             Console.WriteLine($" Note: {note.Name} - Frequency: {note.Frequency}Hz - duration: {durationInSeconds}s {Environment.NewLine}");
             playingTasks.Add(PlayNoteAsync(note.Frequency, durationInSeconds));
@@ -127,3 +81,50 @@ while (true)
 
 await Task.WhenAll(playingTasks);
 audioDispatcher.Dispose();
+
+/// <summary>
+/// Plays a note asynchronously. Each note gets its own source and buffer.
+/// </summary>
+Task PlayNoteAsync(float frequency, float durationSeconds)
+{
+    var tcs = new TaskCompletionSource<bool>();
+
+    audioDispatcher.Enqueue(() =>
+    {
+        var samples = PCM.GeneratePianoWave(frequency, durationSeconds);
+
+        int bufferId = AL.GenBuffer();
+        // Using the overload that calculates size automatically.
+        AL.BufferData(bufferId, ALFormat.Mono16, samples, Consts.SampleRate);
+        int sourceId = AL.GenSource();
+        AL.Source(sourceId, ALSourcei.Buffer, bufferId);
+
+        // Create a note instance and add it to activeNotes.
+        var note = new NoteInstance { SourceId = sourceId, BufferId = bufferId };
+        lock (activeNotesLock)
+        {
+            activeNotes.Add(note);
+        }
+
+        AL.SourcePlay(sourceId);
+
+        // Schedule cleanup after the note duration.
+        Task.Delay((int)(durationSeconds * 1000)).ContinueWith(_ =>
+        {
+            audioDispatcher.Enqueue(() =>
+            {
+                AL.SourceStop(sourceId);
+                AL.DeleteSource(sourceId);
+                AL.DeleteBuffer(bufferId);
+                lock (activeNotesLock)
+                {
+                    activeNotes.Remove(note);
+                }
+
+                tcs.SetResult(true);
+            });
+        });
+    });
+
+    return tcs.Task;
+}
