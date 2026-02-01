@@ -1,3 +1,5 @@
+using ConsolePlot;
+
 namespace PianoMapper;
 
 public static class PCM
@@ -306,4 +308,38 @@ public static class PCM
         return (float)Math.Min(naturalDecay, rhythmicDuration);
     }
 
+    public static void VisualizeWave(
+        short[] buffer,
+        int sampleRate    = Consts.SampleRate,
+        double windowSecs = 0.01,   // only plot 20 ms
+        int width         = 350,
+        int height        = 20
+    )
+    {
+        // 1) carve out the first windowSecs of data
+        int windowSamples = (int)(windowSecs * sampleRate);
+        var segment = buffer.Take(windowSamples).ToArray();
+
+        // 2) find data min/max for normalization
+        double dataMin = segment.Min();
+        double dataMax = segment.Max();
+        double dataRange = dataMax - dataMin;
+
+        // 3) normalize Y into [0…1], then scale into [0…height-1]
+        double[] ys = segment
+            .Select(v => (v - dataMin) / dataRange * (height - 1))
+            .ToArray();
+
+        // 4) build X so it spans [0…width-1] evenly
+        int n = ys.Length;
+        double[] xs = Enumerable.Range(0, n)
+            .Select(i => i * (width - 1) / (double)(n - 1))
+            .ToArray();
+
+        // 5) plot on the console
+        var plt = new Plot(width: width, height: height);
+        plt.AddSeries(xs: xs, ys: ys);
+        plt.Draw();
+        plt.Render();
+    }
 }

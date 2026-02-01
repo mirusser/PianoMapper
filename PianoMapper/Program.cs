@@ -1,6 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using OpenTK.Audio.OpenAL;
+﻿using OpenTK.Audio.OpenAL;
 using PianoMapper;
 
 // Our dedicated audio dispatcher.
@@ -14,7 +12,7 @@ Console.WriteLine("Press piano keys (A, W, S, E, D, F, R, J, U, K, I, L, ;) to p
 Console.WriteLine("Press Spacebar to clear all active notes.");
 Console.WriteLine("Press Q to exit.");
 
-List<Task> playingTasks = new List<Task>();
+List<Task> playingTasks = [];
 
 var counter = 0;
 var octave = 1;
@@ -64,15 +62,22 @@ while (true)
                 Console.WriteLine("Clearing active notes...");
                 audioDispatcher.ClearActiveNotes(activeNotes, activeNotesLock);
                 continue;
+            case ConsoleKey.M:
+                Note[] pallette = { new Note { Name = "C", Frequency = 440}};
+                await PlayRandomMeasureAsync(pallette, 4,4, 60, 60);
+                continue;
         }
 
         if (keyToFrequencyMap.TryGetValue(keyInfo.Key, out var note))
         {
             //var durationInSeconds = PCM.GetNoteDuration(note.Frequency);
-            var durationInSeconds = PCM.GetTimedNoteDuration(note.Frequency, 60, 4, 1);
+            var durationInSeconds = PCM.GetTimedNoteDuration(note.Frequency, 90, 4, 1);
             // Fire off note playback asynchronously.
             Console.WriteLine($" Note: {note.Name} - Frequency: {note.Frequency}Hz - duration: {durationInSeconds}s {Environment.NewLine}");
             playingTasks.Add(PlayNoteAsync(note.Frequency, durationInSeconds));
+            
+            var samples = PCM.GenerateSineWave(note.Frequency, durationInSeconds);
+            PCM.VisualizeWave(samples);
         }
     }
 
@@ -92,7 +97,7 @@ Task PlayNoteAsync(float frequency, float durationSeconds)
     audioDispatcher.Enqueue(() =>
     {
         var samples = PCM.GeneratePianoWave(frequency, durationSeconds);
-
+        
         int bufferId = AL.GenBuffer();
         // Using the overload that calculates size automatically.
         AL.BufferData(bufferId, ALFormat.Mono16, samples, Consts.SampleRate);
@@ -104,7 +109,7 @@ Task PlayNoteAsync(float frequency, float durationSeconds)
         lock (activeNotesLock)
         {
             activeNotes.Add(note);
-        }
+        } 
 
         AL.SourcePlay(sourceId);
 
@@ -127,4 +132,68 @@ Task PlayNoteAsync(float frequency, float durationSeconds)
     });
 
     return tcs.Task;
+}
+
+async Task PlayRandomMeasureAsync(
+    Note[] palette,
+    int minNumerator = 2,
+    int maxNumerator = 7,
+    int minBpm = 60,
+    int maxBpm = 180)
+{
+    var rnd = new Random();
+
+    // 1. Pick a random time signature
+    int numerator = rnd.Next(minNumerator, maxNumerator + 1);
+    int[] possibleDenoms = { 1, 2, 4, 8, 16 };
+    //int beatNoteValue = possibleDenoms[rnd.Next(possibleDenoms.Length)];
+    int beatNoteValue = 4;
+
+    // 2. Pick a random tempo
+    int bpm = rnd.Next(minBpm, maxBpm + 1);
+
+    Console.WriteLine(
+        $"Playing a {numerator}/{beatNoteValue} bar at {bpm} BPM...");
+
+    // 3. How many beats we need to fill
+    double beatsRemaining = numerator;
+
+    // 4. Fire notes until we exactly fill the bar
+    //var playingTasks = new List<Task>();
+    
+    while (beatsRemaining > 0)
+    {
+        // Pick a random note value that will fit
+        int noteDen = possibleDenoms[rnd.Next(possibleDenoms.Length)];
+        double noteBeats  = (double)beatNoteValue / noteDen;
+        if (noteBeats > beatsRemaining)
+            continue;
+
+        // Pick a random pitch from the palette
+        var note = palette[rnd.Next(palette.Length)];
+
+        // Compute how long to play it
+        float durationInSeconds = PCM.GetTimedNoteDuration(
+            note.Frequency,
+            bpm,
+            beatNoteValue,
+            noteDen);
+
+        Console.WriteLine(
+            $" Note: {note.Name} " +
+            $"- Freq: {note.Frequency} Hz " +
+            $"- Value: 1/{noteDen} ({noteBeats:F2} beats) " +
+            $"- Dur: {durationInSeconds:F2}s");
+
+        // Schedule playback
+        playingTasks.Add(PlayNoteAsync(note.Frequency, durationInSeconds));
+
+        // Subtract the beats we’ve just used
+        beatsRemaining -= noteBeats;
+    }
+
+    // 5. Wait for the bar to finish
+    await Task.WhenAll(playingTasks);
+
+    Console.WriteLine("— Measure complete —\n");
 }
