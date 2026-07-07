@@ -1,31 +1,33 @@
+using OpenTK.Windowing.GraphicsLibraryFramework;
+
 namespace PianoMapper;
 
 public static class Consts
 {
     public const int SampleRate = 44100; // Samples per second
     public const short Amplitude = short.MaxValue; // 16-bit max amplitude
-    
-    public static Dictionary<ConsoleKey, Note> GenerateKeyToFrequencyMapping(int startingOctave)
+
+    public static Dictionary<Keys, Note> GenerateKeyToFrequencyMapping(int startingOctave)
     {
-        // Mapping of ConsoleKey to semitone offset relative to C of the starting octave.
-        var keyOffsets = new Dictionary<ConsoleKey, int>
+        // Mapping of Keys to semitone offset relative to C of the starting octave.
+        var keyOffsets = new Dictionary<Keys, int>
         {
-            { ConsoleKey.A, 0 },   // C
-            { ConsoleKey.W, 1 },   // C#
-            { ConsoleKey.S, 2 },   // D
-            { ConsoleKey.E, 3 },   // D#
-            { ConsoleKey.D, 4 },   // E
-            { ConsoleKey.F, 5 },   // F
-            { ConsoleKey.R, 6 },   // F#
-            { ConsoleKey.J, 7 },   // G
-            { ConsoleKey.U, 8 },   // G#
-            { ConsoleKey.K, 9 },   // A
-            { ConsoleKey.I, 10 },  // A#
-            { ConsoleKey.L, 11 },  // B
-            { ConsoleKey.None, 12 }  // C (next octave) - should be Oem1 but my keyboard doesn't register it for some reason
+            { Keys.A, 0 },   // C
+            { Keys.W, 1 },   // C#
+            { Keys.S, 2 },   // D
+            { Keys.E, 3 },   // D#
+            { Keys.D, 4 },   // E
+            { Keys.F, 5 },   // F
+            { Keys.R, 6 },   // F#
+            { Keys.J, 7 },   // G
+            { Keys.U, 8 },   // G#
+            { Keys.K, 9 },   // A
+            { Keys.I, 10 },  // A#
+            { Keys.L, 11 },  // B
+            { Keys.Semicolon, 12 }  // C (next octave)
         };
 
-        var mapping = new Dictionary<ConsoleKey, Note>();
+        var mapping = new Dictionary<Keys, Note>();
 
         // Calculate the frequency for C in the starting octave.
         // For example, C4 is approximately 261.63 Hz.
@@ -38,7 +40,7 @@ public static class Consts
 
         foreach (var kvp in keyOffsets)
         {
-            ConsoleKey key = kvp.Key;
+            Keys key = kvp.Key;
             int semitoneOffset = kvp.Value;
             // Calculate frequency: multiply base C by 2^(semitoneOffset/12)
             double frequency = baseC * Math.Pow(2, semitoneOffset / 12.0);

@@ -112,8 +112,9 @@ public static class PCM
         var sampleCount = (int)(Consts.SampleRate * durationSeconds);
         var buffer = new short[sampleCount];
 
-        // Define an attack duration (in seconds) for a gentler onset.
-        double attackDuration = durationSeconds * 3; // Adjust this value as needed
+        // Define an attack duration (in seconds) for a gentler onset - capped so it always
+        // completes within the note instead of stretching the ramp past the note's own length.
+        double attackDuration = Math.Min(0.02, durationSeconds * 0.1);
 
         for (int i = 0; i < sampleCount; i++)
         {

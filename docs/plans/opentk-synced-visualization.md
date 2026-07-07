@@ -1,0 +1,190 @@
+# Implementation Plan: OpenTK-Backed Synced Visualization
+
+## Overview
+
+PianoMapper is currently a console app: a key press generates a PCM buffer (`PCM.GeneratePianoWave`), plays it via OpenAL on a dedicated thread (`AudioDispatcher`), and draws one static ASCII plot of the first 10ms (`PCM.VisualizeWave`) — a snapshot at trigger time, not a live view. The goal is a real window (OpenTK, already a transitive dependency via the `OpenTK` package) showing a piano-roll and an oscilloscope/spectrum that stay in sync with what's actually playing, as a learning tool for music theory and electronic-music sound design.
+
+## Architecture Decisions
+
+- **Render surface: OpenTK window**, not the terminal. `OpenTK.Windowing.Desktop`/`.Graphics`/`.Mathematics` are already present in `bin/` as transitive deps of the `OpenTK` package — no new NuGet packages needed for windowing.
+- **Audio thread stays as-is.** `AudioDispatcher`'s dedicated OpenAL-owning thread is untouched; the GL window's context and the OpenAL context run independently.
+- **Input moves from `Console.ReadKey` to OpenTK's `KeyboardState`**, since a blocking console read loop can't coexist with a windowed render loop. Same QWERTY note layout is preserved.
+- **FFT is hand-rolled** (radix-2 Cooley-Tukey), not a new dependency (e.g. MathNet.Numerics) — consistent with the existing hand-rolled PCM/DSP style in `PCM.cs`.
+- **Scope boundary:** this plan covers piano-roll + oscilloscope + spectrum (the "both together" visualization slice). Music-theory labeling (scale/chord/interval detection on top of the piano-roll) is intentionally deferred — see Open Questions.
+
+## Task List
+
+### Phase 1: Foundation — Window & Input Loop
+
+#### Task 1.1: Add OpenTK GameWindow scaffold
+**Description:** Create a `GameWindow` subclass that opens a window and runs an update/render loop at a fixed rate, replacing `Program.cs`'s `while(true)` console-polling loop. Console logging (`Console.WriteLine`) can stay for now — window and console coexist fine.
+
+**Acceptance criteria:**
+- [ ] Running the app opens a window (e.g. titled "PianoMapper") that stays open until closed or Escape is pressed.
+- [ ] The existing note pipeline (`AudioDispatcher` → OpenAL playback) still fires from key input, now read via OpenTK instead of `Console.ReadKey`.
+- [ ] Octave switching still works via the new input path.
+
+**Verification:**
+- [ ] `dotnet build` succeeds.
+- [ ] Manual check: press piano keys with the window focused, hear notes play as before.
+
+**Dependencies:** None
+
+**Files likely touched:** `PianoMapper/Program.cs`, new `PianoMapper/PianoMapperWindow.cs`
+
+**Estimated scope:** M
+
+#### Task 1.2: Migrate key-to-note handling into the window loop
+**Description:** Port the `ConsoleKey` → note lookup and octave-switch handling into OpenTK's `Keys` enum via `KeyboardState`, with one-shot "just pressed" detection so holding a key doesn't repeat-fire (matching old `Console.ReadKey` per-press behavior).
+
+**Acceptance criteria:**
+- [ ] Each physical key press triggers exactly one note; holding a key does not stream repeated notes.
+- [ ] Same QWERTY layout (A,W,S,E,D,F,R,J,U,K,I,L) maps to the same notes as before.
+- [ ] Spacebar clears active notes; Q exits the window and disposes `AudioDispatcher` cleanly (no hang on `thread.Join()`).
+
+**Verification:**
+- [ ] Manual check: hold a key — only one note fires.
+- [ ] Manual check: Q closes the window and the process exits without hanging.
+
+**Dependencies:** Task 1.1
+
+**Files likely touched:** `PianoMapper/PianoMapperWindow.cs`, `PianoMapper/Consts.cs` (if the key type changes from `ConsoleKey`)
+
+**Estimated scope:** S
+
+### Checkpoint: After Phase 1
+- [ ] App runs as a window; audio playback behavior unchanged from the user's perspective.
+- [ ] Octave switching, clear, and exit all still work.
+- [ ] Review with human before proceeding to rendering work.
+
+### Phase 2: Core Features — Note Timeline & Piano-Roll
+
+#### Task 2.1: Extend note tracking with timing/pitch metadata
+**Description:** Extend `NoteInstance` (or introduce `NoteEvent`) to carry `Frequency`, `NoteName`, `StartTime` (from a shared `Stopwatch` started at launch), `Duration`, and the generated `short[]` sample buffer (needed by Phase 3's oscilloscope). Add a thread-safe snapshot method so the render loop can read active/recent notes without holding the audio lock during rendering.
+
+**Acceptance criteria:**
+- [ ] Note tracking carries note name, frequency, start time, duration, and buffer reference.
+- [ ] A snapshot method returns a copy of current + recently-finished notes without blocking the audio thread.
+- [ ] Existing playback/cleanup (removal after duration) still functions.
+
+**Verification:**
+- [ ] `dotnet build` succeeds.
+- [ ] Manual check: press a note, confirm the snapshot contains it with correct start time and frequency.
+
+**Dependencies:** Phase 1 checkpoint
+
+**Files likely touched:** `PianoMapper/NoteInstance.cs`, `PianoMapper/AudioDispatcher.cs`, `PianoMapper/Program.cs`
+
+**Estimated scope:** S
+
+#### Task 2.2: Render a scrolling piano-roll from the note timeline
+**Description:** In the render loop, draw a scrolling grid — x axis = time (rolling window, e.g. last 8s), y axis = pitch/note name — with a bar per note event spanning `StartTime` to `StartTime + Duration`.
+
+**Acceptance criteria:**
+- [ ] Pressing a key draws a bar at the correct pitch row, growing over time to match its actual duration.
+- [ ] Concurrently-held notes render as separate, correctly-positioned bars (visual chord).
+- [ ] Old notes scroll off-screen after the rolling window passes.
+
+**Verification:**
+- [ ] Manual check: play notes/chords and confirm the piano-roll visually matches what's heard, with no visible drift after ~30s of play.
+
+**Dependencies:** Task 2.1
+
+**Files likely touched:** new `PianoMapper/Rendering/PianoRollRenderer.cs`, `PianoMapper/PianoMapperWindow.cs`
+
+**Estimated scope:** M
+
+### Checkpoint: After Phase 2
+- [ ] Piano-roll works end-to-end: notes appear/scroll/disappear in sync with playback.
+- [ ] Review with human before proceeding to oscilloscope work.
+
+### Phase 3: Core Features — Live Oscilloscope
+
+#### Task 3.1: Query real playback position from OpenAL
+**Description:** Each frame, for the relevant active source(s), call `AL.GetSource(sourceId, ALGetSourcei.SampleOffset)` to get the true current sample position within its buffer.
+
+**Acceptance criteria:**
+- [ ] A method returns the live sample offset for a given active note's source.
+- [ ] Offset advances correctly during playback and behaves sanely once a note ends.
+
+**Verification:**
+- [ ] Manual check: log the offset for a held note over its lifetime; confirm it increases roughly linearly and matches the note's known duration/sample rate.
+
+**Dependencies:** Phase 2 checkpoint
+
+**Files likely touched:** `PianoMapper/AudioDispatcher.cs` or new `PianoMapper/PlaybackPosition.cs`
+
+**Estimated scope:** S
+
+#### Task 3.2: Render a scrolling oscilloscope around the live position
+**Description:** Using the buffer retained in Task 2.1 and the live offset from Task 3.1, extract a small window of samples (e.g. ±10ms) and render it as a line strip each frame. `PCM.VisualizeWave` can remain for ad-hoc debugging but is no longer called from the main loop.
+
+**Acceptance criteria:**
+- [ ] While a note plays, the oscilloscope line updates each frame and reflects the note's actual current position (not a static snapshot).
+- [ ] Higher-pitched notes visibly show a tighter/faster waveform than lower-pitched ones.
+
+**Verification:**
+- [ ] Manual check: play a low note then a high note; confirm the waveform's visual wavelength changes accordingly and tracks in real time.
+
+**Dependencies:** Task 3.1
+
+**Files likely touched:** new `PianoMapper/Rendering/OscilloscopeRenderer.cs`, `PianoMapper/PianoMapperWindow.cs`
+
+**Estimated scope:** M
+
+### Checkpoint: After Phase 3 — Vertical Slice 1 Complete
+- [ ] Piano-roll + oscilloscope both run live and in sync with actual audio playback.
+- [ ] Pause here for review before spectrum work.
+
+### Phase 4: Spectrum (Harmonic Content) View
+
+#### Task 4.1: Hand-rolled radix-2 FFT
+**Description:** Add a small, self-contained FFT (power-of-two window → magnitude bins), consistent with the existing hand-rolled DSP style in `PCM.cs`. No new NuGet dependency.
+
+**Acceptance criteria:**
+- [ ] FFT of a known pure sine wave (e.g. 440Hz via `PCM.GenerateSineWave`) shows a clear single peak at the correct bin/frequency.
+- [ ] Handles the sample window size(s) used by the oscilloscope.
+
+**Verification:**
+- [ ] Test: generate a 440Hz sine buffer, run FFT, assert peak bin corresponds to ~440Hz within tolerance.
+
+**Dependencies:** Phase 3 checkpoint
+
+**Files likely touched:** new `PianoMapper/Audio/Fft.cs`, new test file
+
+**Estimated scope:** S-M
+
+#### Task 4.2: Render spectrum bars alongside the oscilloscope
+**Description:** Feed the same live sample window through the FFT each frame (or at a lower refresh rate for performance) and draw magnitude bars.
+
+**Acceptance criteria:**
+- [ ] While a note plays, spectrum bars show a peak at the fundamental and smaller peaks at harmonics, consistent with `PCM.GeneratePianoWave`'s harmonic content.
+- [ ] No visible audio glitches/stutter from FFT cost (kept off the audio thread).
+
+**Verification:**
+- [ ] Manual check: play a note, confirm a visible fundamental peak and harmonic structure roughly matching what `PCM.GeneratePianoWave` synthesizes.
+
+**Dependencies:** Task 4.1
+
+**Files likely touched:** new `PianoMapper/Rendering/SpectrumRenderer.cs`, `PianoMapper/PianoMapperWindow.cs`
+
+**Estimated scope:** M
+
+### Checkpoint: Complete
+- [ ] Piano-roll, oscilloscope, and spectrum are all live, synced, and readable together in one window.
+- [ ] All acceptance criteria met; ready for review.
+
+## Risks and Mitigations
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| OpenAL `SampleOffset` precision may be coarse or platform-dependent on Linux | Med | Fall back to estimating position from a per-note `Stopwatch` if the OpenAL offset proves unreliable |
+| Windowed GL app may hit context-creation issues in this Linux dev environment | Med | Validate `GameWindow` opens cleanly in Phase 1 before investing in rendering logic |
+| Per-frame rendering/FFT work competes with the audio thread for CPU | Low-Med | Keep FFT/render off the audio thread (already dedicated); throttle spectrum recompute rate if needed |
+| Scope creep beyond the agreed vertical slice | Low | Theory/chord layer explicitly deferred (see Open Questions) |
+
+## Open Questions
+
+- Should the oscilloscope/spectrum track a single "primary" note (e.g. most recently pressed) or overlay all concurrently active notes? Recommend starting with "most recent" for simplicity in Task 3.2/4.2, revisit once working.
+- Music-theory layer (scale/chord/interval labeling on the piano-roll) is deferred to a future plan once this vertical slice is validated.
+- `Alpha/Scratchboard.cs` has several unused alternate wave-generation experiments (ADSR, inharmonicity) sitting adjacent to what this plan builds on — not required here; flagging for a future decision on whether to fold any of it into `PCM.GeneratePianoWave`.

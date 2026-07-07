@@ -482,3 +482,13 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Agent CLI tool skill/agent symlinks (machine-local, point into $HOME)
+.codex/
+.gemini/
+.junie/
+.opencode/
+.agents/skills/
+.agents/agents/
+.serena/
+.codegraph/
