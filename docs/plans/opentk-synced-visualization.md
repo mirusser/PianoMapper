@@ -60,20 +60,20 @@ PianoMapper is currently a console app: a key press generates a PCM buffer (`PCM
 ### Phase 2: Core Features — Note Timeline & Piano-Roll
 
 #### Task 2.1: Extend note tracking with timing/pitch metadata
-**Description:** Extend `NoteInstance` (or introduce `NoteEvent`) to carry `Frequency`, `NoteName`, `StartTime` (from a shared `Stopwatch` started at launch), `Duration`, and the generated `short[]` sample buffer (needed by Phase 3's oscilloscope). Add a thread-safe snapshot method so the render loop can read active/recent notes without holding the audio lock during rendering.
+**Description:** Extend `NoteInstance` (or introduce `NoteEvent`) to carry `Frequency`, `NoteName`, `StartTime` (from a shared `TimeProvider`-based clock started at launch), `Duration`, and the generated `short[]` sample buffer (needed by Phase 3's oscilloscope). Add a thread-safe snapshot method so the render loop can read active/recent notes without holding the audio lock during rendering.
 
 **Acceptance criteria:**
-- [ ] Note tracking carries note name, frequency, start time, duration, and buffer reference.
-- [ ] A snapshot method returns a copy of current + recently-finished notes without blocking the audio thread.
-- [ ] Existing playback/cleanup (removal after duration) still functions.
+- [x] Note tracking carries note name, frequency, start time, duration, and buffer reference.
+- [x] A snapshot method returns a copy of current + recently-finished notes without blocking the audio thread.
+- [x] Existing playback/cleanup (removal after duration) still functions.
 
 **Verification:**
-- [ ] `dotnet build` succeeds.
-- [ ] Manual check: press a note, confirm the snapshot contains it with correct start time and frequency.
+- [x] `dotnet build` succeeds.
+- [ ] Manual check: press a note, confirm the snapshot contains it with correct start time and frequency. *(Timing/metadata behavior covered by automated `NoteTimelineTests` with a `FakeTimeProvider`; the literal in-app keypress check needs a machine with a real display/audio device — not available in this sandbox.)*
 
 **Dependencies:** Phase 1 checkpoint
 
-**Files likely touched:** `PianoMapper/NoteInstance.cs`, `PianoMapper/AudioDispatcher.cs`, `PianoMapper/Program.cs`
+**Files likely touched:** `PianoMapper/NoteInstance.cs`, `PianoMapper/NoteTimeline.cs`, `PianoMapper/PianoMapperWindow.cs`
 
 **Estimated scope:** S
 
@@ -85,12 +85,14 @@ PianoMapper is currently a console app: a key press generates a PCM buffer (`PCM
 - [ ] Concurrently-held notes render as separate, correctly-positioned bars (visual chord).
 - [ ] Old notes scroll off-screen after the rolling window passes.
 
+*(Implemented: `PianoRollLayout` — pure time/pitch → NDC math, unit-tested (`PianoRollLayoutTests`) for right-edge growth while playing, fixed width after note-end, pitch ordering, and window-based culling — feeds `PianoRollRenderer`, a GL shader/VBO renderer wired into `PianoMapperWindow.OnRenderFrame`. None of the three boxes above are checked because they describe on-screen appearance, which needs an actual GL context; this sandbox has no display (`GLFWException: Failed to detect any supported platform`). Check these off after a manual run.)*
+
 **Verification:**
-- [ ] Manual check: play notes/chords and confirm the piano-roll visually matches what's heard, with no visible drift after ~30s of play.
+- [ ] Manual check: play notes/chords and confirm the piano-roll visually matches what's heard, with no visible drift after ~30s of play. *(Not run — no display available in this environment.)*
 
 **Dependencies:** Task 2.1
 
-**Files likely touched:** new `PianoMapper/Rendering/PianoRollRenderer.cs`, `PianoMapper/PianoMapperWindow.cs`
+**Files likely touched:** new `PianoMapper/Rendering/PianoRollLayout.cs`, new `PianoMapper/Rendering/BarRect.cs`, new `PianoMapper/Rendering/PianoRollRenderer.cs`, `PianoMapper/PianoMapperWindow.cs`
 
 **Estimated scope:** M
 

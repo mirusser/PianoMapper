@@ -6,7 +6,7 @@ PianoMapper runs entirely on archie (headless Hyprland session, no physical moni
 
 **Video:**
 ```bash
-ssh -f -N -L 5900:localhost:5900 mirusser@192.168.0.74   # or 100.114.200.74 over Tailscale
+ssh -f -N -L 5900:localhost:5900 mirusser@192.168.0.74   # or IP over Tailscale
 vncviewer localhost:5900
 ```
 

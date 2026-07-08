@@ -3,25 +3,29 @@ using OpenTK.Graphics.OpenGL4;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.GraphicsLibraryFramework;
+using PianoMapper.Rendering;
 
 namespace PianoMapper;
 
-public class PianoMapperWindow(GameWindowSettings gameWindowSettings, NativeWindowSettings nativeWindowSettings)
+public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, NativeWindowSettings nativeWindowSettings)
     : GameWindow(gameWindowSettings, nativeWindowSettings)
 {
     private readonly AudioDispatcher audioDispatcher = new();
+    private readonly NoteTimeline noteTimeline = new();
     private readonly List<NoteInstance> activeNotes = [];
     private readonly object activeNotesLock = new();
     private readonly List<Task> playingTasks = [];
 
     private int octave = 1;
     private Dictionary<Keys, Note> keyToFrequencyMap = Consts.GenerateKeyToFrequencyMapping(1);
+    private PianoRollRenderer? pianoRollRenderer;
 
     protected override void OnLoad()
     {
         base.OnLoad();
 
         GL.ClearColor(0f, 0f, 0f, 1f);
+        pianoRollRenderer = new PianoRollRenderer();
 
         Console.WriteLine("Press piano keys (A, W, S, E, D, F, R, J, U, K, I, L, ;) to play notes concurrently.");
         Console.WriteLine("Press Spacebar to clear all active notes.");
@@ -44,6 +48,14 @@ public class PianoMapperWindow(GameWindowSettings gameWindowSettings, NativeWind
         if (input.IsKeyPressed(Keys.Space))
         {
             Console.WriteLine("Clearing active notes...");
+
+            NoteInstance[] notesBeingCleared;
+            lock (activeNotesLock)
+            {
+                notesBeingCleared = activeNotes.ToArray();
+            }
+
+            noteTimeline.Remove(notesBeingCleared);
             audioDispatcher.ClearActiveNotes(activeNotes, activeNotesLock);
             return;
         }
@@ -87,7 +99,7 @@ public class PianoMapperWindow(GameWindowSettings gameWindowSettings, NativeWind
 
             var durationInSeconds = PCM.GetTimedNoteDuration(note.Frequency, 90, 4, 1);
             Console.WriteLine($" Note: {note.Name} - Frequency: {note.Frequency}Hz - duration: {durationInSeconds}s{Environment.NewLine}");
-            playingTasks.Add(PlayNoteAsync(note.Frequency, durationInSeconds));
+            playingTasks.Add(PlayNoteAsync(note.Name, note.Frequency, durationInSeconds));
         }
     }
 
@@ -97,11 +109,14 @@ public class PianoMapperWindow(GameWindowSettings gameWindowSettings, NativeWind
 
         GL.Clear(ClearBufferMask.ColorBufferBit);
 
+        pianoRollRenderer?.Render(noteTimeline.Snapshot(), noteTimeline.Now);
+
         SwapBuffers();
     }
 
     protected override void OnUnload()
     {
+        pianoRollRenderer?.Dispose();
         audioDispatcher.Dispose();
         base.OnUnload();
     }
@@ -109,7 +124,7 @@ public class PianoMapperWindow(GameWindowSettings gameWindowSettings, NativeWind
     /// <summary>
     /// Plays a note asynchronously. Each note gets its own source and buffer.
     /// </summary>
-    private Task PlayNoteAsync(float frequency, float durationSeconds)
+    private Task PlayNoteAsync(string noteName, float frequency, float durationSeconds)
     {
         var tcs = new TaskCompletionSource<bool>();
 
@@ -123,8 +138,8 @@ public class PianoMapperWindow(GameWindowSettings gameWindowSettings, NativeWind
             int sourceId = AL.GenSource();
             AL.Source(sourceId, ALSourcei.Buffer, bufferId);
 
-            // Create a note instance and add it to activeNotes.
-            var note = new NoteInstance { SourceId = sourceId, BufferId = bufferId };
+            // Record the note in the timeline (for rendering) and in activeNotes (for AL cleanup).
+            var note = noteTimeline.Add(noteName, frequency, durationSeconds, samples, sourceId, bufferId);
             lock (activeNotesLock)
             {
                 activeNotes.Add(note);
@@ -202,7 +217,7 @@ public class PianoMapperWindow(GameWindowSettings gameWindowSettings, NativeWind
                 $"- Dur: {durationInSeconds:F2}s");
 
             // Schedule playback
-            playingTasks.Add(PlayNoteAsync(note.Frequency, durationInSeconds));
+            playingTasks.Add(PlayNoteAsync(note.Name, note.Frequency, durationInSeconds));
 
             // Subtract the beats we've just used
             beatsRemaining -= noteBeats;
