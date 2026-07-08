@@ -1,17 +1,27 @@
+using System.Collections.Concurrent;
 using OpenTK.Audio.OpenAL;
 
 namespace PianoMapper;
 
 /// <summary>
-/// A helper class to dispatch all OpenAL calls on a dedicated thread. 
+/// A helper class to dispatch all OpenAL calls on a dedicated thread.
 /// </summary>
-public class AudioDispatcher : IDisposable
+public sealed class AudioDispatcher : IDisposable
 {
     private readonly Thread thread;
     private readonly Queue<Action> queue = new();
     private readonly AutoResetEvent signal = new(false);
     private bool running = true;
     private readonly Lock queLock = new ();
+
+    // Refreshed on the audio thread (the only thread allowed to touch the AL context)
+    // and read directly by the render thread; a frame of staleness is acceptable for
+    // a visual oscilloscope. Keyed by NoteInstance reference (not the AL source id)
+    // because OpenAL reuses small integer source ids as soon as they're deleted, and a
+    // refresh queued just before cleanup could otherwise resurrect a stale offset under
+    // a reused id after cleanup forgets it.
+    private readonly ConcurrentDictionary<NoteInstance, int> sampleOffsets = new(ReferenceEqualityComparer.Instance);
+
     public AudioDispatcher()
     {
         thread = new Thread(Run)
@@ -81,11 +91,41 @@ public class AudioDispatcher : IDisposable
                     AL.SourceStop(note.SourceId);
                     AL.DeleteSource(note.SourceId);
                     AL.DeleteBuffer(note.BufferId);
+                    sampleOffsets.TryRemove(note, out _);
                 }
 
                 activeNotes.Clear();
             }
         });
+    }
+
+    /// <summary>
+    /// Enqueues a live sample-offset query for the given note's source; the audio
+    /// thread updates the cached value, which <see cref="TryGetSampleOffset"/> then
+    /// reads without blocking the caller.
+    /// </summary>
+    public void RequestSampleOffsetRefresh(NoteInstance note)
+    {
+        Enqueue(() =>
+        {
+            AL.GetSource(note.SourceId, ALGetSourcei.SampleOffset, out var offset);
+            sampleOffsets[note] = offset;
+        });
+    }
+
+    /// <summary>
+    /// Reads the most recently refreshed live sample offset for a note, if any.
+    /// </summary>
+    public bool TryGetSampleOffset(NoteInstance note, out int sampleOffset) =>
+        sampleOffsets.TryGetValue(note, out sampleOffset);
+
+    /// <summary>
+    /// Drops the cached offset for a note once its source is deleted, so the
+    /// dictionary doesn't grow unbounded over a long session.
+    /// </summary>
+    public void ForgetSampleOffset(NoteInstance note)
+    {
+        sampleOffsets.TryRemove(note, out _);
     }
 
     /// <summary>

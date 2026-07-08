@@ -7,6 +7,10 @@ public static class Consts
     public const int SampleRate = 44100; // Samples per second
     public const short Amplitude = short.MaxValue; // 16-bit max amplitude
 
+    // Shared by the oscilloscope (sample window it displays) and the FFT (its input
+    // size). Must be a power of two for the radix-2 FFT.
+    public const int ScopeWindowSize = 1024;
+
     public static Dictionary<Keys, Note> GenerateKeyToFrequencyMapping(int startingOctave)
     {
         // Mapping of Keys to semitone offset relative to C of the starting octave.

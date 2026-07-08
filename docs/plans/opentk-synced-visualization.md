@@ -106,11 +106,13 @@ PianoMapper is currently a console app: a key press generates a PCM buffer (`PCM
 **Description:** Each frame, for the relevant active source(s), call `AL.GetSource(sourceId, ALGetSourcei.SampleOffset)` to get the true current sample position within its buffer.
 
 **Acceptance criteria:**
-- [ ] A method returns the live sample offset for a given active note's source.
+- [x] A method returns the live sample offset for a given active note's source.
 - [ ] Offset advances correctly during playback and behaves sanely once a note ends.
 
+*(Implemented: `AudioDispatcher.RequestSampleOffsetRefresh`/`TryGetSampleOffset` — the render loop enqueues an `AL.GetSource(sourceId, ALGetSourcei.SampleOffset)` query onto the audio thread (the only thread allowed to touch the AL context) each frame, and reads the cached result via a `ConcurrentDictionary` without blocking; `ForgetSampleOffset` clears the entry when a source is deleted. `PlaybackPosition.EstimateSampleOffset` (pure, unit-tested with `PlaybackPositionTests`) is the elapsed-time fallback used before the first live query lands or once a note has ended, matching the plan's risk mitigation. The second box needs a live audio device streaming real playback to confirm the offset tracks linearly — not available in this sandbox.)*
+
 **Verification:**
-- [ ] Manual check: log the offset for a held note over its lifetime; confirm it increases roughly linearly and matches the note's known duration/sample rate.
+- [ ] Manual check: log the offset for a held note over its lifetime; confirm it increases roughly linearly and matches the note's known duration/sample rate. *(Not run — no audio device available in this environment.)*
 
 **Dependencies:** Phase 2 checkpoint
 
@@ -125,17 +127,19 @@ PianoMapper is currently a console app: a key press generates a PCM buffer (`PCM
 - [ ] While a note plays, the oscilloscope line updates each frame and reflects the note's actual current position (not a static snapshot).
 - [ ] Higher-pitched notes visibly show a tighter/faster waveform than lower-pitched ones.
 
+*(Implemented: `PlaybackPosition.ExtractWindow` — pure sample-window extraction (zero-padded at buffer edges), unit-tested — feeds `OscilloscopeLayout` (pure sample-window → NDC polyline math, confined to a bottom-left inset panel so it doesn't overlap the piano-roll; unit-tested for panel-edge placement and amplitude-to-height mapping in `OscilloscopeLayoutTests`), which in turn feeds `OscilloscopeRenderer`, a GL line-strip renderer wired into `PianoMapperWindow.OnRenderFrame` against the "primary" (most-recently-triggered) note per the Open Questions recommendation. Neither box is checked because they describe on-screen appearance over live audio, which needs an actual GL context and audio device; this sandbox has neither. Check these off after a manual run.)*
+
 **Verification:**
-- [ ] Manual check: play a low note then a high note; confirm the waveform's visual wavelength changes accordingly and tracks in real time.
+- [ ] Manual check: play a low note then a high note; confirm the waveform's visual wavelength changes accordingly and tracks in real time. *(Not run — no display/audio device available in this environment.)*
 
 **Dependencies:** Task 3.1
 
-**Files likely touched:** new `PianoMapper/Rendering/OscilloscopeRenderer.cs`, `PianoMapper/PianoMapperWindow.cs`
+**Files likely touched:** new `PianoMapper/Rendering/OscilloscopeRenderer.cs`, new `PianoMapper/Rendering/OscilloscopeLayout.cs`, `PianoMapper/PianoMapperWindow.cs`, `PianoMapper/Consts.cs`
 
 **Estimated scope:** M
 
 ### Checkpoint: After Phase 3 — Vertical Slice 1 Complete
-- [ ] Piano-roll + oscilloscope both run live and in sync with actual audio playback.
+- [ ] Piano-roll + oscilloscope both run live and in sync with actual audio playback. *(Code complete and unit-tested where testable without a display/audio device; needs a manual run to confirm visually.)*
 - [ ] Pause here for review before spectrum work.
 
 ### Phase 4: Spectrum (Harmonic Content) View
@@ -144,11 +148,13 @@ PianoMapper is currently a console app: a key press generates a PCM buffer (`PCM
 **Description:** Add a small, self-contained FFT (power-of-two window → magnitude bins), consistent with the existing hand-rolled DSP style in `PCM.cs`. No new NuGet dependency.
 
 **Acceptance criteria:**
-- [ ] FFT of a known pure sine wave (e.g. 440Hz via `PCM.GenerateSineWave`) shows a clear single peak at the correct bin/frequency.
-- [ ] Handles the sample window size(s) used by the oscilloscope.
+- [x] FFT of a known pure sine wave (e.g. 440Hz via `PCM.GenerateSineWave`) shows a clear single peak at the correct bin/frequency.
+- [x] Handles the sample window size(s) used by the oscilloscope.
+
+*(Implemented: `PianoMapper/Audio/Fft.cs` — iterative radix-2 Cooley-Tukey over a Hann-windowed input, `ComputeMagnitudes` (throws on non-power-of-two/empty input) and `BinToFrequency`. The oscilloscope and FFT share `Consts.ScopeWindowSize` (1024, a power of two) as the sample window size, so the same window feeds both. Fully unit-tested in `FftTests` — no GL/AL context needed.)*
 
 **Verification:**
-- [ ] Test: generate a 440Hz sine buffer, run FFT, assert peak bin corresponds to ~440Hz within tolerance.
+- [x] Test: generate a 440Hz sine buffer, run FFT, assert peak bin corresponds to ~440Hz within tolerance. `FftTests.ComputeMagnitudes_PureSineWave_PeaksAtBinMatchingFrequency` passes (peak within 1.5 bin-widths of 440Hz at a 2048-sample window).
 
 **Dependencies:** Phase 3 checkpoint
 
@@ -163,8 +169,10 @@ PianoMapper is currently a console app: a key press generates a PCM buffer (`PCM
 - [ ] While a note plays, spectrum bars show a peak at the fundamental and smaller peaks at harmonics, consistent with `PCM.GeneratePianoWave`'s harmonic content.
 - [ ] No visible audio glitches/stutter from FFT cost (kept off the audio thread).
 
+*(Implemented: `SpectrumLayout` — pure magnitude-bins → bar-rects math, confined to a bottom-right inset panel distinct from the oscilloscope's; unit-tested in `SpectrumLayoutTests` for empty/all-zero input, panel-edge placement, and proportional bar height — feeds `SpectrumRenderer`, a GL bar renderer wired into `PianoMapperWindow.OnRenderFrame`, which runs `Fft.ComputeMagnitudes` on the same window the oscilloscope uses. Extracted a shared `ShaderProgram.CreateSolidColorProgram()` helper (used by all three renderers) while adding this, replacing the shader-compile code `PianoRollRenderer` previously duplicated inline. The FFT/render work runs entirely on the render thread and never touches `AudioDispatcher`'s queue, so the "kept off the audio thread" half of the second box is true by construction; the "no visible stutter" observation and the first box's on-screen harmonic-structure check both need a manual run to confirm, which this no-display sandbox can't do.)*
+
 **Verification:**
-- [ ] Manual check: play a note, confirm a visible fundamental peak and harmonic structure roughly matching what `PCM.GeneratePianoWave` synthesizes.
+- [ ] Manual check: play a note, confirm a visible fundamental peak and harmonic structure roughly matching what `PCM.GeneratePianoWave` synthesizes. *(Not run — no display available in this environment.)*
 
 **Dependencies:** Task 4.1
 
@@ -173,7 +181,7 @@ PianoMapper is currently a console app: a key press generates a PCM buffer (`PCM
 **Estimated scope:** M
 
 ### Checkpoint: Complete
-- [ ] Piano-roll, oscilloscope, and spectrum are all live, synced, and readable together in one window.
+- [ ] Piano-roll, oscilloscope, and spectrum are all live, synced, and readable together in one window. *(Code complete, wired together, and covered by unit tests for every pure-math piece; the live/visual acceptance criteria across Phases 3-4 all need a manual run on a machine with a display and audio device, which this sandbox lacks.)*
 - [ ] All acceptance criteria met; ready for review.
 
 ## Risks and Mitigations

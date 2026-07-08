@@ -3,6 +3,7 @@ using OpenTK.Graphics.OpenGL4;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.GraphicsLibraryFramework;
+using PianoMapper.Audio;
 using PianoMapper.Rendering;
 
 namespace PianoMapper;
@@ -15,10 +16,17 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
     private readonly List<NoteInstance> activeNotes = [];
     private readonly object activeNotesLock = new();
     private readonly List<Task> playingTasks = [];
+    private readonly object primaryNoteLock = new();
 
     private int octave = 1;
     private Dictionary<Keys, Note> keyToFrequencyMap = Consts.GenerateKeyToFrequencyMapping(1);
     private PianoRollRenderer? pianoRollRenderer;
+    private OscilloscopeRenderer? oscilloscopeRenderer;
+    private SpectrumRenderer? spectrumRenderer;
+
+    // The most recently triggered note; the oscilloscope/spectrum track this one
+    // rather than overlaying every concurrently active note (see plan's Open Questions).
+    private NoteInstance? primaryNote;
 
     protected override void OnLoad()
     {
@@ -26,6 +34,8 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
 
         GL.ClearColor(0f, 0f, 0f, 1f);
         pianoRollRenderer = new PianoRollRenderer();
+        oscilloscopeRenderer = new OscilloscopeRenderer();
+        spectrumRenderer = new SpectrumRenderer();
 
         Console.WriteLine("Press piano keys (A, W, S, E, D, F, R, J, U, K, I, L, ;) to play notes concurrently.");
         Console.WriteLine("Press Spacebar to clear all active notes.");
@@ -109,13 +119,41 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
 
         GL.Clear(ClearBufferMask.ColorBufferBit);
 
-        pianoRollRenderer?.Render(noteTimeline.Snapshot(), noteTimeline.Now);
+        var now = noteTimeline.Now;
+        pianoRollRenderer?.Render(noteTimeline.Snapshot(), now);
+
+        NoteInstance? note;
+        lock (primaryNoteLock)
+        {
+            note = primaryNote;
+        }
+
+        if (note is not null)
+        {
+            bool noteIsStillPlaying = PlaybackPosition.IsNoteStillPlaying(note, now);
+            if (noteIsStillPlaying)
+            {
+                audioDispatcher.RequestSampleOffsetRefresh(note);
+            }
+
+            var offset = audioDispatcher.TryGetSampleOffset(note, out var liveOffset)
+                ? liveOffset
+                : PlaybackPosition.EstimateSampleOffset(note, now);
+
+            var window = PlaybackPosition.ExtractWindow(note.Samples, offset, Consts.ScopeWindowSize);
+            oscilloscopeRenderer?.Render(window);
+
+            var magnitudes = Fft.ComputeMagnitudes(window);
+            spectrumRenderer?.Render(magnitudes);
+        }
 
         SwapBuffers();
     }
 
     protected override void OnUnload()
     {
+        spectrumRenderer?.Dispose();
+        oscilloscopeRenderer?.Dispose();
         pianoRollRenderer?.Dispose();
         audioDispatcher.Dispose();
         base.OnUnload();
@@ -145,6 +183,11 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
                 activeNotes.Add(note);
             }
 
+            lock (primaryNoteLock)
+            {
+                primaryNote = note;
+            }
+
             AL.SourcePlay(sourceId);
 
             // Schedule cleanup after the note duration.
@@ -155,9 +198,18 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
                     AL.SourceStop(sourceId);
                     AL.DeleteSource(sourceId);
                     AL.DeleteBuffer(bufferId);
+                    audioDispatcher.ForgetSampleOffset(note);
                     lock (activeNotesLock)
                     {
                         activeNotes.Remove(note);
+                    }
+
+                    lock (primaryNoteLock)
+                    {
+                        if (ReferenceEquals(primaryNote, note))
+                        {
+                            primaryNote = null;
+                        }
                     }
 
                     tcs.SetResult(true);

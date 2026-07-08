@@ -3,19 +3,20 @@ using OpenTK.Graphics.OpenGL4;
 namespace PianoMapper.Rendering;
 
 /// <summary>
-/// Draws the current note timeline as scrolling bars. Owns its own shader/VAO/VBO
-/// and must be constructed after the GL context is current (i.e. from OnLoad).
+/// Draws magnitude-spectrum bars for the primary note's current FFT window. Owns its
+/// own shader/VAO/VBO and must be constructed after the GL context is current (i.e.
+/// from OnLoad).
 /// </summary>
-public sealed class PianoRollRenderer : IDisposable
+public sealed class SpectrumRenderer : IDisposable
 {
-    private static readonly float[] NoteColor = [0.2f, 0.8f, 0.4f];
+    private static readonly float[] BarColor = [0.3f, 0.6f, 0.9f];
 
     private readonly int vao;
     private readonly int vbo;
     private readonly int shaderProgram;
     private readonly List<float> vertices = [];
 
-    public PianoRollRenderer()
+    public SpectrumRenderer()
     {
         shaderProgram = ShaderProgram.CreateSolidColorProgram();
 
@@ -30,19 +31,13 @@ public sealed class PianoRollRenderer : IDisposable
         GL.BindVertexArray(0);
     }
 
-    public void Render(IReadOnlyList<NoteInstance> notes, TimeSpan now)
+    public void Render(IReadOnlyList<double> magnitudes)
     {
         vertices.Clear();
 
-        foreach (var note in notes)
+        foreach (var bar in SpectrumLayout.BuildBars(magnitudes))
         {
-            var rect = PianoRollLayout.GetBarRect(note, now);
-            if (rect is null)
-            {
-                continue;
-            }
-
-            AppendQuad(rect.Value);
+            AppendQuad(bar);
         }
 
         if (vertices.Count == 0)
@@ -80,9 +75,8 @@ public sealed class PianoRollRenderer : IDisposable
     {
         vertices.Add(x);
         vertices.Add(y);
-        vertices.Add(NoteColor[0]);
-        vertices.Add(NoteColor[1]);
-        vertices.Add(NoteColor[2]);
+        vertices.Add(BarColor[0]);
+        vertices.Add(BarColor[1]);
+        vertices.Add(BarColor[2]);
     }
-
 }

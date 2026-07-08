@@ -8,6 +8,7 @@ It generates PCM waveforms, plays notes asynchronously, and shows a piano-roll o
 - Octave controls (Up/Down arrows or number keys 1–8)
 - Simple sine-wave synthesis with timing helpers for rhythmic durations
 - Live scrolling piano-roll (OpenTK/OpenGL) showing note pitch and duration in sync with playback
+- Live oscilloscope tracking the actual OpenAL playback position of the most recently played note
 - Ad-hoc console waveform plotting via `ConsolePlot` (`PCM.VisualizeWave`, not wired into the main loop)
 
 ## Requirements
