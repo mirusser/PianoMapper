@@ -210,10 +210,29 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
             var samples = PCM.GeneratePianoWave(frequency, durationSeconds);
 
             int bufferId = AL.GenBuffer();
+            AudioDispatcher.CheckAlError($"generating buffer for '{noteName}'");
             // Using the overload that calculates size automatically.
             AL.BufferData(bufferId, ALFormat.Mono16, samples, Consts.SampleRate);
+            AudioDispatcher.CheckAlError($"uploading buffer data for '{noteName}'");
             int sourceId = AL.GenSource();
+            AudioDispatcher.CheckAlError($"generating source for '{noteName}'");
             AL.Source(sourceId, ALSourcei.Buffer, bufferId);
+            AudioDispatcher.CheckAlError($"binding buffer to source for '{noteName}'");
+
+            // Each note's samples individually use most of the 16-bit headroom, so
+            // OpenAL summing several concurrently-playing sources at full gain would
+            // itself clip at the mixer. Scale this source's gain down based on how
+            // many notes are already ringing (1/sqrt(N), which keeps perceived
+            // loudness roughly constant for uncorrelated signals) so chords and fast
+            // runs don't distort even though each note was authored at full scale.
+            int polyphony;
+            lock (activeNotesLock)
+            {
+                polyphony = activeNotes.Count + 1;
+            }
+            var gain = (float)Math.Min(1.0, 1.0 / Math.Sqrt(polyphony));
+            AL.Source(sourceId, ALSourcef.Gain, gain);
+            AudioDispatcher.CheckAlError($"setting gain for '{noteName}'");
 
             // Record the note in the timeline (for rendering) and in activeNotes (for AL cleanup).
             var note = noteTimeline.Add(noteName, frequency, durationSeconds, samples, sourceId, bufferId);
@@ -228,6 +247,7 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
             }
 
             AL.SourcePlay(sourceId);
+            AudioDispatcher.CheckAlError($"starting playback for '{noteName}'");
 
             // Schedule cleanup after the note duration.
             Task.Delay((int)(durationSeconds * 1000)).ContinueWith(_ =>
@@ -237,6 +257,7 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
                     AL.SourceStop(sourceId);
                     AL.DeleteSource(sourceId);
                     AL.DeleteBuffer(bufferId);
+                    AudioDispatcher.CheckAlError($"cleaning up note '{noteName}'");
                     audioDispatcher.ForgetSampleOffset(note);
                     lock (activeNotesLock)
                     {

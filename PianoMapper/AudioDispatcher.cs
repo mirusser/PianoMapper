@@ -49,7 +49,13 @@ public sealed class AudioDispatcher : IDisposable
             return;
         }
 
-        ALC.MakeContextCurrent(context);
+        if (!ALC.MakeContextCurrent(context))
+        {
+            Console.WriteLine($"Failed to activate audio context: {ALC.GetError(device)}");
+            ALC.DestroyContext(context);
+            ALC.CloseDevice(device);
+            return;
+        }
         Console.WriteLine("Audio context successfully created on the audio thread.");
 
         while (running)
@@ -78,6 +84,23 @@ public sealed class AudioDispatcher : IDisposable
     }
     
     /// <summary>
+    /// Logs the pending OpenAL error, if any, tagged with the operation that was
+    /// attempted. AL calls fail silently by default -- e.g. GenSource/GenBuffer can
+    /// hand back an invalid id when the driver's source pool is exhausted under
+    /// heavy polyphony -- so call this after any AL call whose failure would
+    /// otherwise go unnoticed. Must be called on the audio thread, since ALError is
+    /// per-context state.
+    /// </summary>
+    public static void CheckAlError(string context)
+    {
+        var error = AL.GetError();
+        if (error != ALError.NoError)
+        {
+            Console.WriteLine($"OpenAL error during {context}: {AL.GetErrorString(error)}");
+        }
+    }
+
+    /// <summary>
     /// Clears (stops and deletes) all active notes.
     /// </summary>
     public void ClearActiveNotes(List<NoteInstance> activeNotes, object activeNotesLock)
@@ -91,6 +114,7 @@ public sealed class AudioDispatcher : IDisposable
                     AL.SourceStop(note.SourceId);
                     AL.DeleteSource(note.SourceId);
                     AL.DeleteBuffer(note.BufferId);
+                    CheckAlError($"clearing note '{note.NoteName}'");
                     sampleOffsets.TryRemove(note, out _);
                 }
 
@@ -109,6 +133,7 @@ public sealed class AudioDispatcher : IDisposable
         Enqueue(() =>
         {
             AL.GetSource(note.SourceId, ALGetSourcei.SampleOffset, out var offset);
+            CheckAlError($"querying sample offset for '{note.NoteName}'");
             sampleOffsets[note] = offset;
         });
     }

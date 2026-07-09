@@ -116,32 +116,53 @@ public static class PCM
         // completes within the note instead of stretching the ramp past the note's own length.
         double attackDuration = Math.Min(0.02, durationSeconds * 0.1);
 
+        // Sum of the fundamental's weight (1) plus harmonics 2-6 at 1/2^(h-1) each.
+        // Dividing the additive mix by this keeps it within [-envelope, envelope]
+        // regardless of how many harmonics are summed, instead of letting it grow
+        // to ~1.97x when the partials happen to align in phase.
+        const double harmonicWeightSum = 1.96875;
+        const double saturationDrive = 1.5;
+        double tanhDrive = Math.Tanh(saturationDrive);
+
         for (int i = 0; i < sampleCount; i++)
         {
             double t = (double)i / Consts.SampleRate;
-            // Compute the basic exponential decay envelope
+            // Compute the basic exponential decay envelope. Its rate is proportional to
+            // frequency, so low notes decay far slower than high ones -- meaning a low
+            // note's envelope is still near 1.0 during the transient boost below, which
+            // is why low octaves clipped hardest before this normalization.
             double envelope = Math.Exp(-0.0004 * 2 * Math.PI * frequency * t);
 
-            // Generate the fundamental tone and overtones:
-            double Y = Math.Sin(2 * Math.PI * frequency * t) * envelope;
+            // Generate the fundamental tone and overtones, normalized into [-1, 1].
+            double raw = Math.Sin(2 * Math.PI * frequency * t) * envelope;
             for (int harmonic = 2; harmonic <= 6; harmonic++)
             {
-                Y += Math.Sin(harmonic * 2 * Math.PI * frequency * t) * envelope / Math.Pow(2, harmonic - 1);
+                raw += Math.Sin(harmonic * 2 * Math.PI * frequency * t) * envelope / Math.Pow(2, harmonic - 1);
             }
+            raw /= harmonicWeightSum;
 
-            // Apply cubic saturation to enrich the timbre
-            Y += Math.Pow(Y, 3);
+            // Soft-clip (tanh) saturation to enrich the timbre with odd harmonics.
+            // Unlike the raw cubic term this replaces (Y += Y^3, which *amplifies*
+            // rather than compresses once |Y| exceeds 1), tanh is bounded to
+            // [-1, 1] for any input, so it can't diverge.
+            double Y = Math.Tanh(saturationDrive * raw) / tanhDrive;
 
-            // Apply the time-dependent multiplier (if needed)
-            Y *= 1 + 16 * t * Math.Exp(-6 * t);
+            // Apply the time-dependent "hammer strike" transient boost, tempered so
+            // its peak (~1.37x, at t=1/6s) rarely needs the final hard clamp below.
+            Y *= 1 + 4 * t * Math.Exp(-6 * t);
 
             // Apply an attack envelope: ramp from 0 to 1 over the attackDuration.
             // Using a sine ramp gives a smooth curve.
             double attackFactor = t < attackDuration ? Math.Sin((t / attackDuration) * (Math.PI / 2)) : 1.0;
             Y *= attackFactor;
 
-            // Scale to 16-bit PCM and assign to buffer
-            buffer[i] = (short)(Consts.Amplitude * Y);
+            // Scale to 16-bit PCM and assign to buffer. Clamp is now just a safety
+            // net for the rare peak sample rather than the primary limiter -- and it
+            // must clamp (not wrap): C#'s double-to-short cast wraps around
+            // (two's-complement truncation) for out-of-range values instead of
+            // saturating, which produces harsh crackling instead of a clean tone.
+            var scaled = Consts.Amplitude * Y;
+            buffer[i] = (short)Math.Clamp(scaled, short.MinValue, short.MaxValue);
         }
 
         return buffer;
