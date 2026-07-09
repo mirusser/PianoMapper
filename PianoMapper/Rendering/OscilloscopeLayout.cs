@@ -9,10 +9,10 @@ namespace PianoMapper.Rendering;
 /// </summary>
 public static class OscilloscopeLayout
 {
-    public const float PanelX0 = -1.0f;
-    public const float PanelX1 = -0.05f;
-    public const float PanelY0 = -1.0f;
-    public const float PanelY1 = -0.5f;
+    public const float PanelX0 = -0.98f;
+    public const float PanelX1 = 0.98f;
+    public const float PanelY0 = -0.62f;
+    public const float PanelY1 = -0.40f;
 
     public static IReadOnlyList<Vector2> BuildPolyline(IReadOnlyList<short> window)
     {

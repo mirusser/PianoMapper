@@ -8,6 +8,11 @@ public static class PianoRollLayout
 {
     public const double RollingWindowSeconds = 8.0;
 
+    // Piano-roll occupies the upper region of the window, leaving the lower region free
+    // for the oscilloscope/spectrum bands so the three never visually collide.
+    public const float BandY0 = -0.30f;
+    public const float BandY1 = 0.95f;
+
     private const double ReferenceFrequency = 440.0; // A4
     private const double SemitoneRange = 48.0; // +/- 4 octaves mapped across the visible pitch band
     private const float BarHalfHeight = 0.02f;
@@ -48,11 +53,14 @@ public static class PianoRollLayout
     {
         if (frequency <= 0f)
         {
-            return -1f;
+            return BandY0;
         }
 
         var semitoneOffset = 12.0 * Math.Log2(frequency / ReferenceFrequency);
-        var normalized = Math.Clamp(semitoneOffset / SemitoneRange, -1.0, 1.0);
-        return (float)normalized;
+        var normalized = Math.Clamp(semitoneOffset / SemitoneRange, -1.0, 1.0); // -1..1
+
+        var bandMid = (BandY0 + BandY1) / 2.0;
+        var bandHalfSpan = (BandY1 - BandY0) / 2.0;
+        return (float)(bandMid + normalized * bandHalfSpan);
     }
 }

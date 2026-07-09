@@ -13,6 +13,8 @@ vncviewer localhost:5900
 **Audio** (leave running while you work):
 ```bash
 ssh mirusser@192.168.0.74 "parec -d @DEFAULT_MONITOR@ --format=s16le --rate=48000 --channels=2 --latency-msec=20" | ffmpeg -fflags nobuffer -flush_packets 1 -f s16le -ar 48000 -ac 2 -i - -f wav - | SDL_AUDIODRIVER=pulseaudio SDL_AUDIO_SAMPLES=512 ffplay -analyzeduration 0 -probesize 32 -nodisp -loglevel quiet -
+
+ssh mirusser@192.168.0.74 "parec -d @DEFAULT_MONITOR@ --format=s16le --rate=48000 --channels=2 --latency-msec=20" | ffmpeg -fflags nobuffer -f s16le -ar 48000 -ac 2 -i - -f wav - | SDL_AUDIODRIVER=pulseaudio ffplay -analyzeduration 0 -probesize 32 -nodisp -loglevel quiet -
 ```
 
 Same commands work whether you're on the LAN or on Tailscale — just swap the host IP.

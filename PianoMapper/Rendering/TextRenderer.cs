@@ -3,22 +3,19 @@ using OpenTK.Graphics.OpenGL4;
 namespace PianoMapper.Rendering;
 
 /// <summary>
-/// Draws the current note timeline as scrolling bars. Owns its own shader/VAO/VBO
-/// and must be constructed after the GL context is current (i.e. from OnLoad).
+/// Draws text built from <see cref="BitmapFont"/>/<see cref="TextLayout"/> pixel quads.
+/// Owns its own shader/VAO/VBO and must be constructed after the GL context is current
+/// (i.e. from OnLoad). A single shared instance is used for all on-screen text (bar
+/// labels, octave indicator, panel labels) rather than one per purpose.
 /// </summary>
-public sealed class PianoRollRenderer : IDisposable
+public sealed class TextRenderer : IDisposable
 {
-    private static readonly float[] LabelColor = [1f, 1f, 1f];
-    private const float LabelGlyphWidth = 0.012f;
-    private const float LabelGlyphHeight = 0.03f;
-    private const float LabelYOffset = 0.01f;
-
     private readonly int vao;
     private readonly int vbo;
     private readonly int shaderProgram;
     private readonly List<float> vertices = [];
 
-    public PianoRollRenderer()
+    public TextRenderer()
     {
         shaderProgram = ShaderProgram.CreateSolidColorProgram();
 
@@ -33,20 +30,13 @@ public sealed class PianoRollRenderer : IDisposable
         GL.BindVertexArray(0);
     }
 
-    public void Render(IReadOnlyList<NoteInstance> notes, TimeSpan now, TextRenderer textRenderer)
+    public void Render(string text, float x, float y, float glyphWidth, float glyphHeight, float[] color)
     {
         vertices.Clear();
 
-        foreach (var note in notes)
+        foreach (var quad in TextLayout.BuildQuads(text, x, y, glyphWidth, glyphHeight))
         {
-            var rect = PianoRollLayout.GetBarRect(note, now);
-            if (rect is null)
-            {
-                continue;
-            }
-
-            AppendQuad(rect.Value, NoteColors.GetColor(note.NoteName));
-            textRenderer.Render(note.NoteName, rect.Value.X0, rect.Value.Y1 + LabelYOffset, LabelGlyphWidth, LabelGlyphHeight, LabelColor);
+            AppendQuad(quad, color);
         }
 
         if (vertices.Count == 0)

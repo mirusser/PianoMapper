@@ -7,10 +7,10 @@ namespace PianoMapper.Rendering;
 /// </summary>
 public static class SpectrumLayout
 {
-    public const float PanelX0 = 0.05f;
-    public const float PanelX1 = 1.0f;
-    public const float PanelY0 = -1.0f;
-    public const float PanelY1 = -0.5f;
+    public const float PanelX0 = -0.98f;
+    public const float PanelX1 = 0.98f;
+    public const float PanelY0 = -0.98f;
+    public const float PanelY1 = -0.72f;
 
     // Only the low bins carry musically-relevant harmonic content for piano notes;
     // higher bins would render as imperceptibly thin bars if all were shown.

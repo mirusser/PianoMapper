@@ -18,11 +18,28 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
     private readonly List<Task> playingTasks = [];
     private readonly object primaryNoteLock = new();
 
+    private static readonly float[] LabelColor = [1f, 1f, 1f];
+    private const float OctaveLabelGlyphWidth = 0.018f;
+    private const float OctaveLabelGlyphHeight = 0.05f;
+    private const float PanelLabelGlyphWidth = 0.016f;
+    private const float PanelLabelGlyphHeight = 0.045f;
+
+    // Sits just below the octave label (0.90 + OctaveLabelGlyphHeight) with a small gap.
+    private const float TempoLabelY = 0.83f;
+
     private int octave = 1;
+
+    // Reflects the time signature/tempo the M-key random-measure feature will use (or last
+    // used); PlayRandomMeasureAsync updates these once it rolls its random values.
+    private int measureNumerator = 4;
+    private int measureBeatNoteValue = 4;
+    private int measureBpm = 60;
+
     private Dictionary<Keys, Note> keyToFrequencyMap = Consts.GenerateKeyToFrequencyMapping(1);
     private PianoRollRenderer? pianoRollRenderer;
     private OscilloscopeRenderer? oscilloscopeRenderer;
     private SpectrumRenderer? spectrumRenderer;
+    private TextRenderer? textRenderer;
 
     // The most recently triggered note; the oscilloscope/spectrum track this one
     // rather than overlaying every concurrently active note (see plan's Open Questions).
@@ -33,6 +50,7 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
         base.OnLoad();
 
         GL.ClearColor(0f, 0f, 0f, 1f);
+        textRenderer = new TextRenderer();
         pianoRollRenderer = new PianoRollRenderer();
         oscilloscopeRenderer = new OscilloscopeRenderer();
         spectrumRenderer = new SpectrumRenderer();
@@ -40,6 +58,18 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
         Console.WriteLine("Press piano keys (A, W, S, E, D, F, R, J, U, K, I, L, ;) to play notes concurrently.");
         Console.WriteLine("Press Spacebar to clear all active notes.");
         Console.WriteLine("Press Q to exit.");
+    }
+
+    // Without this, the GL viewport stays at its initial size while every renderer's NDC
+    // math assumes it always spans the current framebuffer -- e.g. a window manager that
+    // resizes the window post-creation (as headless/tiling compositors do) would leave
+    // part of NDC space rendered outside the visible framebuffer. OnFramebufferResize
+    // (not OnResize) is used because it reports actual pixel dimensions; OnResize reports
+    // logical/client size, which differs under HiDPI/fractional-scale compositors.
+    protected override void OnFramebufferResize(FramebufferResizeEventArgs e)
+    {
+        base.OnFramebufferResize(e);
+        GL.Viewport(0, 0, e.Width, e.Height);
     }
 
     protected override void OnUpdateFrame(FrameEventArgs args)
@@ -120,7 +150,15 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
         GL.Clear(ClearBufferMask.ColorBufferBit);
 
         var now = noteTimeline.Now;
-        pianoRollRenderer?.Render(noteTimeline.Snapshot(), now);
+        if (textRenderer is not null)
+        {
+            pianoRollRenderer?.Render(noteTimeline.Snapshot(), now, textRenderer);
+
+            textRenderer.Render($"OCTAVE {octave}", -0.95f, 0.90f, OctaveLabelGlyphWidth, OctaveLabelGlyphHeight, LabelColor);
+            textRenderer.Render($"TEMPO {measureBpm} BPM {measureNumerator}/{measureBeatNoteValue}", -0.95f, TempoLabelY, OctaveLabelGlyphWidth, OctaveLabelGlyphHeight, LabelColor);
+            textRenderer.Render("OSCILLOSCOPE", -0.95f, -0.36f, PanelLabelGlyphWidth, PanelLabelGlyphHeight, LabelColor);
+            textRenderer.Render("SPECTRUM", -0.95f, -0.68f, PanelLabelGlyphWidth, PanelLabelGlyphHeight, LabelColor);
+        }
 
         NoteInstance? note;
         lock (primaryNoteLock)
@@ -155,6 +193,7 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
         spectrumRenderer?.Dispose();
         oscilloscopeRenderer?.Dispose();
         pianoRollRenderer?.Dispose();
+        textRenderer?.Dispose();
         audioDispatcher.Dispose();
         base.OnUnload();
     }
@@ -235,6 +274,10 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
 
         // 2. Pick a random tempo
         int bpm = rnd.Next(minBpm, maxBpm + 1);
+
+        measureNumerator = numerator;
+        measureBeatNoteValue = beatNoteValue;
+        measureBpm = bpm;
 
         Console.WriteLine($"Playing a {numerator}/{beatNoteValue} bar at {bpm} BPM...");
 
