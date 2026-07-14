@@ -1,0 +1,4 @@
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>One</part-name></score-part><score-part id="P2"><part-name>Two</part-name></score-part></part-list>
+  <part id="P1" /><part id="P2" />
+</score-partwise>

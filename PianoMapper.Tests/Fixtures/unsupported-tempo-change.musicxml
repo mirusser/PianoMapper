@@ -1,0 +1,4 @@
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1"><measure number="1"><direction><sound tempo="100" /></direction></measure><measure number="2"><direction><sound tempo="120" /></direction></measure></part>
+</score-partwise>

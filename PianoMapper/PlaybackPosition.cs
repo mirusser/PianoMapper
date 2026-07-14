@@ -6,16 +6,16 @@ namespace PianoMapper;
 /// thread's first live OpenAL offset arrives, or once the source has been torn down),
 /// and extracts a fixed-size sample window around a given offset.
 /// </summary>
-public static class PlaybackPosition
+internal static class PlaybackPosition
 {
-    public static bool IsNoteStillPlaying(NoteInstance note, TimeSpan now) =>
-        now.TotalSeconds - note.StartTime.TotalSeconds <= note.Duration;
+    public static bool IsNoteStillPlaying(PerformedNote note, TimeSpan now) =>
+        !note.ReleaseTime.HasValue || now <= note.ReleaseTime.Value;
 
-    public static int EstimateSampleOffset(NoteInstance note, TimeSpan now)
+    public static int EstimateSampleOffset(PerformedNote note, TimeSpan now, int sampleCount)
     {
         var elapsedSeconds = now.TotalSeconds - note.StartTime.TotalSeconds;
         var estimated = (int)(elapsedSeconds * Consts.SampleRate);
-        return Math.Clamp(estimated, 0, Math.Max(0, note.Samples.Length - 1));
+        return Math.Clamp(estimated, 0, Math.Max(0, sampleCount - 1));
     }
 
     public static short[] ExtractWindow(IReadOnlyList<short> samples, int centerOffset, int windowSize)

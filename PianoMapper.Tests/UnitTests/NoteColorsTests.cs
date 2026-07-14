@@ -1,17 +1,15 @@
+using PianoMapper.Music;
 using PianoMapper.Rendering;
 
 namespace PianoMapper.Tests.UnitTests;
 
 public class NoteColorsTests
 {
-    [Theory]
-    [InlineData("C3", "C4")]
-    [InlineData("A#2", "A#7")]
-    [InlineData("B0", "B8")]
-    public void GetColor_SamePitchClassDifferentOctave_ReturnsSameColor(string first, string second)
+    [Fact]
+    public void GetColor_EnharmonicPitches_ReturnsSameColor()
     {
-        var firstColor = NoteColors.GetColor(first);
-        var secondColor = NoteColors.GetColor(second);
+        var firstColor = NoteColors.GetColor(new Pitch(NoteLetter.C, 1, 4));
+        var secondColor = NoteColors.GetColor(new Pitch(NoteLetter.D, -1, 4));
 
         Assert.Equal(firstColor, secondColor);
     }
@@ -19,36 +17,28 @@ public class NoteColorsTests
     [Fact]
     public void GetColor_AllTwelvePitchClasses_ReturnsDistinctColors()
     {
-        string[] pitchClasses = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+        Pitch[] pitches =
+        [
+            new(NoteLetter.C, 0, 4),
+            new(NoteLetter.C, 1, 4),
+            new(NoteLetter.D, 0, 4),
+            new(NoteLetter.D, 1, 4),
+            new(NoteLetter.E, 0, 4),
+            new(NoteLetter.F, 0, 4),
+            new(NoteLetter.F, 1, 4),
+            new(NoteLetter.G, 0, 4),
+            new(NoteLetter.G, 1, 4),
+            new(NoteLetter.A, 0, 4),
+            new(NoteLetter.A, 1, 4),
+            new(NoteLetter.B, 0, 4),
+        ];
 
-        var colors = pitchClasses
-            .Select(pitchClass => NoteColors.GetColor(pitchClass + "4"))
+        var colors = pitches
+            .Select(NoteColors.GetColor)
             .Select(color => (color[0], color[1], color[2]))
             .ToList();
 
         Assert.Equal(colors.Count, colors.Distinct().Count());
     }
 
-    [Theory]
-    [InlineData("")]
-    [InlineData("not-a-note")]
-    [InlineData("4")]
-    [InlineData("H4")]
-    public void GetColor_MalformedOrEmptyInput_ReturnsFallbackWithoutThrowing(string noteName)
-    {
-        var color = NoteColors.GetColor(noteName);
-
-        Assert.Equal(3, color.Length);
-    }
-
-    [Fact]
-    public void GetColor_MalformedInput_DoesNotCollideWithAnyRealPitchClass()
-    {
-        string[] pitchClasses = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-
-        var fallback = NoteColors.GetColor("???");
-        var pitchClassColors = pitchClasses.Select(pitchClass => NoteColors.GetColor(pitchClass + "4"));
-
-        Assert.DoesNotContain(pitchClassColors, color => color[0] == fallback[0] && color[1] == fallback[1] && color[2] == fallback[2]);
-    }
 }

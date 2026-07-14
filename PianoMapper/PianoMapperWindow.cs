@@ -1,22 +1,23 @@
-using OpenTK.Audio.OpenAL;
 using OpenTK.Graphics.OpenGL4;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.GraphicsLibraryFramework;
 using PianoMapper.Audio;
+using PianoMapper.Music;
+using PianoMapper.Practice;
 using PianoMapper.Rendering;
 
 namespace PianoMapper;
 
-public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, NativeWindowSettings nativeWindowSettings)
-    : GameWindow(gameWindowSettings, nativeWindowSettings)
+internal sealed class PianoMapperWindow : GameWindow
 {
-    private readonly AudioDispatcher audioDispatcher = new();
-    private readonly NoteTimeline noteTimeline = new();
-    private readonly List<NoteInstance> activeNotes = [];
-    private readonly object activeNotesLock = new();
-    private readonly List<Task> playingTasks = [];
-    private readonly object primaryNoteLock = new();
+    private readonly NoteTimeline noteTimeline;
+    private readonly Instrument instrument;
+    private readonly Score? loadedScore;
+    private readonly OpenNoteTracker openNotes = new();
+    private IReadOnlyList<ScheduledScoreEvent> scoreSchedule = Array.Empty<ScheduledScoreEvent>();
+    private PracticeSession? practiceSession;
+    private GradingResult? practiceResult;
 
     private static readonly float[] LabelColor = [1f, 1f, 1f];
     private const float OctaveLabelGlyphWidth = 0.018f;
@@ -28,6 +29,14 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
     private const float TempoLabelY = 0.83f;
 
     private int octave = 1;
+    private int firstVisibleMeasure;
+    private int nextScoreEventIndex;
+    private TimeSpan? scorePlaybackAnchor;
+    private bool scorePlaybackActive;
+    private int countInTicksPlayed;
+
+    private static readonly Pitch CountInPitch = new(NoteLetter.C, 0, 6);
+    private static readonly TimeSpan CountInClickDuration = TimeSpan.FromMilliseconds(50);
 
     // Reflects the time signature/tempo the M-key random-measure feature will use (or last
     // used); PlayRandomMeasureAsync updates these once it rolls its random values.
@@ -35,15 +44,24 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
     private int measureBeatNoteValue = 4;
     private int measureBpm = 60;
 
-    private Dictionary<Keys, Note> keyToFrequencyMap = Consts.GenerateKeyToFrequencyMapping(1);
+    private IReadOnlyDictionary<Keys, Pitch> keyToPitchMap = Consts.GenerateKeyToPitchMapping(1);
+    private bool showGrandStaff = true;
     private PianoRollRenderer? pianoRollRenderer;
+    private StaffRenderer? staffRenderer;
     private OscilloscopeRenderer? oscilloscopeRenderer;
     private SpectrumRenderer? spectrumRenderer;
     private TextRenderer? textRenderer;
 
-    // The most recently triggered note; the oscilloscope/spectrum track this one
-    // rather than overlaying every concurrently active note (see plan's Open Questions).
-    private NoteInstance? primaryNote;
+    public PianoMapperWindow(
+        GameWindowSettings gameWindowSettings,
+        NativeWindowSettings nativeWindowSettings,
+        Score? loadedScore = null)
+        : base(gameWindowSettings, nativeWindowSettings)
+    {
+        noteTimeline = new NoteTimeline();
+        instrument = new Instrument(noteTimeline);
+        this.loadedScore = loadedScore;
+    }
 
     protected override void OnLoad()
     {
@@ -52,11 +70,17 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
         GL.ClearColor(0f, 0f, 0f, 1f);
         textRenderer = new TextRenderer();
         pianoRollRenderer = new PianoRollRenderer();
+        staffRenderer = new StaffRenderer();
         oscilloscopeRenderer = new OscilloscopeRenderer();
         spectrumRenderer = new SpectrumRenderer();
 
         Console.WriteLine("Press piano keys (A, W, S, E, D, F, R, J, U, K, I, L, ;) to play notes concurrently.");
         Console.WriteLine("Press Spacebar to clear all active notes.");
+        Console.WriteLine("Press Tab to toggle the grand staff and piano-roll views.");
+        if (loadedScore is not null)
+        {
+            Console.WriteLine($"Loaded score: {loadedScore.Title}. Press PgUp/PgDn to scroll measures.");
+        }
         Console.WriteLine("Press Q to exit.");
     }
 
@@ -77,69 +101,75 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
         base.OnUpdateFrame(args);
 
         var input = KeyboardState;
+        UpdateScorePlayback();
+        UpdatePracticeSession();
 
-        if (input.IsKeyPressed(Keys.Escape) || input.IsKeyPressed(Keys.Q))
+        var pressedControlKeys = PianoInputRouter.ControlKeys.Where(input.IsKeyPressed).ToArray();
+        var command = PianoInputRouter.Resolve(pressedControlKeys, loadedScore is not null, practiceSession?.State, octave);
+        switch (command.Action)
         {
-            Console.WriteLine("Exiting...");
-            Close();
-            return;
+            case PianoInputAction.Exit:
+                Console.WriteLine("Exiting...");
+                Close();
+                return;
+            case PianoInputAction.AbortPractice:
+                AbortPracticeSession();
+                return;
+            case PianoInputAction.Clear:
+                Console.WriteLine("Clearing active notes...");
+                StopScorePlayback();
+                openNotes.Clear();
+                instrument.ClearAll();
+                return;
         }
 
-        if (input.IsKeyPressed(Keys.Space))
+        foreach (var key in openNotes.ActiveKeys)
         {
-            Console.WriteLine("Clearing active notes...");
-
-            NoteInstance[] notesBeingCleared;
-            lock (activeNotesLock)
+            if (input.IsKeyReleased(key) && openNotes.TryRelease(key, out var note))
             {
-                notesBeingCleared = activeNotes.ToArray();
+                instrument.NoteOff(note);
             }
-
-            noteTimeline.Remove(notesBeingCleared);
-            audioDispatcher.ClearActiveNotes(activeNotes, activeNotesLock);
-            return;
         }
 
-        int? newOctave = input switch
+        switch (command.Action)
         {
-            _ when input.IsKeyPressed(Keys.Up) => octave + 1,
-            _ when input.IsKeyPressed(Keys.Down) => octave - 1,
-            _ when input.IsKeyPressed(Keys.D1) => 1,
-            _ when input.IsKeyPressed(Keys.D2) => 2,
-            _ when input.IsKeyPressed(Keys.D3) => 3,
-            _ when input.IsKeyPressed(Keys.D4) => 4,
-            _ when input.IsKeyPressed(Keys.D5) => 5,
-            _ when input.IsKeyPressed(Keys.D6) => 6,
-            _ when input.IsKeyPressed(Keys.D7) => 7,
-            _ when input.IsKeyPressed(Keys.D8) => 8,
-            _ => null
-        };
-
-        if (newOctave.HasValue)
-        {
-            octave = newOctave.Value;
-            Console.WriteLine($"Changing octave to: {octave}");
-            keyToFrequencyMap = Consts.GenerateKeyToFrequencyMapping(octave);
-            return;
+            case PianoInputAction.StartPractice:
+                StartPracticeSession();
+                return;
+            case PianoInputAction.ToggleView:
+                showGrandStaff = !showGrandStaff;
+                return;
+            case PianoInputAction.ScrollPrevious:
+                firstVisibleMeasure = Math.Max(0, firstVisibleMeasure - GrandStaffLayout.VisibleMeasureCount);
+                return;
+            case PianoInputAction.ScrollNext:
+                int lastMeasure = Math.Max(0, loadedScore!.Measures.Count - 1);
+                firstVisibleMeasure = Math.Min(lastMeasure, firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount);
+                return;
+            case PianoInputAction.StartScorePlayback:
+                StartScorePlayback();
+                return;
+            case PianoInputAction.ChangeOctave:
+                octave = command.Octave!.Value;
+                Console.WriteLine($"Changing octave to: {octave}");
+                keyToPitchMap = Consts.GenerateKeyToPitchMapping(octave);
+                return;
+            case PianoInputAction.PlayRandomMeasure:
+                Pitch[] palette = [new Pitch(NoteLetter.A, 0, 4)];
+                _ = PlayRandomMeasureAsync(palette, 4, 4, 60, 60);
+                return;
         }
 
-        if (input.IsKeyPressed(Keys.M))
-        {
-            Note[] palette = [new Note { Name = "C", Frequency = 440 }];
-            _ = PlayRandomMeasureAsync(palette, 4, 4, 60, 60);
-            return;
-        }
-
-        foreach (var (key, note) in keyToFrequencyMap)
+        foreach (var (key, note) in keyToPitchMap)
         {
             if (!input.IsKeyPressed(key))
             {
                 continue;
             }
 
-            var durationInSeconds = PCM.GetTimedNoteDuration(note.Frequency, 90, 4, 1);
-            Console.WriteLine($" Note: {note.Name} - Frequency: {note.Frequency}Hz - duration: {durationInSeconds}s{Environment.NewLine}");
-            playingTasks.Add(PlayNoteAsync(note.Name, note.Frequency, durationInSeconds));
+            var performedNote = instrument.NoteOn(note).Note;
+            openNotes.Track(key, performedNote);
+            Console.WriteLine($" Note on: {note} - Frequency: {note.Frequency:F2}Hz{Environment.NewLine}");
         }
     }
 
@@ -152,33 +182,45 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
         var now = noteTimeline.Now;
         if (textRenderer is not null)
         {
-            pianoRollRenderer?.Render(noteTimeline.Snapshot(), now, textRenderer);
+            var notes = noteTimeline.Snapshot();
+            if (showGrandStaff)
+            {
+                if (loadedScore is not null)
+                {
+                    double? cursorBeat = practiceSession?.State is PracticeSessionState.Running or PracticeSessionState.Finished
+                        ? practiceSession.CursorBeats
+                        : scorePlaybackActive && scorePlaybackAnchor.HasValue
+                            ? ScorePlayback.GetCursorBeats(now, scorePlaybackAnchor.Value, loadedScore.Tempo)
+                            : null;
+                    var verdicts = BuildVisiblePracticeVerdicts();
+                    IReadOnlyList<PerformedNote> practiceNotes = practiceSession?.State is not null and not PracticeSessionState.Idle
+                        ? practiceSession.GetSessionNotes(notes)
+                        : Array.Empty<PerformedNote>();
+                    staffRenderer?.RenderScore(loadedScore, firstVisibleMeasure, practiceNotes, now, textRenderer, cursorBeat, verdicts);
+                }
+                else
+                {
+                    staffRenderer?.Render(notes, now, textRenderer);
+                }
+            }
+            else
+            {
+                pianoRollRenderer?.Render(notes, now, textRenderer);
+            }
 
             textRenderer.Render($"OCTAVE {octave}", -0.95f, 0.90f, OctaveLabelGlyphWidth, OctaveLabelGlyphHeight, LabelColor);
             textRenderer.Render($"TEMPO {measureBpm} BPM {measureNumerator}/{measureBeatNoteValue}", -0.95f, TempoLabelY, OctaveLabelGlyphWidth, OctaveLabelGlyphHeight, LabelColor);
             textRenderer.Render("OSCILLOSCOPE", -0.95f, -0.36f, PanelLabelGlyphWidth, PanelLabelGlyphHeight, LabelColor);
             textRenderer.Render("SPECTRUM", -0.95f, -0.68f, PanelLabelGlyphWidth, PanelLabelGlyphHeight, LabelColor);
-        }
 
-        NoteInstance? note;
-        lock (primaryNoteLock)
-        {
-            note = primaryNote;
-        }
-
-        if (note is not null)
-        {
-            bool noteIsStillPlaying = PlaybackPosition.IsNoteStillPlaying(note, now);
-            if (noteIsStillPlaying)
+            if (practiceSession?.State == PracticeSessionState.Finished && practiceResult is not null)
             {
-                audioDispatcher.RequestSampleOffsetRefresh(note);
+                RenderPracticeSummary(textRenderer, practiceResult.Summary);
             }
+        }
 
-            var offset = audioDispatcher.TryGetSampleOffset(note, out var liveOffset)
-                ? liveOffset
-                : PlaybackPosition.EstimateSampleOffset(note, now);
-
-            var window = PlaybackPosition.ExtractWindow(note.Samples, offset, Consts.ScopeWindowSize);
+        if (instrument.TryGetPrimarySampleWindow(now, Consts.ScopeWindowSize, out var window))
+        {
             oscilloscopeRenderer?.Render(window);
 
             var magnitudes = Fft.ComputeMagnitudes(window);
@@ -192,156 +234,179 @@ public sealed class PianoMapperWindow(GameWindowSettings gameWindowSettings, Nat
     {
         spectrumRenderer?.Dispose();
         oscilloscopeRenderer?.Dispose();
+        staffRenderer?.Dispose();
         pianoRollRenderer?.Dispose();
         textRenderer?.Dispose();
-        audioDispatcher.Dispose();
+        instrument.Dispose();
         base.OnUnload();
     }
 
-    /// <summary>
-    /// Plays a note asynchronously. Each note gets its own source and buffer.
-    /// </summary>
-    private Task PlayNoteAsync(string noteName, float frequency, float durationSeconds)
-    {
-        var tcs = new TaskCompletionSource<bool>();
-
-        audioDispatcher.Enqueue(() =>
-        {
-            var samples = PCM.GeneratePianoWave(frequency, durationSeconds);
-
-            int bufferId = AL.GenBuffer();
-            AudioDispatcher.CheckAlError($"generating buffer for '{noteName}'");
-            // Using the overload that calculates size automatically.
-            AL.BufferData(bufferId, ALFormat.Mono16, samples, Consts.SampleRate);
-            AudioDispatcher.CheckAlError($"uploading buffer data for '{noteName}'");
-            int sourceId = AL.GenSource();
-            AudioDispatcher.CheckAlError($"generating source for '{noteName}'");
-            AL.Source(sourceId, ALSourcei.Buffer, bufferId);
-            AudioDispatcher.CheckAlError($"binding buffer to source for '{noteName}'");
-
-            // Each note's samples individually use most of the 16-bit headroom, so
-            // OpenAL summing several concurrently-playing sources at full gain would
-            // itself clip at the mixer. Scale this source's gain down based on how
-            // many notes are already ringing (1/sqrt(N), which keeps perceived
-            // loudness roughly constant for uncorrelated signals) so chords and fast
-            // runs don't distort even though each note was authored at full scale.
-            int polyphony;
-            lock (activeNotesLock)
-            {
-                polyphony = activeNotes.Count + 1;
-            }
-            var gain = (float)Math.Min(1.0, 1.0 / Math.Sqrt(polyphony));
-            AL.Source(sourceId, ALSourcef.Gain, gain);
-            AudioDispatcher.CheckAlError($"setting gain for '{noteName}'");
-
-            // Record the note in the timeline (for rendering) and in activeNotes (for AL cleanup).
-            var note = noteTimeline.Add(noteName, frequency, durationSeconds, samples, sourceId, bufferId);
-            lock (activeNotesLock)
-            {
-                activeNotes.Add(note);
-            }
-
-            lock (primaryNoteLock)
-            {
-                primaryNote = note;
-            }
-
-            AL.SourcePlay(sourceId);
-            AudioDispatcher.CheckAlError($"starting playback for '{noteName}'");
-
-            // Schedule cleanup after the note duration.
-            Task.Delay((int)(durationSeconds * 1000)).ContinueWith(_ =>
-            {
-                audioDispatcher.Enqueue(() =>
-                {
-                    AL.SourceStop(sourceId);
-                    AL.DeleteSource(sourceId);
-                    AL.DeleteBuffer(bufferId);
-                    AudioDispatcher.CheckAlError($"cleaning up note '{noteName}'");
-                    audioDispatcher.ForgetSampleOffset(note);
-                    lock (activeNotesLock)
-                    {
-                        activeNotes.Remove(note);
-                    }
-
-                    lock (primaryNoteLock)
-                    {
-                        if (ReferenceEquals(primaryNote, note))
-                        {
-                            primaryNote = null;
-                        }
-                    }
-
-                    tcs.SetResult(true);
-                });
-            });
-        });
-
-        return tcs.Task;
-    }
-
     private async Task PlayRandomMeasureAsync(
-        Note[] palette,
+        Pitch[] palette,
         int minNumerator = 2,
         int maxNumerator = 7,
         int minBpm = 60,
         int maxBpm = 180)
     {
-        var rnd = new Random();
+        var measure = RandomMeasureComposer.Compose(
+            palette,
+            minNumerator,
+            maxNumerator,
+            minBpm,
+            maxBpm,
+            Random.Shared);
+        measureNumerator = measure.TimeSignature.Numerator;
+        measureBeatNoteValue = measure.TimeSignature.BeatNoteValue.Denominator;
+        measureBpm = (int)measure.Tempo.BeatsPerMinute;
+        Console.WriteLine($"Playing a {measureNumerator}/{measureBeatNoteValue} bar at {measureBpm} BPM...");
+        var measureTasks = new List<Task>(measure.Events.Count);
 
-        // 1. Pick a random time signature
-        int numerator = rnd.Next(minNumerator, maxNumerator + 1);
-        int beatNoteValue = 4;
-
-        // 2. Pick a random tempo
-        int bpm = rnd.Next(minBpm, maxBpm + 1);
-
-        measureNumerator = numerator;
-        measureBeatNoteValue = beatNoteValue;
-        measureBpm = bpm;
-
-        Console.WriteLine($"Playing a {numerator}/{beatNoteValue} bar at {bpm} BPM...");
-
-        // 3. How many beats we need to fill
-        double beatsRemaining = numerator;
-
-        int[] possibleDenoms = { 1, 2, 4, 8, 16 };
-
-        // 4. Fire notes until we exactly fill the bar
-        while (beatsRemaining > 0)
+        foreach (var note in measure.Events)
         {
-            // Pick a random note value that will fit
-            int noteDen = possibleDenoms[rnd.Next(possibleDenoms.Length)];
-            double noteBeats = (double)beatNoteValue / noteDen;
-            if (noteBeats > beatsRemaining)
-                continue;
-
-            // Pick a random pitch from the palette
-            var note = palette[rnd.Next(palette.Length)];
-
-            // Compute how long to play it
-            float durationInSeconds = PCM.GetTimedNoteDuration(
-                note.Frequency,
-                bpm,
-                beatNoteValue,
-                noteDen);
-
+            TimeSpan duration = GetRandomMeasureEventDuration(note, measure.TimeSignature, measure.Tempo);
             Console.WriteLine(
-                $" Note: {note.Name} " +
-                $"- Freq: {note.Frequency} Hz " +
-                $"- Value: 1/{noteDen} ({noteBeats:F2} beats) " +
-                $"- Dur: {durationInSeconds:F2}s");
-
-            // Schedule playback
-            playingTasks.Add(PlayNoteAsync(note.Name, note.Frequency, durationInSeconds));
-
-            // Subtract the beats we've just used
-            beatsRemaining -= noteBeats;
+                $" Note: {note.Pitch} " +
+                $"- Freq: {note.Pitch.Frequency} Hz " +
+                $"- Value: 1/{note.NoteValue.Denominator} ({note.Beats:F2} beats) " +
+                $"- Dur: {duration.TotalSeconds:F2}s");
+            measureTasks.Add(instrument.Play(note.Pitch, duration).Completion);
         }
 
-        // 5. Wait for the bar to finish
-        await Task.WhenAll(playingTasks);
-
+        await Task.WhenAll(measureTasks).ConfigureAwait(false);
         Console.WriteLine("— Measure complete —\n");
+    }
+
+    internal static TimeSpan GetRandomMeasureEventDuration(
+        RandomMeasureEvent note,
+        TimeSignature timeSignature,
+        Tempo tempo)
+    {
+        ArgumentNullException.ThrowIfNull(note);
+        TimeSpan rhythmicDuration = MusicalTime.ToDuration(note.NoteValue, timeSignature, tempo);
+        TimeSpan naturalDuration = Instrument.GetNaturalDuration(note.Pitch);
+        return rhythmicDuration <= naturalDuration ? rhythmicDuration : naturalDuration;
+    }
+
+    private void StartScorePlayback()
+    {
+        if (loadedScore is null)
+        {
+            return;
+        }
+
+        instrument.ClearAll();
+        openNotes.Clear();
+        scorePlaybackAnchor = noteTimeline.Now;
+        scoreSchedule = ScorePlayback.CreateSchedule(loadedScore, scorePlaybackAnchor.Value);
+        nextScoreEventIndex = 0;
+        scorePlaybackActive = scoreSchedule.Count > 0;
+        UpdateScorePlayback();
+    }
+
+    private void UpdateScorePlayback()
+    {
+        if (!scorePlaybackActive)
+        {
+            return;
+        }
+
+        var now = noteTimeline.Now;
+        var dueEvents = ScorePlayback.GetDueEvents(scoreSchedule, now, nextScoreEventIndex);
+        foreach (var scheduledEvent in dueEvents)
+        {
+            instrument.Play(scheduledEvent.Event.Pitch, scheduledEvent.Duration);
+        }
+
+        nextScoreEventIndex += dueEvents.Count;
+        if (nextScoreEventIndex >= scoreSchedule.Count)
+        {
+            var playbackEnd = scoreSchedule.Max(item => item.DueTime + item.Duration);
+            scorePlaybackActive = now < playbackEnd;
+        }
+    }
+
+    private void StopScorePlayback()
+    {
+        scorePlaybackActive = false;
+        scorePlaybackAnchor = null;
+        scoreSchedule = Array.Empty<ScheduledScoreEvent>();
+        nextScoreEventIndex = 0;
+    }
+
+    private void StartPracticeSession()
+    {
+        if (loadedScore is null)
+        {
+            return;
+        }
+
+        StopScorePlayback();
+        instrument.ClearAll();
+        openNotes.Clear();
+        practiceSession = new PracticeSession(loadedScore, TimeProvider.System);
+        practiceSession.Start(noteTimeline.Now);
+        practiceResult = null;
+        countInTicksPlayed = 0;
+        UpdatePracticeSession();
+    }
+
+    private void UpdatePracticeSession()
+    {
+        if (practiceSession is null || practiceSession.State == PracticeSessionState.Idle)
+        {
+            return;
+        }
+
+        practiceSession.Update();
+        while (countInTicksPlayed < practiceSession.CountInTicksDue)
+        {
+            instrument.Play(CountInPitch, CountInClickDuration);
+            countInTicksPlayed++;
+        }
+
+        if (practiceSession.State is PracticeSessionState.Running or PracticeSessionState.Finished)
+        {
+            practiceResult = practiceSession.Grade(noteTimeline.Snapshot());
+        }
+    }
+
+    private void AbortPracticeSession()
+    {
+        practiceSession?.Abort();
+        practiceResult = null;
+        countInTicksPlayed = 0;
+        openNotes.Clear();
+        instrument.ClearAll();
+    }
+
+    private IReadOnlyDictionary<ScoreNote, Verdict>? BuildVisiblePracticeVerdicts()
+    {
+        if (practiceSession is null || practiceResult is null)
+        {
+            return null;
+        }
+
+        return practiceSession.BuildVisibleVerdicts(practiceResult);
+    }
+
+    private static void RenderPracticeSummary(TextRenderer textRenderer, GradingSummary summary)
+    {
+        var lines = BuildPracticeSummaryLines(summary);
+        textRenderer.Render(lines[0], 0.42f, 0.88f, OctaveLabelGlyphWidth, OctaveLabelGlyphHeight, LabelColor);
+        textRenderer.Render(lines[1], -0.20f, 0.81f, PanelLabelGlyphWidth, PanelLabelGlyphHeight, LabelColor);
+        textRenderer.Render(lines[2], -0.20f, 0.74f, PanelLabelGlyphWidth, PanelLabelGlyphHeight, LabelColor);
+    }
+
+    internal static IReadOnlyList<string> BuildPracticeSummaryLines(GradingSummary summary)
+    {
+        ArgumentNullException.ThrowIfNull(summary);
+        return
+        [
+            $"SCORE {summary.AccuracyPercent:F0}",
+            $"CORRECT {summary.Counts[Verdict.Correct]} WRONG {summary.Counts[Verdict.WrongPitch]} " +
+            $"MISSED {summary.Counts[Verdict.Missed]} EXTRA {summary.Counts[Verdict.Extra]}",
+            $"EARLY {summary.Counts[Verdict.Early]} LATE {summary.Counts[Verdict.Late]} " +
+            $"SHORT {summary.Counts[Verdict.TooShort]} LONG {summary.Counts[Verdict.TooLong]}",
+        ];
     }
 }

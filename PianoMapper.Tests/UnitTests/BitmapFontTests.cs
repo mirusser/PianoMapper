@@ -58,4 +58,15 @@ public class BitmapFontTests
 
         Assert.Contains(true, glyph);
     }
+
+    [Fact]
+    public void GetGlyph_FlatSymbol_ReturnsDistinctLitGlyph()
+    {
+        var flat = BitmapFont.GetGlyph('♭');
+        var letterB = BitmapFont.GetGlyph('B');
+
+        Assert.Equal(BitmapFont.GlyphWidth * BitmapFont.GlyphHeight, flat.Count);
+        Assert.Contains(true, flat);
+        Assert.NotEqual(letterB, flat);
+    }
 }

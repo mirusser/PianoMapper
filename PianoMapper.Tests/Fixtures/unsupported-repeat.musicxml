@@ -1,0 +1,4 @@
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1"><measure number="1"><barline location="right"><repeat direction="backward" /></barline></measure></part>
+</score-partwise>

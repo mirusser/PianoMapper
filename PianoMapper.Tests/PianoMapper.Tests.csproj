@@ -18,4 +18,8 @@
         <ProjectReference Include="..\PianoMapper\PianoMapper.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+        <Content Include="Fixtures\*.musicxml" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
 </Project>

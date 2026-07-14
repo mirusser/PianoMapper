@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <work><work-title>Trimmed MuseScore Export</work-title></work>
+  <identification><encoding><software>MuseScore 4</software></encoding></identification>
+  <defaults><scaling><millimeters>7.05556</millimeters><tenths>40</tenths></scaling></defaults>
+  <credit page="1"><credit-words>Trimmed MuseScore Export</credit-words></credit>
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <print new-system="yes" />
+      <attributes><divisions>1</divisions><time><beats>3</beats><beat-type>4</beat-type></time></attributes>
+      <direction placement="above"><direction-type><words>Andante</words></direction-type><sound tempo="72" /></direction>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type><lyric><text>la</text></lyric></note>
+    </measure>
+  </part>
+</score-partwise>

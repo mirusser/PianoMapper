@@ -1,10 +1,12 @@
 namespace PianoMapper;
 
+using PianoMapper.Music;
+
 /// <summary>
 /// Tracks note start/duration/pitch metadata for rendering, independent of the
 /// audio thread's own active-source bookkeeping in <see cref="AudioDispatcher"/>.
 /// </summary>
-public sealed class NoteTimeline
+internal sealed class NoteTimeline
 {
     // Keeps finished notes around long enough for a piano-roll's rolling window
     // (Task 2.2 uses an 8s window) to fully scroll them off before they're pruned.
@@ -13,7 +15,7 @@ public sealed class NoteTimeline
 
     private readonly TimeProvider timeProvider;
     private readonly long startTimestamp;
-    private readonly List<NoteInstance> notes = [];
+    private readonly List<PerformedNote> notes = [];
     private readonly Lock notesLock = new();
 
     public NoteTimeline() : this(TimeProvider.System)
@@ -28,17 +30,12 @@ public sealed class NoteTimeline
 
     public TimeSpan Now => timeProvider.GetElapsedTime(startTimestamp);
 
-    public NoteInstance Add(string noteName, float frequency, float durationSeconds, short[] samples, int sourceId, int bufferId)
+    public PerformedNote Start(Pitch pitch)
     {
-        var note = new NoteInstance
+        var note = new PerformedNote
         {
-            NoteName = noteName,
-            Frequency = frequency,
+            Pitch = pitch,
             StartTime = Now,
-            Duration = durationSeconds,
-            Samples = samples,
-            SourceId = sourceId,
-            BufferId = bufferId,
         };
 
         lock (notesLock)
@@ -50,7 +47,18 @@ public sealed class NoteTimeline
         return note;
     }
 
-    public IReadOnlyList<NoteInstance> Snapshot()
+    public void Complete(PerformedNote note, TimeSpan releaseTime)
+    {
+        lock (notesLock)
+        {
+            if (notes.Any(candidate => ReferenceEquals(candidate, note)))
+            {
+                note.ReleaseTime = releaseTime;
+            }
+        }
+    }
+
+    public IReadOnlyList<PerformedNote> Snapshot()
     {
         lock (notesLock)
         {
@@ -63,7 +71,7 @@ public sealed class NoteTimeline
     /// Removes specific notes from the timeline immediately, e.g. when they are
     /// stopped early (Spacebar clear) instead of finishing their own duration.
     /// </summary>
-    public void Remove(IReadOnlyCollection<NoteInstance> notesToRemove)
+    public void Remove(IReadOnlyCollection<PerformedNote> notesToRemove)
     {
         if (notesToRemove.Count == 0)
         {
@@ -72,13 +80,16 @@ public sealed class NoteTimeline
 
         lock (notesLock)
         {
-            notes.RemoveAll(notesToRemove.Contains);
+            var identities = new HashSet<PerformedNote>(notesToRemove, ReferenceEqualityComparer.Instance);
+            notes.RemoveAll(identities.Contains);
         }
     }
 
     private void PruneExpiredLocked()
     {
         var now = Now;
-        notes.RemoveAll(note => now.TotalSeconds - note.StartTime.TotalSeconds > note.Duration + RetentionSeconds);
+        notes.RemoveAll(note =>
+            note.ReleaseTime.HasValue &&
+            now.TotalSeconds - note.ReleaseTime.Value.TotalSeconds > RetentionSeconds);
     }
 }

@@ -1,6 +1,9 @@
 using OpenTK.Mathematics;
 using OpenTK.Windowing.Desktop;
 using PianoMapper;
+using PianoMapper.Music;
+
+Score? loadedScore = ScoreCommandLine.Load(args, Console.Error);
 
 // GameWindowSettings.Default leaves UpdateFrequency uncapped (0 = unlimited), which lets
 // OnUpdateFrame fire many times per actual input poll - a single keypress then reads as
@@ -16,5 +19,5 @@ var nativeWindowSettings = new NativeWindowSettings
     Title = "PianoMapper",
 };
 
-using var window = new PianoMapperWindow(gameWindowSettings, nativeWindowSettings);
+using var window = new PianoMapperWindow(gameWindowSettings, nativeWindowSettings, loadedScore);
 window.Run();

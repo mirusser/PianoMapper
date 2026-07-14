@@ -1,0 +1,4 @@
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1"><measure number="1"><attributes><transpose><chromatic>2</chromatic></transpose></attributes></measure></part>
+</score-partwise>

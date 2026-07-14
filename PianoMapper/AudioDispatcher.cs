@@ -1,26 +1,28 @@
 using System.Collections.Concurrent;
 using OpenTK.Audio.OpenAL;
+using PianoMapper.Audio;
 
 namespace PianoMapper;
 
 /// <summary>
 /// A helper class to dispatch all OpenAL calls on a dedicated thread.
 /// </summary>
-public sealed class AudioDispatcher : IDisposable
+internal sealed class AudioDispatcher : IAudioDispatcher
 {
     private readonly Thread thread;
     private readonly Queue<Action> queue = new();
     private readonly AutoResetEvent signal = new(false);
-    private bool running = true;
-    private readonly Lock queLock = new ();
+    private volatile bool running = true;
+    private readonly Lock queLock = new();
 
     // Refreshed on the audio thread (the only thread allowed to touch the AL context)
     // and read directly by the render thread; a frame of staleness is acceptable for
-    // a visual oscilloscope. Keyed by NoteInstance reference (not the AL source id)
+    // a visual oscilloscope. Keyed by PerformedNote reference (not the AL source id)
     // because OpenAL reuses small integer source ids as soon as they're deleted, and a
     // refresh queued just before cleanup could otherwise resurrect a stale offset under
     // a reused id after cleanup forgets it.
-    private readonly ConcurrentDictionary<NoteInstance, int> sampleOffsets = new(ReferenceEqualityComparer.Instance);
+    private readonly ConcurrentDictionary<PerformedNote, int> sampleOffsets = new(ReferenceEqualityComparer.Instance);
+    private readonly ConcurrentDictionary<PerformedNote, AudioState> audioStates = new(ReferenceEqualityComparer.Instance);
 
     public AudioDispatcher()
     {
@@ -35,7 +37,7 @@ public sealed class AudioDispatcher : IDisposable
     {
         // Create OpenAL context on this thread.
         var device = ALC.OpenDevice(null);
-        if (device== IntPtr.Zero)
+        if (device == IntPtr.Zero)
         {
             Console.WriteLine("Failed to open audio device.");
             return;
@@ -58,7 +60,7 @@ public sealed class AudioDispatcher : IDisposable
         }
         Console.WriteLine("Audio context successfully created on the audio thread.");
 
-        while (running)
+        while (running || HasQueuedActions())
         {
             Action? action = null;
             lock (queLock)
@@ -82,7 +84,7 @@ public sealed class AudioDispatcher : IDisposable
         ALC.DestroyContext(context);
         ALC.CloseDevice(device);
     }
-    
+
     /// <summary>
     /// Logs the pending OpenAL error, if any, tagged with the operation that was
     /// attempted. AL calls fail silently by default -- e.g. GenSource/GenBuffer can
@@ -103,22 +105,22 @@ public sealed class AudioDispatcher : IDisposable
     /// <summary>
     /// Clears (stops and deletes) all active notes.
     /// </summary>
-    public void ClearActiveNotes(List<NoteInstance> activeNotes, object activeNotesLock)
+    public void ClearActiveNotes(IReadOnlyCollection<PerformedNote> activeNotes)
     {
         Enqueue(() =>
         {
-            lock (activeNotesLock)
+            foreach (var note in activeNotes)
             {
-                foreach (var note in activeNotes)
+                if (!audioStates.TryRemove(note, out var state))
                 {
-                    AL.SourceStop(note.SourceId);
-                    AL.DeleteSource(note.SourceId);
-                    AL.DeleteBuffer(note.BufferId);
-                    CheckAlError($"clearing note '{note.NoteName}'");
-                    sampleOffsets.TryRemove(note, out _);
+                    continue;
                 }
 
-                activeNotes.Clear();
+                AL.SourceStop(state.SourceId);
+                AL.DeleteSource(state.SourceId);
+                AL.DeleteBuffer(state.BufferId);
+                CheckAlError($"clearing note '{note.Pitch}'");
+                sampleOffsets.TryRemove(note, out _);
             }
         });
     }
@@ -128,12 +130,17 @@ public sealed class AudioDispatcher : IDisposable
     /// thread updates the cached value, which <see cref="TryGetSampleOffset"/> then
     /// reads without blocking the caller.
     /// </summary>
-    public void RequestSampleOffsetRefresh(NoteInstance note)
+    public void RequestSampleOffsetRefresh(PerformedNote note)
     {
         Enqueue(() =>
         {
-            AL.GetSource(note.SourceId, ALGetSourcei.SampleOffset, out var offset);
-            CheckAlError($"querying sample offset for '{note.NoteName}'");
+            if (!audioStates.TryGetValue(note, out var state))
+            {
+                return;
+            }
+
+            AL.GetSource(state.SourceId, ALGetSourcei.SampleOffset, out var offset);
+            CheckAlError($"querying sample offset for '{note.Pitch}'");
             sampleOffsets[note] = offset;
         });
     }
@@ -141,16 +148,69 @@ public sealed class AudioDispatcher : IDisposable
     /// <summary>
     /// Reads the most recently refreshed live sample offset for a note, if any.
     /// </summary>
-    public bool TryGetSampleOffset(NoteInstance note, out int sampleOffset) =>
+    public bool TryGetSampleOffset(PerformedNote note, out int sampleOffset) =>
         sampleOffsets.TryGetValue(note, out sampleOffset);
 
-    /// <summary>
-    /// Drops the cached offset for a note once its source is deleted, so the
-    /// dictionary doesn't grow unbounded over a long session.
-    /// </summary>
-    public void ForgetSampleOffset(NoteInstance note)
+    public void RegisterAudio(PerformedNote note, short[] samples, int sourceId, int bufferId)
+    {
+        audioStates[note] = new AudioState(samples, sourceId, bufferId);
+    }
+
+    public void StartAudio(PerformedNote note, short[] samples, float gain)
+    {
+        int bufferId = AL.GenBuffer();
+        CheckAlError($"generating buffer for '{note.Pitch}'");
+        AL.BufferData(bufferId, ALFormat.Mono16, samples, Consts.SampleRate);
+        CheckAlError($"uploading buffer data for '{note.Pitch}'");
+        int sourceId = AL.GenSource();
+        CheckAlError($"generating source for '{note.Pitch}'");
+        AL.Source(sourceId, ALSourcei.Buffer, bufferId);
+        CheckAlError($"binding buffer to source for '{note.Pitch}'");
+        AL.Source(sourceId, ALSourcef.Gain, gain);
+        CheckAlError($"setting gain for '{note.Pitch}'");
+        RegisterAudio(note, samples, sourceId, bufferId);
+        AL.SourcePlay(sourceId);
+        CheckAlError($"starting playback for '{note.Pitch}'");
+    }
+
+    public void StopAudio(PerformedNote note)
+    {
+        if (!TryForgetAudio(note, out int sourceId, out int bufferId))
+        {
+            return;
+        }
+
+        AL.SourceStop(sourceId);
+        AL.DeleteSource(sourceId);
+        AL.DeleteBuffer(bufferId);
+        CheckAlError($"cleaning up note '{note.Pitch}'");
+    }
+
+    public bool TryGetSamples(PerformedNote note, out short[] samples)
+    {
+        if (audioStates.TryGetValue(note, out var state))
+        {
+            samples = state.Samples;
+            return true;
+        }
+
+        samples = [];
+        return false;
+    }
+
+    public bool TryForgetAudio(PerformedNote note, out int sourceId, out int bufferId)
     {
         sampleOffsets.TryRemove(note, out _);
+        if (audioStates.TryRemove(note, out var state))
+        {
+            sourceId = state.SourceId;
+            bufferId = state.BufferId;
+            return true;
+        }
+
+        sourceId = 0;
+        bufferId = 0;
+        return false;
     }
 
     /// <summary>
@@ -174,4 +234,14 @@ public sealed class AudioDispatcher : IDisposable
         signal.Dispose();
         GC.SuppressFinalize(this);
     }
+
+    private bool HasQueuedActions()
+    {
+        lock (queLock)
+        {
+            return queue.Count > 0;
+        }
+    }
+
+    private sealed record AudioState(short[] Samples, int SourceId, int BufferId);
 }

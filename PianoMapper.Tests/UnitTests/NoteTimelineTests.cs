@@ -1,143 +1,129 @@
 using Microsoft.Extensions.Time.Testing;
+using PianoMapper.Music;
 using PianoMapper.Rendering;
 
 namespace PianoMapper.Tests.UnitTests;
 
-public class NoteTimelineTests
+public sealed class NoteTimelineTests
 {
-    private static readonly short[] Samples = [1, 2, 3];
+    private static readonly Pitch C4 = new(NoteLetter.C, 0, 4);
+    private static readonly Pitch E4 = new(NoteLetter.E, 0, 4);
+    private static readonly Pitch G4 = new(NoteLetter.G, 0, 4);
 
     [Fact]
-    public void Add_SingleNote_AppearsInSnapshotWithMetadata()
+    public void Start_SingleNote_AppearsInSnapshotWithPerformanceMetadata()
     {
         var time = new FakeTimeProvider();
         var timeline = new NoteTimeline(time);
-
         time.Advance(TimeSpan.FromSeconds(2));
-        var note = timeline.Add("C4", 261.63f, 1.5f, Samples, sourceId: 1, bufferId: 2);
 
-        var snapshot = timeline.Snapshot();
+        var note = timeline.Start(C4);
 
-        var entry = Assert.Single(snapshot);
+        var entry = Assert.Single(timeline.Snapshot());
         Assert.Same(note, entry);
-        Assert.Equal("C4", entry.NoteName);
-        Assert.Equal(261.63f, entry.Frequency);
+        Assert.Equal(C4, entry.Pitch);
         Assert.Equal(TimeSpan.FromSeconds(2), entry.StartTime);
-        Assert.Equal(1.5f, entry.Duration);
-        Assert.Same(Samples, entry.Samples);
-        Assert.Equal(1, entry.SourceId);
-        Assert.Equal(2, entry.BufferId);
+        Assert.Null(entry.ReleaseTime);
     }
 
     [Fact]
-    public void Add_MultipleNotes_AllAppearAsSeparateEntries()
+    public void Start_MultipleNotes_AllAppearAsSeparateEntries()
     {
-        var time = new FakeTimeProvider();
-        var timeline = new NoteTimeline(time);
-
-        timeline.Add("C4", 261.63f, 1f, Samples, sourceId: 1, bufferId: 1);
-        timeline.Add("E4", 329.63f, 1f, Samples, sourceId: 2, bufferId: 2);
-        timeline.Add("G4", 392.00f, 1f, Samples, sourceId: 3, bufferId: 3);
+        var timeline = new NoteTimeline(new FakeTimeProvider());
+        timeline.Start(C4);
+        timeline.Start(E4);
+        timeline.Start(G4);
 
         var snapshot = timeline.Snapshot();
 
         Assert.Equal(3, snapshot.Count);
-        Assert.Contains(snapshot, n => n.NoteName == "C4");
-        Assert.Contains(snapshot, n => n.NoteName == "E4");
-        Assert.Contains(snapshot, n => n.NoteName == "G4");
+        Assert.Contains(snapshot, note => note.Pitch == C4);
+        Assert.Contains(snapshot, note => note.Pitch == E4);
+        Assert.Contains(snapshot, note => note.Pitch == G4);
     }
 
     [Fact]
-    public async Task Add_FromMultipleThreadsConcurrently_AllNotesAppearInSnapshot()
+    public async Task Start_FromMultipleThreadsConcurrently_AllNotesAppearInSnapshot()
     {
-        var time = new FakeTimeProvider();
-        var timeline = new NoteTimeline(time);
+        var timeline = new NoteTimeline(new FakeTimeProvider());
         const int threadCount = 20;
-
         var tasks = Enumerable.Range(0, threadCount)
-            .Select(i => Task.Run(() => timeline.Add($"N{i}", 440f, 1f, Samples, sourceId: i, bufferId: i)));
+            .Select(index => Task.Run(() => timeline.Start(new Pitch(NoteLetter.C, 0, index))));
 
         await Task.WhenAll(tasks);
 
-        var snapshot = timeline.Snapshot();
-
-        Assert.Equal(threadCount, snapshot.Count);
+        Assert.Equal(threadCount, timeline.Snapshot().Count);
     }
 
     [Fact]
-    public void Snapshot_NoteJustPastItsOwnDuration_StillPresent()
+    public void Snapshot_OpenNote_IsNeverPruned()
     {
         var time = new FakeTimeProvider();
         var timeline = new NoteTimeline(time);
+        var note = timeline.Start(C4);
+        time.Advance(TimeSpan.FromMinutes(1));
 
-        timeline.Add("C4", 261.63f, 1f, Samples, sourceId: 1, bufferId: 1);
+        Assert.Contains(note, timeline.Snapshot());
+    }
+
+    [Fact]
+    public void Snapshot_CompletedNoteJustPastRelease_StillPresent()
+    {
+        var time = new FakeTimeProvider();
+        var timeline = new NoteTimeline(time);
+        var note = timeline.Start(C4);
+        timeline.Complete(note, TimeSpan.FromSeconds(1));
         time.Advance(TimeSpan.FromSeconds(1.5));
 
-        var snapshot = timeline.Snapshot();
-
-        Assert.Single(snapshot);
+        Assert.Single(timeline.Snapshot());
     }
 
     [Fact]
-    public void Snapshot_NoteOlderThanRetentionWindow_IsPruned()
+    public void Snapshot_CompletedNoteOlderThanRetentionWindow_IsPruned()
     {
         var time = new FakeTimeProvider();
         var timeline = new NoteTimeline(time);
+        var note = timeline.Start(C4);
+        timeline.Complete(note, TimeSpan.FromSeconds(1));
+        time.Advance(TimeSpan.FromSeconds(NoteTimeline.RetentionSeconds + 2));
 
-        timeline.Add("C4", 261.63f, 1f, Samples, sourceId: 1, bufferId: 1);
-        time.Advance(TimeSpan.FromSeconds(60));
-
-        var snapshot = timeline.Snapshot();
-
-        Assert.Empty(snapshot);
+        Assert.Empty(timeline.Snapshot());
     }
 
     [Fact]
-    public void Remove_ActiveNote_NoLongerAppearsInSnapshot()
+    public void Complete_ActiveNote_RecordsMeasuredReleaseTime()
     {
-        var time = new FakeTimeProvider();
-        var timeline = new NoteTimeline(time);
+        var timeline = new NoteTimeline(new FakeTimeProvider());
+        var note = timeline.Start(C4);
+        var releaseTime = TimeSpan.FromSeconds(0.4);
 
-        var note = timeline.Add("C4", 261.63f, 1f, Samples, sourceId: 1, bufferId: 1);
+        timeline.Complete(note, releaseTime);
+
+        Assert.Equal(releaseTime, note.ReleaseTime);
+    }
+
+    [Fact]
+    public void Complete_RemovedNote_IsNoOp()
+    {
+        var timeline = new NoteTimeline(new FakeTimeProvider());
+        var note = timeline.Start(C4);
         timeline.Remove([note]);
 
-        var snapshot = timeline.Snapshot();
+        timeline.Complete(note, TimeSpan.FromSeconds(1));
 
-        Assert.Empty(snapshot);
+        Assert.Null(note.ReleaseTime);
     }
 
     [Fact]
-    public void Remove_OneOfMultipleNotes_OnlyRemovesSpecifiedNote()
+    public void Remove_OneOfValueEqualNotes_OnlyRemovesSpecifiedIdentity()
     {
-        var time = new FakeTimeProvider();
-        var timeline = new NoteTimeline(time);
-
-        var noteToRemove = timeline.Add("C4", 261.63f, 1f, Samples, sourceId: 1, bufferId: 1);
-        var noteToKeep = timeline.Add("E4", 329.63f, 1f, Samples, sourceId: 2, bufferId: 2);
-
+        var timeline = new NoteTimeline(new FakeTimeProvider());
+        var noteToRemove = timeline.Start(C4);
+        var noteToKeep = timeline.Start(C4);
         timeline.Remove([noteToRemove]);
 
-        var snapshot = timeline.Snapshot();
-
-        var entry = Assert.Single(snapshot);
+        var entry = Assert.Single(timeline.Snapshot());
         Assert.Same(noteToKeep, entry);
-    }
-
-    [Fact]
-    public void Remove_NotesWithIdenticalMetadataButDifferentSourceId_OnlyRemovesMatchingInstance()
-    {
-        var time = new FakeTimeProvider();
-        var timeline = new NoteTimeline(time);
-
-        var noteToRemove = timeline.Add("C4", 261.63f, 1f, Samples, sourceId: 1, bufferId: 1);
-        var noteToKeep = timeline.Add("C4", 261.63f, 1f, Samples, sourceId: 2, bufferId: 2);
-
-        timeline.Remove([noteToRemove]);
-
-        var snapshot = timeline.Snapshot();
-
-        var entry = Assert.Single(snapshot);
-        Assert.Equal(2, entry.SourceId);
     }
 
     [Fact]

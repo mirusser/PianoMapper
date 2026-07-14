@@ -6,7 +6,7 @@ namespace PianoMapper.Rendering;
 /// Draws the current note timeline as scrolling bars. Owns its own shader/VAO/VBO
 /// and must be constructed after the GL context is current (i.e. from OnLoad).
 /// </summary>
-public sealed class PianoRollRenderer : IDisposable
+internal sealed class PianoRollRenderer : IDisposable
 {
     private static readonly float[] LabelColor = [1f, 1f, 1f];
     private const float LabelGlyphWidth = 0.012f;
@@ -33,7 +33,7 @@ public sealed class PianoRollRenderer : IDisposable
         GL.BindVertexArray(0);
     }
 
-    public void Render(IReadOnlyList<NoteInstance> notes, TimeSpan now, TextRenderer textRenderer)
+    public void Render(IReadOnlyList<PerformedNote> notes, TimeSpan now, TextRenderer textRenderer)
     {
         vertices.Clear();
 
@@ -45,8 +45,8 @@ public sealed class PianoRollRenderer : IDisposable
                 continue;
             }
 
-            AppendQuad(rect.Value, NoteColors.GetColor(note.NoteName));
-            textRenderer.Render(note.NoteName, rect.Value.X0, rect.Value.Y1 + LabelYOffset, LabelGlyphWidth, LabelGlyphHeight, LabelColor);
+            AppendQuad(rect.Value, NoteColors.GetColor(note.Pitch));
+            textRenderer.Render(note.Pitch.ToString(), rect.Value.X0, rect.Value.Y1 + LabelYOffset, LabelGlyphWidth, LabelGlyphHeight, LabelColor);
         }
 
         if (vertices.Count == 0)

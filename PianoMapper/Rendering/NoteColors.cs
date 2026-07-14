@@ -1,3 +1,5 @@
+using PianoMapper.Music;
+
 namespace PianoMapper.Rendering;
 
 /// <summary>
@@ -5,39 +7,23 @@ namespace PianoMapper.Rendering;
 /// fixed 12-color wheel, one hue per chromatic semitone, so the same pitch class (e.g.
 /// every "C" regardless of octave) always renders the same color.
 /// </summary>
-public static class NoteColors
+internal static class NoteColors
 {
-    private static readonly string[] PitchClasses =
-        ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-
-    /// <summary>Neutral gray used for malformed or empty note names.</summary>
-    private static readonly float[] FallbackColor = [0.5f, 0.5f, 0.5f];
-
-    public static float[] GetColor(string noteName)
+    public static float[] GetColor(Pitch pitch)
     {
-        var pitchClass = ExtractPitchClass(noteName);
-        var index = Array.IndexOf(PitchClasses, pitchClass);
-        return index >= 0 ? Wheel[index] : FallbackColor;
-    }
-
-    private static string ExtractPitchClass(string noteName)
-    {
-        if (string.IsNullOrEmpty(noteName) || noteName[0] is < 'A' or > 'G')
-        {
-            return string.Empty;
-        }
-
-        return noteName.Length > 1 && noteName[1] == '#' ? noteName[..2] : noteName[..1];
+        int pitchClass = ((pitch.MidiNumber % 12) + 12) % 12;
+        return Wheel[pitchClass];
     }
 
     private static readonly float[][] Wheel = BuildWheel();
 
     private static float[][] BuildWheel()
     {
-        var wheel = new float[PitchClasses.Length][];
-        for (var i = 0; i < PitchClasses.Length; i++)
+        const int pitchClassCount = 12;
+        var wheel = new float[pitchClassCount][];
+        for (int i = 0; i < pitchClassCount; i++)
         {
-            var hue = i * 360f / PitchClasses.Length;
+            float hue = i * 360f / pitchClassCount;
             wheel[i] = HsvToRgb(hue, saturation: 0.65f, value: 0.9f);
         }
 

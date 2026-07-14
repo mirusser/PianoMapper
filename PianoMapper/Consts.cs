@@ -1,9 +1,28 @@
+using System.Collections.Frozen;
 using OpenTK.Windowing.GraphicsLibraryFramework;
+using PianoMapper.Music;
 
 namespace PianoMapper;
 
 public static class Consts
 {
+    private static readonly FrozenDictionary<Keys, int> KeyOffsets = new Dictionary<Keys, int>
+    {
+        { Keys.A, 0 },
+        { Keys.W, 1 },
+        { Keys.S, 2 },
+        { Keys.E, 3 },
+        { Keys.D, 4 },
+        { Keys.F, 5 },
+        { Keys.R, 6 },
+        { Keys.J, 7 },
+        { Keys.U, 8 },
+        { Keys.K, 9 },
+        { Keys.I, 10 },
+        { Keys.L, 11 },
+        { Keys.Semicolon, 12 },
+    }.ToFrozenDictionary();
+
     public const int SampleRate = 44100; // Samples per second
     public const short Amplitude = short.MaxValue; // 16-bit max amplitude
 
@@ -11,60 +30,36 @@ public static class Consts
     // size). Must be a power of two for the radix-2 FFT.
     public const int ScopeWindowSize = 1024;
 
-    public static Dictionary<Keys, Note> GenerateKeyToFrequencyMapping(int startingOctave)
+    internal static IReadOnlyDictionary<Keys, Pitch> GenerateKeyToPitchMapping(int startingOctave)
     {
-        // Mapping of Keys to semitone offset relative to C of the starting octave.
-        var keyOffsets = new Dictionary<Keys, int>
+        var mapping = new Dictionary<Keys, Pitch>();
+
+        foreach (var (key, semitoneOffset) in KeyOffsets)
         {
-            { Keys.A, 0 },   // C
-            { Keys.W, 1 },   // C#
-            { Keys.S, 2 },   // D
-            { Keys.E, 3 },   // D#
-            { Keys.D, 4 },   // E
-            { Keys.F, 5 },   // F
-            { Keys.R, 6 },   // F#
-            { Keys.J, 7 },   // G
-            { Keys.U, 8 },   // G#
-            { Keys.K, 9 },   // A
-            { Keys.I, 10 },  // A#
-            { Keys.L, 11 },  // B
-            { Keys.Semicolon, 12 }  // C (next octave)
-        };
-
-        var mapping = new Dictionary<Keys, Note>();
-
-        // Calculate the frequency for C in the starting octave.
-        // For example, C4 is approximately 261.63 Hz.
-        // One way to compute this is to use C0 = 16.35 Hz and then:
-        // frequency = 16.35 * 2^(octave)
-        double baseC = 16.35 * Math.Pow(2, startingOctave);
-
-        // Note names for the 12 semitones.
-        string[] noteNames = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
-
-        foreach (var kvp in keyOffsets)
-        {
-            Keys key = kvp.Key;
-            int semitoneOffset = kvp.Value;
-            // Calculate frequency: multiply base C by 2^(semitoneOffset/12)
-            double frequency = baseC * Math.Pow(2, semitoneOffset / 12.0);
-            // Determine the note name and octave:
-            int noteOctave = startingOctave + (semitoneOffset / 12);
-            string noteName = noteNames[semitoneOffset % 12] + noteOctave.ToString();
-
-            mapping[key] = new Note
-            {
-                Name = noteName,
-                Frequency = (float)frequency
-            };
+            mapping[key] = GetPitch(startingOctave, semitoneOffset);
         }
 
-        return mapping;
+        return mapping.ToFrozenDictionary();
     }
-}
 
-public class Note
-{
-    public required string Name { get; init; }
-    public float Frequency { get; init; }
+    private static Pitch GetPitch(int startingOctave, int semitoneOffset)
+    {
+        int octave = startingOctave + (semitoneOffset / 12);
+        return (semitoneOffset % 12) switch
+        {
+            0 => new Pitch(NoteLetter.C, 0, octave),
+            1 => new Pitch(NoteLetter.C, 1, octave),
+            2 => new Pitch(NoteLetter.D, 0, octave),
+            3 => new Pitch(NoteLetter.D, 1, octave),
+            4 => new Pitch(NoteLetter.E, 0, octave),
+            5 => new Pitch(NoteLetter.F, 0, octave),
+            6 => new Pitch(NoteLetter.F, 1, octave),
+            7 => new Pitch(NoteLetter.G, 0, octave),
+            8 => new Pitch(NoteLetter.G, 1, octave),
+            9 => new Pitch(NoteLetter.A, 0, octave),
+            10 => new Pitch(NoteLetter.A, 1, octave),
+            11 => new Pitch(NoteLetter.B, 0, octave),
+            _ => throw new ArgumentOutOfRangeException(nameof(semitoneOffset)),
+        };
+    }
 }

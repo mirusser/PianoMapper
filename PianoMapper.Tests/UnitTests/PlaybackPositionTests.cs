@@ -1,23 +1,21 @@
+using PianoMapper.Music;
+
 namespace PianoMapper.Tests.UnitTests;
 
 public class PlaybackPositionTests
 {
-    private static NoteInstance CreateNote(double startSeconds, float duration, int sampleCount) =>
+    private static PerformedNote CreateNote(double startSeconds, float duration) =>
         new()
         {
-            NoteName = "X",
-            Frequency = 440f,
+            Pitch = new Pitch(NoteLetter.A, 0, 4),
             StartTime = TimeSpan.FromSeconds(startSeconds),
-            Duration = duration,
-            Samples = new short[sampleCount],
-            SourceId = 0,
-            BufferId = 0,
+            ReleaseTime = TimeSpan.FromSeconds(startSeconds + duration),
         };
 
     [Fact]
     public void IsNoteStillPlaying_ExactlyAtDuration_ReturnsTrue()
     {
-        var note = CreateNote(startSeconds: 0, duration: 2f, sampleCount: 1);
+        var note = CreateNote(startSeconds: 0, duration: 2f);
 
         bool stillPlaying = PlaybackPosition.IsNoteStillPlaying(note, now: TimeSpan.FromSeconds(2));
 
@@ -27,7 +25,7 @@ public class PlaybackPositionTests
     [Fact]
     public void IsNoteStillPlaying_PastDuration_ReturnsFalse()
     {
-        var note = CreateNote(startSeconds: 0, duration: 2f, sampleCount: 1);
+        var note = CreateNote(startSeconds: 0, duration: 2f);
 
         bool stillPlaying = PlaybackPosition.IsNoteStillPlaying(note, now: TimeSpan.FromSeconds(2.01));
 
@@ -37,7 +35,7 @@ public class PlaybackPositionTests
     [Fact]
     public void IsNoteStillPlaying_BeforeNoteStart_ReturnsTrue()
     {
-        var note = CreateNote(startSeconds: 5, duration: 2f, sampleCount: 1);
+        var note = CreateNote(startSeconds: 5, duration: 2f);
 
         bool stillPlaying = PlaybackPosition.IsNoteStillPlaying(note, now: TimeSpan.FromSeconds(0));
 
@@ -47,9 +45,9 @@ public class PlaybackPositionTests
     [Fact]
     public void EstimateSampleOffset_AtNoteStart_ReturnsZero()
     {
-        var note = CreateNote(startSeconds: 1, duration: 2f, sampleCount: Consts.SampleRate * 2);
+        var note = CreateNote(startSeconds: 1, duration: 2f);
 
-        var offset = PlaybackPosition.EstimateSampleOffset(note, now: TimeSpan.FromSeconds(1));
+        var offset = PlaybackPosition.EstimateSampleOffset(note, now: TimeSpan.FromSeconds(1), sampleCount: Consts.SampleRate * 2);
 
         Assert.Equal(0, offset);
     }
@@ -57,9 +55,9 @@ public class PlaybackPositionTests
     [Fact]
     public void EstimateSampleOffset_PartwayThroughNote_ReturnsProportionalOffset()
     {
-        var note = CreateNote(startSeconds: 0, duration: 2f, sampleCount: Consts.SampleRate * 2);
+        var note = CreateNote(startSeconds: 0, duration: 2f);
 
-        var offset = PlaybackPosition.EstimateSampleOffset(note, now: TimeSpan.FromSeconds(1));
+        var offset = PlaybackPosition.EstimateSampleOffset(note, now: TimeSpan.FromSeconds(1), sampleCount: Consts.SampleRate * 2);
 
         Assert.Equal(Consts.SampleRate, offset);
     }
@@ -67,9 +65,9 @@ public class PlaybackPositionTests
     [Fact]
     public void EstimateSampleOffset_PastBufferEnd_ClampsToLastIndex()
     {
-        var note = CreateNote(startSeconds: 0, duration: 1f, sampleCount: 100);
+        var note = CreateNote(startSeconds: 0, duration: 1f);
 
-        var offset = PlaybackPosition.EstimateSampleOffset(note, now: TimeSpan.FromSeconds(10));
+        var offset = PlaybackPosition.EstimateSampleOffset(note, now: TimeSpan.FromSeconds(10), sampleCount: 100);
 
         Assert.Equal(99, offset);
     }
@@ -77,9 +75,9 @@ public class PlaybackPositionTests
     [Fact]
     public void EstimateSampleOffset_BeforeNoteStart_ClampsToZero()
     {
-        var note = CreateNote(startSeconds: 5, duration: 1f, sampleCount: 100);
+        var note = CreateNote(startSeconds: 5, duration: 1f);
 
-        var offset = PlaybackPosition.EstimateSampleOffset(note, now: TimeSpan.FromSeconds(0));
+        var offset = PlaybackPosition.EstimateSampleOffset(note, now: TimeSpan.FromSeconds(0), sampleCount: 100);
 
         Assert.Equal(0, offset);
     }
