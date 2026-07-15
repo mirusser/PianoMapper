@@ -1,7 +1,7 @@
 # Implementation Plan: Blazor WebAssembly Browser Version
 
 **Date:** 2026-07-15
-**Status:** Reviewed; awaiting approval
+**Status:** Implementation complete; manual browser, Desktop GUI, and hosting review pending
 **Target:** Preserve the existing OpenTK/OpenAL desktop application and add a standalone Blazor WebAssembly browser application.
 
 ## Goal
@@ -111,17 +111,19 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Description:** Run the existing unit suite, add an empty `PianoMapper.Core` .NET 10 class library, wire solution/project references, and leave all production types in their current assembly initially.
 
+**Recorded baseline (2026-07-15):** `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj` passed 223 tests with 0 warnings before structural changes.
+
 **Acceptance criteria:**
 
-- [ ] The baseline test count and result are recorded before structural changes.
-- [ ] `PianoMapper`, `PianoMapper.Core`, and `PianoMapper.Tests` build in the solution.
-- [ ] `PianoMapper.Tests` references `PianoMapper.Core` directly, and `PianoMapper.Core` grants `PianoMapper.Tests` access to internal types without widening the production API.
-- [ ] The desktop executable still starts through its current project path.
+- [x] The baseline test count and result are recorded before structural changes.
+- [x] `PianoMapper`, `PianoMapper.Core`, and `PianoMapper.Tests` build in the solution.
+- [x] `PianoMapper.Tests` references `PianoMapper.Core` directly, and `PianoMapper.Core` grants `PianoMapper.Tests` access to internal types without widening the production API.
+- [x] The desktop executable still starts through its current project path.
 
 **Verification:**
 
-- [ ] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj`
-- [ ] `rtk dotnet build PianoMapper.slnx --configuration Release`
+- [x] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj`
+- [x] `rtk dotnet build PianoMapper.slnx --configuration Release`
 - [ ] Manual smoke: launch the desktop app and play/release one mapped note.
 
 - **Dependencies:** None
@@ -134,16 +136,16 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] `Pitch`, `NoteLetter`, `PerformedNote`, and `NoteTimeline` are usable by both hosts without referencing OpenTK/OpenAL or rendering code.
-- [ ] Browser callers can start, complete, snapshot, and prune notes using mapped `TimeSpan` values without mixing in the Core timeline's `TimeProvider` origin; desktop callers retain current `TimeProvider` behavior.
-- [ ] `NotePlayback` remains in the desktop audio module because only `Instrument` consumes its completion contract.
-- [ ] Public accessibility is limited to cross-host contracts; implementation details remain internal where possible.
-- [ ] Existing pitch, timeline, playback-position, and instrument tests continue to compile and pass.
+- [x] `Pitch`, `NoteLetter`, `PerformedNote`, and `NoteTimeline` are usable by both hosts without referencing OpenTK/OpenAL or rendering code.
+- [x] Browser callers can start, complete, snapshot, and prune notes using mapped `TimeSpan` values without mixing in the Core timeline's `TimeProvider` origin; desktop callers retain current `TimeProvider` behavior.
+- [x] `NotePlayback` remains in the desktop audio module because only `Instrument` consumes its completion contract.
+- [x] Public accessibility is limited to cross-host contracts; implementation details remain internal where possible.
+- [x] Existing pitch, timeline, playback-position, and instrument tests continue to compile and pass.
 
 **Verification:**
 
-- [ ] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~PitchTests|FullyQualifiedName~NoteTimelineTests|FullyQualifiedName~PlaybackPositionTests|FullyQualifiedName~InstrumentTests"`
-- [ ] `rtk dotnet build PianoMapper.slnx --configuration Release`
+- [x] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~PitchTests|FullyQualifiedName~NoteTimelineTests|FullyQualifiedName~PlaybackPositionTests|FullyQualifiedName~InstrumentTests"`
+- [x] `rtk dotnet build PianoMapper.slnx --configuration Release`
 
 - **Dependencies:** Task 1
 - **Files likely touched:** `PianoMapper/Music/NoteLetter.cs`, `PianoMapper/Music/Pitch.cs`, `PianoMapper/PerformedNote.cs`, `PianoMapper/NoteTimeline.cs` and their destinations under `PianoMapper.Core/`, plus `PianoMapper.Tests/UnitTests/NoteTimelineTests.cs`
@@ -155,13 +157,13 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] Core pitch mapping contains no `OpenTK.Keys` references.
-- [ ] The desktop piano note mapping is unchanged for every existing key and octave.
-- [ ] Mapping tests cover the first note, chromatic offsets, and the octave boundary.
+- [x] Core pitch mapping contains no `OpenTK.Keys` references.
+- [x] The desktop piano note mapping is unchanged for every existing key and octave.
+- [x] Mapping tests cover the first note, chromatic offsets, and the octave boundary.
 
 **Verification:**
 
-- [ ] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~ConstsTests|FullyQualifiedName~PianoKeyboardLayoutTests"`
+- [x] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~ConstsTests|FullyQualifiedName~PianoKeyboardLayoutTests"`
 - [ ] Manual desktop check: `A` and `;` still map to the expected boundary pitches.
 
 - **Dependencies:** Task 2
@@ -174,16 +176,16 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] `PianoMapper.Web` references `PianoMapper.Core` but not the desktop project or OpenTK packages.
-- [ ] `PianoMapper.Tests` can reference internal browser orchestration types through an explicit project reference and `InternalsVisibleTo`; no browser type is made public only for testing.
-- [ ] The web project loads a minimal PianoMapper page and reports that audio is not yet initialized.
-- [ ] The play surface is focusable, visibly labelled, and does not install a document-global keyboard listener.
-- [ ] The solution builds without changing desktop startup behavior.
+- [x] `PianoMapper.Web` references `PianoMapper.Core` but not the desktop project or OpenTK packages.
+- [x] `PianoMapper.Tests` can reference internal browser orchestration types through an explicit project reference and `InternalsVisibleTo`; no browser type is made public only for testing.
+- [x] The web project loads a minimal PianoMapper page and reports that audio is not yet initialized.
+- [x] The play surface is focusable, visibly labelled, and does not install a document-global keyboard listener.
+- [x] The solution builds without changing desktop startup behavior.
 
 **Verification:**
 
-- [ ] `rtk dotnet build PianoMapper.slnx --configuration Release`
-- [ ] `rtk dotnet run --project PianoMapper.Web/PianoMapper.Web.csproj`
+- [x] `rtk dotnet build PianoMapper.slnx --configuration Release`
+- [x] `rtk dotnet run --project PianoMapper.Web/PianoMapper.Web.csproj`
 - [ ] Manual browser check: the play page renders with no console exceptions.
 
 - **Dependencies:** Task 1
@@ -192,10 +194,10 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 ### Checkpoint: Desktop Baseline and Project Boundaries
 
-- [ ] The recorded baseline tests still pass after the empty Core and Web projects are added.
-- [ ] A Release solution build includes Desktop, Core, Web, and Tests.
+- [x] The recorded baseline tests still pass after the empty Core and Web projects are added.
+- [x] A Release solution build includes Desktop, Core, Web, and Tests.
 - [ ] The desktop app still launches and plays/releases a note.
-- [ ] Core has no OpenTK/OpenAL/browser dependency, and Web has no desktop project reference.
+- [x] Core has no OpenTK/OpenAL/browser dependency, and Web has no desktop project reference.
 
 ### Phase 2: Prove the High-Risk Browser Note Path
 
@@ -205,16 +207,16 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] Audio initialization succeeds only after a visible user action and exposes blocked/failure state in the UI.
-- [ ] Initialization returns the Web Audio/performance clock anchor needed to map subsequent browser event timestamps.
-- [ ] Note-on, note-off, and clear commands are batched at command level rather than sample level.
-- [ ] Repeated note cycles release browser audio nodes and do not accumulate active state.
+- [x] Audio initialization succeeds only after a visible user action and exposes blocked/failure state in the UI.
+- [x] Initialization returns the Web Audio/performance clock anchor needed to map subsequent browser event timestamps.
+- [x] Note-on, note-off, and clear commands are batched at command level rather than sample level.
+- [x] Repeated note cycles release browser audio nodes and do not accumulate active state.
 
 **Verification:**
 
-- [ ] Unit tests with a hand-written `IJSRuntime` fake verify module/command ordering and clear behavior.
+- [x] Unit tests with a hand-written `IJSRuntime` fake verify module/command ordering and clear behavior.
 - [ ] Manual check in current Chrome and Firefox: enable audio, play, release, and replay a note.
-- [ ] Browser console contains no unhandled promise rejections.
+- [x] Browser console contains no unhandled promise rejections.
 
 - **Dependencies:** Tasks 2 and 4
 - **Files likely touched:** `PianoMapper.Web/Audio/WebAudioSession.cs`, `PianoMapper.Web/wwwroot/js/audio.js`, `PianoMapper.Web/Pages/Piano.razor`, `PianoMapper.Tests/UnitTests/WebAudioSessionTests.cs`
@@ -226,16 +228,16 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] All 13 piano keys support independent concurrent note-on/note-off with key-repeat filtering.
-- [ ] Note start/release timestamps come from `KeyboardEvent.timeStamp` mapped to the audio clock, not from callback arrival time in .NET.
-- [ ] Blur and `visibilitychange` release every active note and prevent stuck audio.
-- [ ] Changing octave while a key is held still releases the originally started note; clearing notes empties both audio and key-tracking state so a later keyup is harmless.
-- [ ] `C`, `Z`/`X`, and `1`-`8` work while the play surface is focused and have visible-control equivalents.
-- [ ] Space, Tab, Enter, Escape, Page Up/Down, and arrow keys are not registered as app shortcuts and are never globally suppressed.
+- [x] All 13 piano keys support independent concurrent note-on/note-off with key-repeat filtering.
+- [x] Note start/release timestamps come from `KeyboardEvent.timeStamp` mapped to the audio clock, not from callback arrival time in .NET.
+- [x] Blur and `visibilitychange` release every active note and prevent stuck audio.
+- [x] Changing octave while a key is held still releases the originally started note; clearing notes empties both audio and key-tracking state so a later keyup is harmless.
+- [x] `C`, `Z`/`X`, and `1`-`8` work while the play surface is focused and have visible-control equivalents.
+- [x] Space, Tab, Enter, Escape, Page Up/Down, and arrow keys are not registered as app shortcuts and are never globally suppressed.
 
 **Verification:**
 
-- [ ] Unit tests cover note-key mapping, timestamp conversion, current control mappings, repeats, and unknown/reserved keys.
+- [x] Unit tests cover note-key mapping, timestamp conversion, current control mappings, repeats, and unknown/reserved keys.
 - [ ] Manual browser check confirms browser Tab navigation, Space/Enter button activation, page scrolling, and Escape behavior remain native.
 - [ ] Measure event-to-audio-schedule delay for 100 presses on the target laptop against the approved Checkpoint A limits (provisional target: median <= 20 ms and p95 <= 50 ms), excluding device output latency.
 - [ ] If the JS -> .NET -> JS path misses the approved target, keep the latency-sensitive key-to-audio dispatch inside the JavaScript audio module, install or refresh the C#-generated code-to-pitch table at initialization and octave changes, and report the same mapped event to .NET; do not maintain a second handwritten pitch map.
@@ -250,15 +252,15 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] A piano-key press updates browser audio and a matching canvas note marker from the same mapped event; release stops audio and closes the same `PerformedNote`.
-- [ ] One render crosses JS interop as a complete scene batch rather than one call per primitive.
-- [ ] Resize and disposal do not duplicate listeners, animation frames, or canvas ownership.
+- [x] A piano-key press updates browser audio and a matching canvas note marker from the same mapped event; release stops audio and closes the same `PerformedNote`.
+- [x] One render crosses JS interop as a complete scene batch rather than one call per primitive.
+- [x] Resize and disposal do not duplicate listeners, animation frames, or canvas ownership.
 
 **Verification:**
 
-- [ ] Scene-builder unit tests cover active and released notes plus empty state.
+- [x] Scene-builder unit tests cover active and released notes plus empty state.
 - [ ] Manual check confirms a 13-key sequence and a chord produce matching audible and visible state.
-- [ ] Browser profiling records event-to-audio scheduling and event-to-canvas presentation measurements used by Checkpoint A.
+- [x] Browser profiling records event-to-audio scheduling and event-to-canvas presentation measurements used by Checkpoint A.
 
 - **Dependencies:** Task 6
 - **Files likely touched:** `PianoMapper.Web/Rendering/LiveNoteSceneBuilder.cs`, `PianoMapper.Web/Components/PianoCanvas.razor`, `PianoMapper.Web/wwwroot/js/canvas.js`, `PianoMapper.Web/Pages/Piano.razor`, `PianoMapper.Tests/UnitTests/LiveNoteSceneBuilderTests.cs`
@@ -266,12 +268,14 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 ### Checkpoint A: Browser Feasibility Gate
 
-- [ ] Desktop tests and Release build remain green.
-- [ ] Keyboard polyphony, releases, blur cleanup, and visible controls work end to end.
-- [ ] Keyboard -> mapped `PerformedNote` -> Web Audio -> canvas works end to end.
+**Automated feasibility evidence (2026-07-15):** Headless Chromium completed 100 keyboard-to-audio scheduling samples with median 0.9 ms and p95 1.1 ms; the automated canvas presentation probe completed in 59 ms. Polyphony, release, blur cleanup, native reserved-key behavior, and zero console/page errors passed. These measurements do not replace the primary-laptop audio, sound-quality, Firefox, or human-review checks below.
+
+- [x] Desktop tests and Release build remain green.
+- [x] Keyboard polyphony, releases, blur cleanup, and visible controls work end to end.
+- [x] Keyboard -> mapped `PerformedNote` -> Web Audio -> canvas works end to end.
 - [ ] The measured timing target is met on the primary laptop/browser.
 - [ ] The sound is acceptable as a piano-style prototype, or exact timbre work is explicitly approved before continuing.
-- [ ] Browser-reserved keys retain native behavior.
+- [x] Browser-reserved keys retain native behavior.
 - [ ] Human review approves proceeding with the remaining extraction and parity work.
 
 ### Phase 3: Share Scores and Render the Primary Browser Experience
@@ -282,13 +286,13 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] Rhythm types have no desktop or rendering dependency.
-- [ ] Existing validation and conversion behavior remains identical.
-- [ ] Tests continue to use deterministic values and no wall-clock sleeps.
+- [x] Rhythm types have no desktop or rendering dependency.
+- [x] Existing validation and conversion behavior remains identical.
+- [x] Tests continue to use deterministic values and no wall-clock sleeps.
 
 **Verification:**
 
-- [ ] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~NoteValueTests|FullyQualifiedName~TempoTests|FullyQualifiedName~TimeSignatureTests|FullyQualifiedName~MusicalTimeTests"`
+- [x] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~NoteValueTests|FullyQualifiedName~TempoTests|FullyQualifiedName~TimeSignatureTests|FullyQualifiedName~MusicalTimeTests"`
 
 - **Dependencies:** Task 2
 - **Files likely touched:** `PianoMapper/Music/NoteValue.cs`, `PianoMapper/Music/Tempo.cs`, `PianoMapper/Music/TimeSignature.cs`, `PianoMapper/Music/MusicalTime.cs` and their destinations under `PianoMapper.Core/`
@@ -300,14 +304,14 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] The `Score` aggregate retains the terminology and exclusions defined in `CONTEXT.md`.
-- [ ] No MusicXML, rendered geometry, performed-note, or audio state leaks into the aggregate.
-- [ ] Existing score validation tests remain unchanged in behavior.
+- [x] The `Score` aggregate retains the terminology and exclusions defined in `CONTEXT.md`.
+- [x] No MusicXML, rendered geometry, performed-note, or audio state leaks into the aggregate.
+- [x] Existing score validation tests remain unchanged in behavior.
 
 **Verification:**
 
-- [ ] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~ScoreTests"`
-- [ ] `rtk dotnet build PianoMapper.slnx --configuration Release`
+- [x] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~ScoreTests"`
+- [x] `rtk dotnet build PianoMapper.slnx --configuration Release`
 
 - **Dependencies:** Task 8
 - **Files likely touched:** `PianoMapper/Music/Staff.cs`, `PianoMapper/Music/Score.cs`, `PianoMapper/Music/ScoreMeasure.cs`, `PianoMapper/Music/ScoreNote.cs`, `PianoMapper/Music/ScoreRest.cs` and their destinations under `PianoMapper.Core/`
@@ -319,13 +323,13 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] Core produces the same event ordering, due times, durations, and cursor beats as the desktop implementation.
-- [ ] Core scheduling has no timer, OpenAL, Web Audio, or render-loop dependency.
-- [ ] Desktop score playback continues to use the extracted schedule without behavior changes.
+- [x] Core produces the same event ordering, due times, durations, and cursor beats as the desktop implementation.
+- [x] Core scheduling has no timer, OpenAL, Web Audio, or render-loop dependency.
+- [x] Desktop score playback continues to use the extracted schedule without behavior changes.
 
 **Verification:**
 
-- [ ] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~ScorePlaybackTests"`
+- [x] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~ScorePlaybackTests"`
 - [ ] Manual desktop check: load a fixture and start score playback.
 
 - **Dependencies:** Task 9
@@ -336,15 +340,17 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Description:** Move `MusicXmlScoreReader` into core, add a stream-based entry point, retain the desktop path overload as a thin adapter, and expose browser file selection with readable errors.
 
+**Recorded browser file limit (2026-07-15):** 10 MiB per selected MusicXML file. The picker rejects larger files before opening the browser stream and displays the limit before selection.
+
 **Acceptance criteria:**
 
-- [ ] Path and stream imports produce equivalent `Score` values for every existing fixture.
-- [ ] The browser reads only the selected file and enforces the size limit approved before this task; the UI states that limit before selection.
-- [ ] Unsupported/malformed files show the existing meaningful error rather than leaving partial score state.
+- [x] Path and stream imports produce equivalent `Score` values for every existing fixture.
+- [x] The browser reads only the selected file and enforces the size limit approved before this task; the UI states that limit before selection.
+- [x] Unsupported/malformed files show the existing meaningful error rather than leaving partial score state.
 
 **Verification:**
 
-- [ ] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~MusicXmlScoreReaderTests|FullyQualifiedName~ScoreCommandLineTests"`
+- [x] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~MusicXmlScoreReaderTests|FullyQualifiedName~ScoreCommandLineTests"`
 - [ ] Manual browser check: load a supported fixture, then a malformed and unsupported fixture.
 
 - **Dependencies:** Task 9
@@ -353,10 +359,10 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 ### Checkpoint: Shared Score Model and Import
 
-- [ ] Rhythm, Score, scheduling, and MusicXML tests pass from `PianoMapper.Core`.
-- [ ] The desktop loads every supported fixture and rejects existing unsupported fixtures with unchanged error categories.
+- [x] Rhythm, Score, scheduling, and MusicXML tests pass from `PianoMapper.Core`.
+- [x] The desktop loads every supported fixture and rejects existing unsupported fixtures with unchanged error categories.
 - [ ] The browser selects a supported fixture and reports malformed/unsupported input without retaining partial score state.
-- [ ] A Release solution build remains green before rendering extraction continues.
+- [x] A Release solution build remains green before rendering extraction continues.
 
 #### Task 12: Extract the rolling-window layout dependency
 
@@ -364,14 +370,14 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] The shared rolling-window layout contains no OpenGL, OpenTK, browser canvas, or audio dependency.
-- [ ] Open, released, expired, low, and high note rectangle behavior remains unchanged.
-- [ ] Desktop rendering continues to consume the same normalized rectangle values.
+- [x] The shared rolling-window layout contains no OpenGL, OpenTK, browser canvas, or audio dependency.
+- [x] Open, released, expired, low, and high note rectangle behavior remains unchanged.
+- [x] Desktop rendering continues to consume the same normalized rectangle values.
 
 **Verification:**
 
-- [ ] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~PianoRollLayoutTests"`
-- [ ] `rtk dotnet build PianoMapper.slnx --configuration Release`
+- [x] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~PianoRollLayoutTests"`
+- [x] `rtk dotnet build PianoMapper.slnx --configuration Release`
 
 - **Dependencies:** Task 2
 - **Files likely touched:** `PianoMapper/Rendering/BarRect.cs`, `PianoMapper/Rendering/PianoRollLayout.cs` and their destinations under `PianoMapper.Core/`, `PianoMapper.Tests/UnitTests/PianoRollLayoutTests.cs`
@@ -383,14 +389,14 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] Layout contracts contain coordinates and notation state but no OpenGL or browser canvas handles.
-- [ ] Existing staff placement semantics and equality behavior remain unchanged.
-- [ ] Desktop renderer compiles against the core contracts.
+- [x] Layout contracts contain coordinates and notation state but no OpenGL or browser canvas handles.
+- [x] Existing staff placement semantics and equality behavior remain unchanged.
+- [x] Desktop renderer compiles against the core contracts.
 
 **Verification:**
 
-- [ ] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~GrandStaffLayoutTests"`
-- [ ] `rtk dotnet build PianoMapper.slnx --configuration Release`
+- [x] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~GrandStaffLayoutTests"`
+- [x] `rtk dotnet build PianoMapper.slnx --configuration Release`
 
 - **Dependencies:** Tasks 9 and 12
 - **Files likely touched:** `PianoMapper/Rendering/StaffPlacement.cs`, `PianoMapper/Rendering/StaffPosition.cs`, `PianoMapper/Rendering/ScoreNoteLayout.cs`, `PianoMapper/Rendering/NoteHeadStyle.cs`, `PianoMapper/Rendering/StemDirection.cs` and their destinations under `PianoMapper.Core/`
@@ -402,14 +408,14 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] Live notes appear at the same normalized positions and with the same staff-selection rules as desktop.
-- [ ] Canvas resizes without changing pitch placement or stretching note geometry incorrectly.
-- [ ] One render frame crosses JS interop as a scene/typed batch, not per primitive.
+- [x] Live notes appear at the same normalized positions and with the same staff-selection rules as desktop.
+- [x] Canvas resizes without changing pitch placement or stretching note geometry incorrectly.
+- [x] One render frame crosses JS interop as a scene/typed batch, not per primitive.
 
 **Verification:**
 
-- [ ] Existing `GrandStaffLayoutTests` pass from the core assembly.
-- [ ] Scene-builder unit tests cover middle C, accidentals, ledger lines, and resize mapping.
+- [x] Existing `GrandStaffLayoutTests` pass from the core assembly.
+- [x] Scene-builder unit tests cover middle C, accidentals, ledger lines, and resize mapping.
 - [ ] Manual visual comparison against the desktop for the same note sequence.
 
 - **Dependencies:** Tasks 7 and 13
@@ -418,10 +424,10 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 ### Checkpoint: Shared Layout and Live Staff
 
-- [ ] Existing `PianoRollLayoutTests` and `GrandStaffLayoutTests` pass from Core.
+- [x] Existing `PianoRollLayoutTests` and `GrandStaffLayoutTests` pass from Core.
 - [ ] The desktop live staff and piano roll remain unchanged in a manual comparison.
-- [ ] The browser prototype now renders the full live grand staff through one scene batch.
-- [ ] Core layout modules contain normalized geometry and notation state, not OpenGL/canvas handles or host colors.
+- [x] The browser prototype now renders the full live grand staff through one scene batch.
+- [x] Core layout modules contain normalized geometry and notation state, not OpenGL/canvas handles or host colors.
 
 #### Task 15: Render loaded scores and navigate measures
 
@@ -429,13 +435,13 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] The same visible-measure count and clamping rules are used as desktop.
-- [ ] Notes, chords, barlines, stems, dots, flags, and accidentals render consistently for existing fixtures; imported rests and ties retain their current timing behavior without adding notation that desktop does not draw.
-- [ ] Navigation works through buttons and non-reserved shortcuts without capturing Page Up/Down.
+- [x] The same visible-measure count and clamping rules are used as desktop.
+- [x] Notes, chords, barlines, stems, dots, flags, and accidentals render consistently for existing fixtures; imported rests and ties retain their current timing behavior without adding notation that desktop does not draw.
+- [x] Navigation works through buttons and non-reserved shortcuts without capturing Page Up/Down.
 
 **Verification:**
 
-- [ ] Unit tests cover first/last measure clamping and representative score-scene primitives.
+- [x] Unit tests cover first/last measure clamping and representative score-scene primitives.
 - [ ] Manual comparison using `grand-staff-demo.musicxml` and `musescore-export.musicxml`.
 
 - **Dependencies:** Tasks 11 and 14
@@ -446,17 +452,19 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Description:** Convert core `ScheduledScoreEvent` values into one browser audio schedule, maintain a shared clock anchor, and derive the rendered cursor from that anchor.
 
+**Recorded background behavior (2026-07-15):** Score audio remains scheduled on the Web Audio clock while the tab is hidden. UI rendering may throttle; on the next foreground frame the cursor is recomputed from `AudioContext.currentTime` and catches up rather than replaying delayed render-frame events.
+
 **Acceptance criteria:**
 
-- [ ] Score events are scheduled ahead on `AudioContext.currentTime` rather than dispatched from render-frame polling.
-- [ ] Restart stops the prior score, clears scheduled nodes, and starts from a new anchor.
-- [ ] Cursor and audible events remain synchronized after normal UI frame delays.
+- [x] Score events are scheduled ahead on `AudioContext.currentTime` rather than dispatched from render-frame polling.
+- [x] Restart stops the prior score, clears scheduled nodes, and starts from a new anchor.
+- [x] Cursor and audible events remain synchronized after normal UI frame delays.
 
 **Verification:**
 
-- [ ] Unit tests with a fake audio clock verify event offsets, restart, completion, and cursor mapping.
+- [x] Unit tests with a fake audio clock verify event offsets, restart, completion, and cursor mapping.
 - [ ] Manual browser check at slow and fast fixture tempos.
-- [ ] Background/foreground check documents expected behavior and confirms the cursor catches up after visibility restoration.
+- [x] Background/foreground check documents expected behavior and confirms the cursor catches up after visibility restoration.
 
 - **Dependencies:** Tasks 10, 11, and 15
 - **Files likely touched:** `PianoMapper.Web/Playback/BrowserScorePlayback.cs`, `PianoMapper.Web/Audio/WebAudioSession.cs`, `PianoMapper.Web/wwwroot/js/audio.js`, `PianoMapper.Web/Pages/Piano.razor`, `PianoMapper.Tests/UnitTests/BrowserScorePlaybackTests.cs`
@@ -464,10 +472,10 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 ### Checkpoint B: Score Slice Complete
 
-- [ ] Existing desktop tests, build, MusicXML loading, and score playback remain green.
-- [ ] Browser file selection -> score rendering -> Web Audio playback -> cursor works end to end.
-- [ ] Measure navigation uses visible controls and `[`/`]`, not browser navigation keys.
-- [ ] Published browser build succeeds before practice work begins.
+- [x] Existing desktop tests, build, MusicXML loading, and score playback remain green.
+- [x] Browser file selection -> score rendering -> Web Audio playback -> cursor works end to end.
+- [x] Measure navigation uses visible controls and `[`/`]`, not browser navigation keys.
+- [x] Published browser build succeeds before practice work begins.
 - [ ] Human review confirms score rendering and timing are sufficiently close to desktop behavior.
 
 ### Phase 4: Practice and Remaining Current Features
@@ -478,13 +486,13 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] Verdict values and typed summaries remain unchanged.
-- [ ] Core grading contracts contain no rendering colors or UI text.
-- [ ] Existing grading tests compile against core.
+- [x] Verdict values and typed summaries remain unchanged.
+- [x] Core grading contracts contain no rendering colors or UI text.
+- [x] Existing grading tests compile against core.
 
 **Verification:**
 
-- [ ] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~GraderTests"`
+- [x] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~GraderTests"`
 
 - **Dependencies:** Tasks 2 and 10
 - **Files likely touched:** `PianoMapper/Practice/Verdict.cs`, `PianoMapper/Practice/GradingOptions.cs`, `PianoMapper/Practice/GradedEvent.cs`, `PianoMapper/Practice/GradingResult.cs`, `PianoMapper/Practice/GradingSummary.cs` and their destinations under `PianoMapper.Core/`
@@ -496,13 +504,13 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] Count-in, running, finished, abort, timing tolerance, and visible-verdict behavior remain identical.
-- [ ] Tests use `FakeTimeProvider`; no sleep or browser clock is required by core tests.
-- [ ] Desktop practice mode continues to consume the same state machine.
+- [x] Count-in, running, finished, abort, timing tolerance, and visible-verdict behavior remain identical.
+- [x] Tests use `FakeTimeProvider`; no sleep or browser clock is required by core tests.
+- [x] Desktop practice mode continues to consume the same state machine.
 
 **Verification:**
 
-- [ ] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~GraderTests|FullyQualifiedName~PracticeSessionTests"`
+- [x] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~GraderTests|FullyQualifiedName~PracticeSessionTests"`
 - [ ] Manual desktop practice smoke using a supported fixture.
 
 - **Dependencies:** Tasks 8, 10, and 17
@@ -513,18 +521,20 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Description:** Coordinate count-in clicks, performed-note capture, grading updates, verdict coloring, abort/retry controls, and the final summary in the browser host.
 
+**Recorded visibility behavior (2026-07-15):** Active practice is foreground-only. Blur or `document.hidden` aborts the session and releases all sounding/scheduled notes; retry starts from a fresh mapped Web Audio anchor.
+
 **Acceptance criteria:**
 
-- [ ] Practice start/retry uses the visible button or `T`; abort uses the visible button or `C`.
-- [ ] Count-in and grading use the same mapped browser/audio clock as note input.
-- [ ] Correct, wrong, early/late, duration, missed, and extra results appear with the current summary counts.
-- [ ] Visibility loss follows the foreground-practice decision recorded before this task and never leaves sounding notes or silently continues with an undefined clock state.
+- [x] Practice start/retry uses the visible button or `T`; abort uses the visible button or `C`.
+- [x] Count-in and grading use the same mapped browser/audio clock as note input.
+- [x] Correct, wrong, early/late, duration, missed, and extra results appear with the current summary counts.
+- [x] Visibility loss follows the foreground-practice decision recorded before this task and never leaves sounding notes or silently continues with an undefined clock state.
 
 **Verification:**
 
-- [ ] Coordinator unit tests use fake time and fake audio, including abort and retry.
+- [x] Coordinator unit tests use fake time and fake audio, including abort and retry.
 - [ ] Manual practice run verifies one correct note and representative incorrect timing/pitch cases.
-- [ ] Reserved-key regression check from Task 6 still passes.
+- [x] Reserved-key regression check from Task 6 still passes.
 
 - **Dependencies:** Tasks 6, 16, and 18
 - **Files likely touched:** `PianoMapper.Web/Practice/BrowserPracticeCoordinator.cs`, `PianoMapper.Web/Components/PracticePanel.razor`, `PianoMapper.Web/Rendering/GrandStaffSceneBuilder.cs`, `PianoMapper.Web/Pages/Piano.razor`, `PianoMapper.Tests/UnitTests/BrowserPracticeCoordinatorTests.cs`
@@ -533,8 +543,8 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 ### Checkpoint: Practice Slice Complete
 
 - [ ] Desktop grading and practice tests plus a desktop practice smoke remain green.
-- [ ] Browser count-in -> performed notes -> verdicts -> summary works end to end with fake-clock coverage for abort and retry.
-- [ ] `T` and `C` apply only while the play surface is focused; native Enter/Escape/Space behavior remains unchanged.
+- [x] Browser count-in -> performed notes -> verdicts -> summary works end to end with fake-clock coverage for abort and retry.
+- [x] `T` and `C` apply only while the play surface is focused; native Enter/Escape/Space behavior remains unchanged.
 - [ ] The approved visibility-loss behavior is exercised manually.
 
 #### Task 20: Add the scrolling browser piano roll
@@ -543,14 +553,14 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] Open notes grow, released notes stop growing, and expired notes leave the visible window identically to desktop layout rules.
-- [ ] `V` and the visible control switch between views without using Tab.
-- [ ] View switching does not interrupt active notes, playback, or practice state.
+- [x] Open notes grow, released notes stop growing, and expired notes leave the visible window identically to desktop layout rules.
+- [x] `V` and the visible control switch between views without using Tab.
+- [x] View switching does not interrupt active notes, playback, or practice state.
 
 **Verification:**
 
-- [ ] Existing `PianoRollLayoutTests` pass from core.
-- [ ] Browser scene tests cover open, released, expired, low, and high notes.
+- [x] Existing `PianoRollLayoutTests` pass from core.
+- [x] Browser scene tests cover open, released, expired, low, and high notes.
 - [ ] Manual view-switch check during a sustained chord and score playback.
 
 - **Dependencies:** Tasks 6, 12, and 14
@@ -561,16 +571,18 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Description:** Move random-measure composition into core and expose it through the visible UI and `M` shortcut using the browser audio scheduler. Keep desktop PCM natural-decay clamping in the desktop audio host; the browser schedules the same rhythmic duration and applies its own Web Audio envelope without moving `Instrument` or PCM policy into Core.
 
+**Recorded browser envelope policy (2026-07-15):** Random-measure events retain their full rhythmic duration. The Web Audio adapter applies its existing 80 ms release envelope; it does not import Desktop PCM natural-decay clamping into Core.
+
 **Acceptance criteria:**
 
-- [ ] Generated meter, tempo, pitch selection, and note values match current deterministic behavior.
-- [ ] Core owns rhythmic duration only; desktop `GetRandomMeasureEventDuration` behavior remains covered, and the browser's audible cap is defined by its approved Web Audio envelope.
-- [ ] Starting a generated measure does not corrupt loaded-score or practice state.
-- [ ] The displayed meter/tempo updates to the generated measure.
+- [x] Generated meter, tempo, pitch selection, and note values match current deterministic behavior.
+- [x] Core owns rhythmic duration only; desktop `GetRandomMeasureEventDuration` behavior remains covered, and the browser's audible cap is defined by its approved Web Audio envelope.
+- [x] Starting a generated measure does not corrupt loaded-score or practice state.
+- [x] The displayed meter/tempo updates to the generated measure.
 
 **Verification:**
 
-- [ ] Existing deterministic `RandomMeasureComposerTests` pass against core.
+- [x] Existing deterministic `RandomMeasureComposerTests` pass against core.
 - [ ] Manual browser check: generate and play multiple measures, then resume loaded-score playback.
 
 - **Dependencies:** Tasks 8 and 16
@@ -583,9 +595,9 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] The scope reflects the actual mixed browser output while notes are audible.
-- [ ] Analysis stops or idles when audio is inactive and releases animation handles on disposal.
-- [ ] Rendering remains responsive during polyphonic input and score playback.
+- [x] The scope reflects the actual mixed browser output while notes are audible.
+- [x] Analysis stops or idles when audio is inactive and releases animation handles on disposal.
+- [x] Rendering remains responsive during polyphonic input and score playback.
 
 **Verification:**
 
@@ -602,13 +614,13 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] Frequency bars are bounded and normalized under silence, single notes, and chords.
-- [ ] The browser host does not run both `AnalyserNode` FFT and the desktop PCM FFT for the same frame.
-- [ ] Spectrum work shares the oscilloscope animation lifecycle and stops cleanly.
+- [x] Frequency bars are bounded and normalized under silence, single notes, and chords.
+- [x] The browser host does not run both `AnalyserNode` FFT and the desktop PCM FFT for the same frame.
+- [x] Spectrum work shares the oscilloscope animation lifecycle and stops cleanly.
 
 **Verification:**
 
-- [ ] Existing `SpectrumLayoutTests` pass after moving the layout to core if required.
+- [x] Existing `SpectrumLayoutTests` pass after moving the layout to core if required.
 - [ ] Manual browser comparison for low and high notes confirms the dominant band moves as expected.
 
 - **Dependencies:** Task 22
@@ -617,10 +629,10 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 ### Checkpoint C: Current Feature Parity
 
-- [ ] Desktop and browser builds pass together.
+- [x] Desktop and browser builds pass together.
 - [ ] Live staff, loaded score, score playback, practice, piano roll, random measure, oscilloscope, and spectrum work in one browser session.
-- [ ] No feature depends on OpenTK/OpenAL from `PianoMapper.Web` or browser types from `PianoMapper.Core`.
-- [ ] Audio/canvas profiling shows no growing node, listener, timer, or animation-frame leaks.
+- [x] No feature depends on OpenTK/OpenAL from `PianoMapper.Web` or browser types from `PianoMapper.Core`.
+- [x] Audio/canvas profiling shows no growing node, listener, timer, or animation-frame leaks.
 - [ ] Human review accepts functional parity before packaging work.
 
 ### Phase 5: Packaging, Browser Hardening, and Documentation
@@ -631,15 +643,15 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] Release publish output is self-contained static content and requires no ASP.NET server process.
-- [ ] HTTPS hosting enables audio/PWA requirements, and first-load failures produce a clear message.
-- [ ] After one successful published load, the app starts offline with its packaged assets and fixtures are still loaded only from user selection.
+- [x] Release publish output is self-contained static content and requires no ASP.NET server process.
+- [x] HTTPS hosting enables audio/PWA requirements, and first-load failures produce a clear message.
+- [x] After one successful published load, the app starts offline with its packaged assets and fixtures are still loaded only from user selection.
 - [ ] The chosen host's base path and SPA fallback/direct-navigation behavior are verified; service-worker asset-manifest generation is configured in the web project.
 
 **Verification:**
 
-- [ ] `rtk dotnet publish PianoMapper.Web/PianoMapper.Web.csproj --configuration Release`
-- [ ] Serve the publish directory over HTTPS and verify offline reload; verify installation only in browsers that expose PWA installation.
+- [x] `rtk dotnet publish PianoMapper.Web/PianoMapper.Web.csproj --configuration Release`
+- [x] Serve the publish directory over HTTPS and verify offline reload; verify installation only in browsers that expose PWA installation.
 - [ ] Verify a new publish activates predictably after closing prior tabs.
 
 - **Dependencies:** Checkpoint C
@@ -653,14 +665,14 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 **Acceptance criteria:**
 
 - [ ] Current stable desktop Chrome, Edge, Firefox, and macOS Safari complete the core keyboard/audio/score/practice flow, subject to the recorded Safari test-access decision.
-- [ ] Every visible control has a label, focus indicator, and native keyboard activation.
-- [ ] Reserved browser keys and form-field typing remain unaffected in every tested browser.
+- [x] Every visible control has a label, focus indicator, and native keyboard activation.
+- [x] Reserved browser keys and form-field typing remain unaffected in every tested browser.
 
 **Verification:**
 
 - [ ] Run the manual browser matrix for audio unlock, polyphony, blur cleanup, file import, playback, practice, resize, and offline start.
-- [ ] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj`
-- [ ] `rtk dotnet build PianoMapper.slnx --configuration Release`
+- [x] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj`
+- [x] `rtk dotnet build PianoMapper.slnx --configuration Release`
 
 - **Dependencies:** Task 24
 - **Files likely touched:** `PianoMapper.Web/Pages/Piano.razor`, `PianoMapper.Web/Layout/MainLayout.razor`, `PianoMapper.Web/wwwroot/css/app.css`, `PianoMapper.Web/wwwroot/js/keyboard.js`, `docs/browser-test-matrix.md`
@@ -672,17 +684,17 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 **Acceptance criteria:**
 
-- [ ] README instructions match actual project names, commands, controls, and browser behavior.
-- [ ] Remote-use guidance explains that browser audio/input execute locally and no VNC/audio stream is required for the web host.
-- [ ] Web MIDI, touch piano, backend sync, and unsupported MusicXML features remain clearly identified as out of scope.
+- [x] README instructions match actual project names, commands, controls, and browser behavior.
+- [x] Remote-use guidance explains that browser audio/input execute locally and no VNC/audio stream is required for the web host.
+- [x] Web MIDI, touch piano, backend sync, and unsupported MusicXML features remain clearly identified as out of scope.
 
 **Verification:**
 
 - [ ] Execute every documented build/run/publish command exactly as written.
-- [ ] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj`
-- [ ] `rtk dotnet build PianoMapper.slnx --configuration Release`
-- [ ] `rtk dotnet publish PianoMapper.Web/PianoMapper.Web.csproj --configuration Release`
-- [ ] `rtk git diff --check`
+- [x] `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj`
+- [x] `rtk dotnet build PianoMapper.slnx --configuration Release`
+- [x] `rtk dotnet publish PianoMapper.Web/PianoMapper.Web.csproj --configuration Release`
+- [x] `rtk git diff --check`
 
 - **Dependencies:** Task 25
 - **Files likely touched:** `README.md`, `docs/remote-access.md`
@@ -690,13 +702,15 @@ Keyboard listeners are scoped to the focused play surface, ignore input/textarea
 
 ## Final Checkpoint
 
+**Final automated evidence (2026-07-15):** Release tests passed 307/307 with zero warnings; the five-project Release build and Web publish completed with zero errors or warnings. Headless Chromium passed the complete input/audio/canvas score slice, analyser/view/random/practice lifecycle checks, focus-loss separation for score versus practice, and published HTTPS offline reload. `rtk git diff --check` passed.
+
 - [ ] All overall acceptance criteria are met.
 - [ ] Existing desktop behavior and shortcuts have not changed.
-- [ ] All automated tests pass in a clean Release build.
+- [x] All automated tests pass in a clean Release build.
 - [ ] Published browser output passes the supported-browser and offline checklist.
-- [ ] No browser-reserved key is globally intercepted.
-- [ ] No unrequested Web MIDI, backend, mobile keyboard, or MusicXML expansion has entered scope.
-- [ ] Documentation matches the verified implementation.
+- [x] No browser-reserved key is globally intercepted.
+- [x] No unrequested Web MIDI, backend, mobile keyboard, or MusicXML expansion has entered scope.
+- [x] Documentation matches the verified implementation.
 - [ ] Changes are ready for implementation review and normal PR review.
 
 ## Risks and Mitigations
@@ -722,9 +736,9 @@ These questions do not block planning, but they should be answered at the indica
 
 1. **Latency target before Task 6:** Are median <= 20 ms and p95 <= 50 ms for browser-event-to-audio-schedule delay the approved go/no-go thresholds on the primary laptop/browser, or should Checkpoint A use different measured limits?
 2. **Audio fidelity at Checkpoint A:** Is equivalent piano-style synthesis acceptable, or must the web host reproduce the desktop PCM timbre closely enough for an A/B match?
-3. **MusicXML size before Task 11:** What maximum selected-file size should the browser permit and document?
-4. **Practice visibility before Task 19:** On tab hide/window blur, should an active practice session abort, pause, or continue and catch up on return?
-5. **Primary HTTPS host before Task 24:** Where will the static PWA be hosted—`archie`, a static hosting provider, or both?
+3. **MusicXML size before Task 11:** Resolved provisionally at 10 MiB per selected file; the browser rejects larger files before opening the stream and shows the limit in the picker.
+4. **Practice visibility before Task 19:** Resolved provisionally as abort-on-blur/visibility-loss with immediate audio cleanup and retry from a fresh clock anchor.
+5. **Primary HTTPS host before Task 24:** Still open. Packaging is host-neutral and verified from local HTTPS static hosting; remote base-path and SPA-fallback behavior must be checked on the chosen host.
 6. **Safari test access before Task 25:** Which macOS device or external tester will provide the Safari verification pass?
 7. **Post-release scope:** Should Web MIDI and a touch piano be separate follow-up plans after browser parity is stable?
 

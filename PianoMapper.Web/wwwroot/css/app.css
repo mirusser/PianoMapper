@@ -1,0 +1,109 @@
+:root {
+    color-scheme: dark;
+    font-family: system-ui, sans-serif;
+    background: #111827;
+    color: #f9fafb;
+}
+
+body {
+    margin: 0;
+}
+
+main {
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.play-surface {
+    min-height: 24rem;
+    padding: 1.5rem;
+    border: 2px solid #4b5563;
+    border-radius: 0.5rem;
+    background: #1f2937;
+}
+
+.play-surface:focus-visible {
+    outline: 3px solid #60a5fa;
+    outline-offset: 0.25rem;
+}
+
+.controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+button {
+    padding: 0.65rem 1rem;
+    border: 1px solid #93c5fd;
+    border-radius: 0.35rem;
+    background: #1d4ed8;
+    color: #fff;
+    cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+    outline: 3px solid #fbbf24;
+    outline-offset: 0.2rem;
+}
+
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+select {
+    margin-left: 0.4rem;
+    padding: 0.45rem;
+}
+
+.piano-canvas {
+    display: block;
+    width: 100%;
+    height: 20rem;
+    border: 1px solid #4b5563;
+    border-radius: 0.35rem;
+    background: #030712;
+}
+
+.practice-panel {
+    margin: 1rem 0;
+    padding: 1rem;
+    border: 1px solid #4b5563;
+    border-radius: 0.35rem;
+}
+
+.practice-panel ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+    padding-left: 1.25rem;
+}
+
+#blazor-error-ui {
+    display: none;
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    padding: 1rem;
+    background: #7f1d1d;
+}
+
+@media (max-width: 40rem) {
+    main {
+        padding: 1rem;
+    }
+
+    .play-surface {
+        padding: 1rem;
+    }
+
+    .piano-canvas {
+        height: 16rem;
+    }
+}

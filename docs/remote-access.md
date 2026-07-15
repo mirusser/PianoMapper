@@ -1,5 +1,25 @@
 # Running PianoMapper Remotely (archie via laptop)
 
+## Browser app: local input and audio on the laptop
+
+The browser build downloads WebAssembly and static assets from `archie`, then handles keyboard input, rendering, and Web Audio on the laptop. You do not need VNC or an audio stream for this path.
+
+Start the development host on `archie` from the repository root:
+
+```bash
+dotnet run --project PianoMapper.Web/PianoMapper.Web.csproj --urls http://127.0.0.1:5080
+```
+
+Forward it from the laptop:
+
+```bash
+ssh -f -N -L 5080:localhost:5080 mirusser@192.168.0.74
+```
+
+Open `http://localhost:5080`. Browsers treat localhost as a secure context for Web Audio and service workers. For regular shared access, publish the PWA and place `wwwroot` behind an HTTPS static host instead of leaving the development server running.
+
+## Desktop app: VNC and streamed audio
+
 PianoMapper runs entirely on archie (headless Hyprland session, no physical monitor). View and hear it from the laptop over SSH — no ports exposed beyond SSH itself.
 
 ## Every session: run these two on the laptop

@@ -1,0 +1,47 @@
+<div class="score-file-picker">
+    <label for="score-file">MusicXML score (maximum 10 MiB)</label>
+    <InputFile id="score-file"
+               OnChange="SelectFileAsync"
+               accept=".musicxml,.xml,application/vnd.recordare.musicxml+xml,application/xml,text/xml" />
+    @if (!string.IsNullOrEmpty(status))
+    {
+        <p role="status">@status</p>
+    }
+</div>
+
+@code {
+    internal const long MaximumFileSizeBytes = 10L * 1024 * 1024;
+
+    private readonly MusicXmlScoreReader reader = new();
+    private string? status;
+
+    [Parameter]
+    public EventCallback<Score> ScoreLoaded { get; set; }
+
+    private async Task SelectFileAsync(InputFileChangeEventArgs eventArgs)
+    {
+        var file = eventArgs.File;
+        if (file.Size > MaximumFileSizeBytes)
+        {
+            status = $"Could not load score: {file.Name} exceeds the 10 MiB limit.";
+            return;
+        }
+
+        try
+        {
+            await using var source = file.OpenReadStream(MaximumFileSizeBytes);
+            using var buffer = new MemoryStream((int)file.Size);
+            await source.CopyToAsync(buffer);
+            buffer.Position = 0;
+
+            var score = reader.Read(buffer, file.Name);
+            await ScoreLoaded.InvokeAsync(score);
+            status = $"Loaded {score.Title}: {score.Measures.Count} measure(s).";
+        }
+        catch (Exception exception) when (
+            exception is IOException or InvalidDataException or NotSupportedException or ArgumentException)
+        {
+            status = $"Could not load score: {exception.Message}";
+        }
+    }
+}

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <meta name="theme-color" content="#111827" />
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/piano-192.svg" />
+    <title>PianoMapper</title>
+</head>
+<body>
+    <div id="app">Loading PianoMapper…</div>
+    <noscript>PianoMapper requires JavaScript and WebAssembly in this browser.</noscript>
+    <div id="blazor-error-ui">
+        An unexpected error occurred.
+        <a href="." class="reload">Reload</a>
+        <button type="button" class="dismiss" aria-label="Dismiss">×</button>
+    </div>
+    <script src="_framework/blazor.webassembly.js"></script>
+    <script>
+        navigator.serviceWorker?.register("service-worker.js", { updateViaCache: "none" });
+        window.setTimeout(() => {
+            const app = document.getElementById("app");
+            if (app?.textContent.includes("Loading PianoMapper")) {
+                app.textContent = "PianoMapper could not start. Check the network connection, then reload this page.";
+            }
+        }, 15000);
+    </script>
+</body>
+</html>

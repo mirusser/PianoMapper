@@ -1,0 +1,47 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<canvas @ref="canvas" class="piano-canvas" role="img" aria-label="@SceneLabel">
+    Piano visualization.
+</canvas>
+
+@code {
+    private static readonly CanvasAnalysisLayout AnalysisLayout = new(
+        SpectrumLayout.PanelX0,
+        SpectrumLayout.PanelX1,
+        SpectrumLayout.PanelY0,
+        SpectrumLayout.PanelY1,
+        SpectrumLayout.VisibleBinCount);
+
+    private ElementReference canvas;
+    private IJSObjectReference? module;
+
+    [Parameter, EditorRequired]
+    public IPianoCanvasScene Scene { get; set; } = new GrandStaffScene([], [], []);
+
+    private string SceneLabel => Scene.Kind == PianoCanvasSceneKind.PianoRoll
+        ? "Scrolling piano roll"
+        : "Live grand staff";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/canvas.js");
+            await module.InvokeVoidAsync("initialize", canvas, AnalysisLayout);
+        }
+
+        await module!.InvokeVoidAsync("render", canvas, Scene);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (module is null)
+        {
+            return;
+        }
+
+        await module.InvokeVoidAsync("dispose", canvas);
+        await module.DisposeAsync();
+    }
+}

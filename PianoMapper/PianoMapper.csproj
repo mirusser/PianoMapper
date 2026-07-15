@@ -14,6 +14,10 @@
     </ItemGroup>
 
     <ItemGroup>
+      <ProjectReference Include="..\PianoMapper.Core\PianoMapper.Core.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
       <InternalsVisibleTo Include="PianoMapper.Tests" />
     </ItemGroup>
 

@@ -15,7 +15,9 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\PianoMapper.Core\PianoMapper.Core.csproj" />
         <ProjectReference Include="..\PianoMapper\PianoMapper.csproj" />
+        <ProjectReference Include="..\PianoMapper.Web\PianoMapper.Web.csproj" />
     </ItemGroup>
 
     <ItemGroup>

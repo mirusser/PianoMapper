@@ -27,6 +27,17 @@ public sealed class NoteTimelineTests
     }
 
     [Fact]
+    public void Start_ExplicitTime_UsesProvidedClockValue()
+    {
+        var timeline = new NoteTimeline(new FakeTimeProvider());
+        var mappedTime = TimeSpan.FromSeconds(12.5);
+
+        var note = timeline.Start(C4, mappedTime);
+
+        Assert.Equal(mappedTime, note.StartTime);
+    }
+
+    [Fact]
     public void Start_MultipleNotes_AllAppearAsSeparateEntries()
     {
         var timeline = new NoteTimeline(new FakeTimeProvider());
@@ -88,6 +99,32 @@ public sealed class NoteTimelineTests
         time.Advance(TimeSpan.FromSeconds(NoteTimeline.RetentionSeconds + 2));
 
         Assert.Empty(timeline.Snapshot());
+    }
+
+    [Fact]
+    public void Snapshot_ExplicitTime_UsesProvidedClockOriginForPruning()
+    {
+        var time = new FakeTimeProvider();
+        var timeline = new NoteTimeline(time);
+        var note = timeline.Start(C4, TimeSpan.FromSeconds(10));
+        timeline.Complete(note, TimeSpan.FromSeconds(11));
+        time.Advance(TimeSpan.FromHours(1));
+
+        var snapshot = timeline.Snapshot(TimeSpan.FromSeconds(12));
+
+        Assert.Contains(note, snapshot);
+    }
+
+    [Fact]
+    public void Prune_ExplicitTime_RemovesNoteExpiredInProvidedClockOrigin()
+    {
+        var timeline = new NoteTimeline(new FakeTimeProvider());
+        var note = timeline.Start(C4, TimeSpan.FromSeconds(10));
+        timeline.Complete(note, TimeSpan.FromSeconds(11));
+
+        timeline.Prune(TimeSpan.FromSeconds(11 + NoteTimeline.RetentionSeconds + 1));
+
+        Assert.Empty(timeline.Snapshot(TimeSpan.FromSeconds(12)));
     }
 
     [Fact]

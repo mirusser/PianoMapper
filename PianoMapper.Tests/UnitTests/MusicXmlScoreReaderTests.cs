@@ -6,6 +6,23 @@ public sealed class MusicXmlScoreReaderTests
 {
     private static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
+    [Theory]
+    [InlineData("single-staff.musicxml")]
+    [InlineData("musescore-export.musicxml")]
+    [InlineData("dotted-double-accidental.musicxml")]
+    [InlineData("grand-staff-demo.musicxml")]
+    public void Read_Stream_ProducesSameScoreAsPath(string fixture)
+    {
+        var reader = new MusicXmlScoreReader();
+        string path = Fixture(fixture);
+        var pathScore = reader.Read(path);
+        using var stream = File.OpenRead(path);
+
+        var streamScore = reader.Read(stream, fixture);
+
+        Assert.Equivalent(pathScore, streamScore, strict: true);
+    }
+
     [Fact]
     public void Read_SingleStaffMelody_ReturnsDomainScoreWithPitchTimeAndRestData()
     {

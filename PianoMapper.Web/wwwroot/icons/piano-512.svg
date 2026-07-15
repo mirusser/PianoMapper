@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="PianoMapper">
+  <rect width="512" height="512" rx="88" fill="#111827"/>
+  <rect x="64" y="117" width="384" height="278" rx="27" fill="#f8fafc"/>
+  <path d="M139 117v278M213 117v278M288 117v278M363 117v278" stroke="#1f2937" stroke-width="13"/>
+  <path d="M115 117h48v163h-48zM189 117h48v163h-48zM339 117h48v163h-48z" fill="#1f2937"/>
+  <circle cx="400" cy="75" r="27" fill="#22d3ee"/>
+</svg>

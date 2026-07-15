@@ -1,0 +1,56 @@
+<section class="practice-panel" aria-label="Practice controls">
+    <div class="controls">
+        <button type="button" @onclick="Start" disabled="@(!CanStart)">
+            Start / retry practice (T)
+        </button>
+        <button type="button" @onclick="Abort" disabled="@(!IsActive)">
+            Abort practice (C)
+        </button>
+    </div>
+    <p role="status">
+        @if (State == PracticeSessionState.CountingIn)
+        {
+            <span>Count-in @CountInTicksDue of @TotalCountInTicks</span>
+        }
+        else
+        {
+            <span>Practice: @State</span>
+        }
+    </p>
+    @if (Result is not null)
+    {
+        <p>Accuracy: @Result.Summary.AccuracyPercent.ToString("F1", CultureInfo.InvariantCulture)%</p>
+        <ul>
+            @foreach (var (verdict, count) in Result.Summary.Counts.Where(item => item.Value > 0))
+            {
+                <li>@verdict: @count</li>
+            }
+        </ul>
+    }
+</section>
+
+@code {
+    [Parameter]
+    public PracticeSessionState State { get; set; }
+
+    [Parameter]
+    public GradingResult? Result { get; set; }
+
+    [Parameter]
+    public int CountInTicksDue { get; set; }
+
+    [Parameter]
+    public int TotalCountInTicks { get; set; }
+
+    [Parameter]
+    public bool CanStart { get; set; }
+
+    [Parameter]
+    public bool IsActive { get; set; }
+
+    [Parameter]
+    public EventCallback Start { get; set; }
+
+    [Parameter]
+    public EventCallback Abort { get; set; }
+}

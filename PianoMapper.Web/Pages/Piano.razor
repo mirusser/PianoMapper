@@ -1,0 +1,656 @@
+@page "/"
+@implements IAsyncDisposable
+@inject WebAudioSession AudioSession
+@inject BrowserScorePlayback ScorePlaybackSession
+@inject IJSRuntime JS
+
+<PageTitle>PianoMapper</PageTitle>
+
+<main>
+    <h1>PianoMapper</h1>
+    <section @ref="playSurface" class="play-surface" tabindex="0" aria-label="Piano play surface">
+        <p role="status">@audioStatus</p>
+        <div class="controls" aria-label="Audio controls">
+            <button type="button" @onclick="EnableAudioAsync" disabled="@AudioSession.IsInitialized">Enable audio</button>
+            <button type="button" @onclick="PlayTestNoteAsync" disabled="@(!AudioSession.IsInitialized || testNoteIsActive)">Play test note</button>
+            <button type="button" @onclick="StopTestNoteAsync" disabled="@(!testNoteIsActive)">Stop test note</button>
+            <button type="button" @onclick="ClearNotesAsync" disabled="@(!AudioSession.IsInitialized)">Clear notes (C)</button>
+            <button type="button" @onclick="ShowTimingAsync" disabled="@(!AudioSession.IsInitialized)">Show input timing</button>
+            <button type="button" @onclick="PlayRandomMeasureAsync" disabled="@(!AudioSession.IsInitialized)">
+                Play random measure (M)
+            </button>
+        </div>
+        <div class="controls" aria-label="Octave controls">
+            <button type="button" @onclick="OctaveDownAsync">Octave down (Z)</button>
+            <label>
+                Octave
+                <select value="@keyboardState.CurrentOctave" @onchange="SelectOctaveAsync">
+                    @for (int octave = 1; octave <= 8; octave++)
+                    {
+                        <option value="@octave">@octave</option>
+                    }
+                </select>
+            </label>
+            <button type="button" @onclick="OctaveUpAsync">Octave up (X)</button>
+            <button type="button" @onclick="ToggleViewAsync">
+                Show @(showPianoRoll ? "grand staff" : "piano roll") (V)
+            </button>
+        </div>
+        <ScoreFilePicker ScoreLoaded="HandleScoreLoadedAsync" />
+        @if (loadedScore is not null)
+        {
+            <p>@loadedScore.Title — @loadedScore.Measures.Count measure(s)</p>
+            <div class="controls" aria-label="Score navigation">
+                <button type="button"
+                        @onclick="StartScorePlaybackAsync"
+                        disabled="@(!AudioSession.IsInitialized)">
+                    Play / restart score (P)
+                </button>
+                <button type="button" @onclick="ShowPreviousMeasures" disabled="@(firstVisibleMeasure == 0)">
+                    Previous measures ([)
+                </button>
+                <span>
+                    Measures @(firstVisibleMeasure + 1)–@Math.Min(
+                        firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount,
+                        loadedScore.Measures.Count)
+                </span>
+                <button type="button"
+                        @onclick="ShowNextMeasures"
+                        disabled="@(firstVisibleMeasure >= loadedScore.Measures.Count - 1)">
+                    Next measures (])
+                </button>
+            </div>
+            <PracticePanel State="@practiceCoordinator.State"
+                           Result="@practiceCoordinator.Result"
+                           CountInTicksDue="@practiceCoordinator.CountInTicksDue"
+                           TotalCountInTicks="@loadedScore.TimeSignature.Numerator"
+                           CanStart="@AudioSession.IsInitialized"
+                           IsActive="@practiceCoordinator.IsActive"
+                           Start="StartPracticeAsync"
+                           Abort="AbortPracticeFromControlAsync" />
+        }
+        <p>
+            Meter @displayTimeSignature.Numerator/@displayTimeSignature.BeatNoteValue.Denominator,
+            tempo @displayTempo.BeatsPerMinute.ToString("F0", CultureInfo.InvariantCulture) BPM
+        </p>
+        <p>Play: A W S E D F R J U K I L ;</p>
+        <PianoCanvas Scene="@canvasScene" />
+    </section>
+</main>
+
+@code {
+    private const string TestNoteId = "test-note";
+    private static readonly Pitch TestPitch = new(NoteLetter.A, 0, 4);
+    private static readonly TimeSpan BrowserSchedulingLead = TimeSpan.FromMilliseconds(50);
+
+    private readonly NoteTimeline noteTimeline = new();
+    private readonly BrowserKeyboardState keyboardState;
+    private ElementReference playSurface;
+    private AudioClockAnchor? audioClockAnchor;
+    private IJSObjectReference? keyboardModule;
+    private DotNetObjectReference<Piano>? keyboardReference;
+    private IPianoCanvasScene canvasScene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero);
+    private Score? loadedScore;
+    private int firstVisibleMeasure;
+    private CancellationTokenSource? playbackRefreshCancellation;
+    private Task? playbackRefreshTask;
+    private BrowserPracticeCoordinator practiceCoordinator = null!;
+    private CancellationTokenSource? practiceRefreshCancellation;
+    private Task? practiceRefreshTask;
+    private CancellationTokenSource? pianoRollRefreshCancellation;
+    private Task? pianoRollRefreshTask;
+    private string audioStatus = "Audio is not initialized.";
+    private bool testNoteIsActive;
+    private bool showPianoRoll;
+    private TimeSignature displayTimeSignature = new(4, new NoteValue(4));
+    private Tempo displayTempo = new(120);
+
+    public Piano()
+    {
+        keyboardState = new BrowserKeyboardState(noteTimeline, initialOctave: 4);
+    }
+
+    protected override void OnInitialized()
+    {
+        practiceCoordinator = new BrowserPracticeCoordinator(AudioSession, noteTimeline);
+    }
+
+    private async Task EnableAudioAsync()
+    {
+        try
+        {
+            audioClockAnchor = await AudioSession.InitializeAsync();
+            await AttachKeyboardAsync();
+            audioStatus = "Audio is ready.";
+        }
+        catch (JSException exception)
+        {
+            audioStatus = $"Audio could not start: {exception.Message} Select Enable audio to retry.";
+        }
+    }
+
+    private async Task PlayTestNoteAsync()
+    {
+        await AudioSession.StartNoteAsync(TestNoteId, TestPitch, GetAnchorTime(), shouldMeasureLatency: false);
+        testNoteIsActive = true;
+        audioStatus = "Test note is playing.";
+    }
+
+    private async Task StopTestNoteAsync()
+    {
+        await AudioSession.StopNoteAsync(TestNoteId, GetAnchorTime());
+        testNoteIsActive = false;
+        audioStatus = "Audio is ready.";
+    }
+
+    private async Task ClearNotesAsync()
+    {
+        await ApplyInputCommandAsync(keyboardState.Clear(GetAnchorTime()));
+    }
+
+    private async Task ShowTimingAsync()
+    {
+        var summary = await AudioSession.GetSchedulingLatencyAsync();
+        audioStatus = summary.SampleCount == 0
+            ? "No keyboard timing samples recorded yet."
+            : $"{summary.SampleCount} samples: median {summary.MedianMilliseconds:F1} ms, p95 {summary.P95Milliseconds:F1} ms.";
+    }
+
+    private async Task HandleScoreLoadedAsync(Score score)
+    {
+        await AbortPracticeAsync(updateStatus: false);
+        await StopScorePlaybackAsync();
+        loadedScore = score;
+        displayTimeSignature = score.TimeSignature;
+        displayTempo = score.Tempo;
+        firstVisibleMeasure = 0;
+        TimeSpan currentTime = AudioSession.IsInitialized
+            ? await AudioSession.GetCurrentTimeAsync()
+            : TimeSpan.Zero;
+        RefreshCanvasScene(currentTime);
+    }
+
+    private async Task StartScorePlaybackAsync()
+    {
+        if (loadedScore is null || !AudioSession.IsInitialized)
+        {
+            return;
+        }
+
+        await AbortPracticeAsync(updateStatus: false);
+        await CancelPianoRollRefreshAsync();
+        await CancelPlaybackRefreshAsync();
+        await ScorePlaybackSession.StartAsync(loadedScore);
+        displayTimeSignature = loadedScore.TimeSignature;
+        displayTempo = loadedScore.Tempo;
+        playbackRefreshCancellation = new CancellationTokenSource();
+        playbackRefreshTask = RefreshScorePlaybackAsync(playbackRefreshCancellation.Token);
+        audioStatus = $"Playing {loadedScore.Title}.";
+    }
+
+    private async Task PlayRandomMeasureAsync()
+    {
+        if (!AudioSession.IsInitialized)
+        {
+            return;
+        }
+
+        await AbortPracticeAsync(updateStatus: false);
+        await StopScorePlaybackAsync();
+        var measure = RandomMeasureComposer.Compose(
+            [TestPitch],
+            minNumerator: 4,
+            maxNumerator: 4,
+            minBeatsPerMinute: 60,
+            maxBeatsPerMinute: 60,
+            Random.Shared);
+        TimeSpan anchor = await AudioSession.GetCurrentTimeAsync() + BrowserSchedulingLead;
+        await AudioSession.ScheduleScoreAsync(BrowserRandomMeasureScheduler.CreateEvents(measure, anchor));
+        displayTimeSignature = measure.TimeSignature;
+        displayTempo = measure.Tempo;
+        audioStatus = "Playing a random measure.";
+    }
+
+    private async Task StartPracticeAsync()
+    {
+        if (loadedScore is null || !AudioSession.IsInitialized)
+        {
+            return;
+        }
+
+        await StopScorePlaybackAsync();
+        await AbortPracticeAsync(updateStatus: false);
+        await CancelPianoRollRefreshAsync();
+        TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync();
+        keyboardState.Clear(currentTime);
+        await AudioSession.ClearAsync(currentTime);
+        await practiceCoordinator.StartAsync(loadedScore);
+        practiceRefreshCancellation = new CancellationTokenSource();
+        practiceRefreshTask = RefreshPracticeAsync(practiceRefreshCancellation.Token);
+        audioStatus = "Practice count-in started.";
+    }
+
+    private async Task AbortPracticeFromControlAsync()
+    {
+        if (!AudioSession.IsInitialized)
+        {
+            return;
+        }
+
+        await AbortPracticeAsync(await AudioSession.GetCurrentTimeAsync());
+    }
+
+    private async Task StopScorePlaybackAsync()
+    {
+        await CancelPlaybackRefreshAsync();
+        if (AudioSession.IsInitialized)
+        {
+            await ScorePlaybackSession.StopAsync();
+        }
+
+        if (loadedScore is not null)
+        {
+            RefreshCanvasScene(GetAnchorTime());
+        }
+    }
+
+    private void ShowPreviousMeasures()
+    {
+        if (loadedScore is null)
+        {
+            return;
+        }
+
+        firstVisibleMeasure = GrandStaffSceneBuilder.ClampFirstVisibleMeasure(
+            loadedScore,
+            firstVisibleMeasure - GrandStaffLayout.VisibleMeasureCount);
+        if (!showPianoRoll)
+        {
+            RefreshCanvasScene(GetAnchorTime());
+        }
+    }
+
+    private void ShowNextMeasures()
+    {
+        if (loadedScore is null)
+        {
+            return;
+        }
+
+        firstVisibleMeasure = GrandStaffSceneBuilder.ClampFirstVisibleMeasure(
+            loadedScore,
+            firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount);
+        if (!showPianoRoll)
+        {
+            RefreshCanvasScene(GetAnchorTime());
+        }
+    }
+
+    private Task OctaveDownAsync() =>
+        ApplyInputCommandAsync(keyboardState.ChangeOctave(keyboardState.CurrentOctave - 1, GetAnchorTime()));
+
+    private Task OctaveUpAsync() =>
+        ApplyInputCommandAsync(keyboardState.ChangeOctave(keyboardState.CurrentOctave + 1, GetAnchorTime()));
+
+    private Task SelectOctaveAsync(ChangeEventArgs eventArgs)
+    {
+        int octave = int.Parse((string)eventArgs.Value!, CultureInfo.InvariantCulture);
+        return ApplyInputCommandAsync(keyboardState.ChangeOctave(octave, GetAnchorTime()));
+    }
+
+    private async Task ToggleViewAsync()
+    {
+        TimeSpan currentTime = AudioSession.IsInitialized
+            ? await AudioSession.GetCurrentTimeAsync()
+            : TimeSpan.Zero;
+        await SetViewAsync(currentTime);
+    }
+
+    [JSInvokable]
+    public Task HandleKeyDownAsync(BrowserKeyboardEvent keyboardEvent) =>
+        ApplyInputCommandAsync(
+            keyboardState.HandleKeyDown(
+                keyboardEvent.Code,
+                keyboardEvent.IsRepeat,
+                MapEventTime(keyboardEvent.EventTimestampMilliseconds)));
+
+    [JSInvokable]
+    public Task HandleKeyUpAsync(BrowserKeyboardEvent keyboardEvent) =>
+        ApplyInputCommandAsync(
+            keyboardState.HandleKeyUp(
+                keyboardEvent.Code,
+                MapEventTime(keyboardEvent.EventTimestampMilliseconds)));
+
+    [JSInvokable]
+    public async Task HandleFocusLostAsync(double eventTimestampMilliseconds)
+    {
+        TimeSpan eventTime = MapEventTime(eventTimestampMilliseconds);
+        await ApplyInputCommandAsync(keyboardState.ReleaseAll(eventTime));
+        if (practiceCoordinator.IsActive)
+        {
+            await AbortPracticeAsync(eventTime);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await CancelPianoRollRefreshAsync();
+        await AbortPracticeAsync(updateStatus: false);
+        await StopScorePlaybackAsync();
+
+        if (keyboardModule is not null)
+        {
+            await keyboardModule.InvokeVoidAsync("dispose");
+            await keyboardModule.DisposeAsync();
+        }
+
+        keyboardReference?.Dispose();
+    }
+
+    private TimeSpan GetAnchorTime() =>
+        TimeSpan.FromSeconds(audioClockAnchor?.AudioTimeSeconds ?? 0);
+
+    private TimeSpan MapEventTime(double eventTimestampMilliseconds) =>
+        BrowserAudioClock.MapEventTimestamp(audioClockAnchor!, eventTimestampMilliseconds);
+
+    private async Task AttachKeyboardAsync()
+    {
+        keyboardModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/keyboard.js");
+        keyboardReference ??= DotNetObjectReference.Create(this);
+        await keyboardModule.InvokeVoidAsync(
+            "attach",
+            playSurface,
+            keyboardReference,
+            BrowserKeyBindings.HandledCodes);
+    }
+
+    private async Task ApplyInputCommandAsync(BrowserInputCommand command)
+    {
+        switch (command.Kind)
+        {
+            case BrowserInputCommandKind.None:
+                return;
+            case BrowserInputCommandKind.NoteOn:
+                await AudioSession.StartNoteAsync(command.NoteId!, command.Pitch!.Value, command.EventTime);
+                audioStatus = $"Playing {command.Pitch}.";
+                break;
+            case BrowserInputCommandKind.NoteOff:
+                await AudioSession.StopNoteAsync(command.NoteId!, command.EventTime);
+                audioStatus = "Audio is ready.";
+                break;
+            case BrowserInputCommandKind.Clear:
+                await StopScorePlaybackAsync();
+                bool practiceWasActive = practiceCoordinator.State != PracticeSessionState.Idle;
+                await CancelPracticeRefreshAsync();
+                if (practiceWasActive)
+                {
+                    await practiceCoordinator.AbortAsync();
+                }
+
+                await AudioSession.ClearAsync(command.EventTime);
+                testNoteIsActive = false;
+                audioStatus = practiceWasActive ? "Practice aborted." : "All notes cleared.";
+                break;
+            case BrowserInputCommandKind.ReleaseHeldNotes:
+                await AudioSession.ClearAsync(command.EventTime);
+                testNoteIsActive = false;
+                if (!ScorePlaybackSession.IsActive)
+                {
+                    audioStatus = "Held notes released.";
+                }
+
+                break;
+            case BrowserInputCommandKind.OctaveChanged:
+                audioStatus = $"Octave {keyboardState.CurrentOctave} selected.";
+                break;
+            case BrowserInputCommandKind.PreviousMeasures:
+                ShowPreviousMeasures();
+                break;
+            case BrowserInputCommandKind.NextMeasures:
+                ShowNextMeasures();
+                break;
+            case BrowserInputCommandKind.StartScorePlayback:
+                await StartScorePlaybackAsync();
+                break;
+            case BrowserInputCommandKind.StartPractice:
+                await StartPracticeAsync();
+                break;
+            case BrowserInputCommandKind.ToggleView:
+                await SetViewAsync(command.EventTime);
+                break;
+            case BrowserInputCommandKind.PlayRandomMeasure:
+                await PlayRandomMeasureAsync();
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported browser input command: {command.Kind}.");
+        }
+
+        if (command.Kind is BrowserInputCommandKind.NoteOn or
+            BrowserInputCommandKind.NoteOff or
+            BrowserInputCommandKind.Clear or
+            BrowserInputCommandKind.ReleaseHeldNotes)
+        {
+            RefreshCanvasScene(command.EventTime);
+            EnsurePianoRollRefresh();
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshScorePlaybackAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested && loadedScore is not null)
+            {
+                TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync(cancellationToken);
+                double? cursorBeats = ScorePlaybackSession.GetCursorBeats(currentTime);
+                RefreshCanvasScene(currentTime, cursorBeats);
+                await InvokeAsync(StateHasChanged);
+
+                if (!ScorePlaybackSession.IsActive)
+                {
+                    audioStatus = "Audio is ready.";
+                    EnsurePianoRollRefresh();
+                    break;
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(33), cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task CancelPlaybackRefreshAsync()
+    {
+        if (playbackRefreshCancellation is null)
+        {
+            return;
+        }
+
+        await playbackRefreshCancellation.CancelAsync();
+        if (playbackRefreshTask is not null)
+        {
+            await playbackRefreshTask;
+        }
+
+        playbackRefreshCancellation.Dispose();
+        playbackRefreshCancellation = null;
+        playbackRefreshTask = null;
+    }
+
+    private async Task RefreshPracticeAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested && loadedScore is not null)
+            {
+                await practiceCoordinator.UpdateAsync(cancellationToken);
+                double? cursorBeats = practiceCoordinator.State is
+                    PracticeSessionState.Running or PracticeSessionState.Finished
+                        ? practiceCoordinator.CursorBeats
+                        : null;
+                RefreshCanvasScene(
+                    practiceCoordinator.CurrentTime,
+                    cursorBeats,
+                    practiceCoordinator.GetVisibleVerdicts());
+                audioStatus = practiceCoordinator.State switch
+                {
+                    PracticeSessionState.CountingIn => "Practice count-in.",
+                    PracticeSessionState.Running => "Practice in progress.",
+                    PracticeSessionState.Finished => "Practice finished.",
+                    _ => audioStatus,
+                };
+                await InvokeAsync(StateHasChanged);
+
+                if (practiceCoordinator.State == PracticeSessionState.Finished)
+                {
+                    EnsurePianoRollRefresh();
+                    break;
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(33), cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task AbortPracticeAsync(TimeSpan? eventTime = null, bool updateStatus = true)
+    {
+        await CancelPracticeRefreshAsync();
+        if (practiceCoordinator.State == PracticeSessionState.Idle)
+        {
+            return;
+        }
+
+        await practiceCoordinator.AbortAsync();
+        if (AudioSession.IsInitialized)
+        {
+            TimeSpan releaseTime = eventTime ?? await AudioSession.GetCurrentTimeAsync();
+            keyboardState.Clear(releaseTime);
+            await AudioSession.ClearAsync(releaseTime);
+        }
+
+        if (loadedScore is not null)
+        {
+            RefreshCanvasScene(eventTime ?? GetAnchorTime());
+        }
+
+        if (updateStatus)
+        {
+            audioStatus = "Practice aborted.";
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task CancelPracticeRefreshAsync()
+    {
+        if (practiceRefreshCancellation is null)
+        {
+            return;
+        }
+
+        await practiceRefreshCancellation.CancelAsync();
+        if (practiceRefreshTask is not null)
+        {
+            await practiceRefreshTask;
+        }
+
+        practiceRefreshCancellation.Dispose();
+        practiceRefreshCancellation = null;
+        practiceRefreshTask = null;
+    }
+
+    private async Task SetViewAsync(TimeSpan currentTime)
+    {
+        showPianoRoll = !showPianoRoll;
+        RefreshCanvasScene(currentTime);
+        if (showPianoRoll)
+        {
+            EnsurePianoRollRefresh();
+        }
+        else
+        {
+            await CancelPianoRollRefreshAsync();
+        }
+    }
+
+    private void RefreshCanvasScene(
+        TimeSpan currentTime,
+        double? cursorBeats = null,
+        IReadOnlyDictionary<ScoreNote, Verdict>? verdicts = null)
+    {
+        if (showPianoRoll)
+        {
+            var notes = noteTimeline.Snapshot(currentTime)
+                .Concat(ScorePlaybackSession.GetStartedNotes(currentTime))
+                .ToArray();
+            canvasScene = PianoRollSceneBuilder.Build(notes, currentTime);
+            return;
+        }
+
+        canvasScene = loadedScore is null
+            ? GrandStaffSceneBuilder.Build(noteTimeline.Snapshot(currentTime), currentTime)
+            : GrandStaffSceneBuilder.BuildScore(loadedScore, firstVisibleMeasure, cursorBeats, verdicts);
+    }
+
+    private void EnsurePianoRollRefresh()
+    {
+        if (!showPianoRoll ||
+            !AudioSession.IsInitialized ||
+            ScorePlaybackSession.IsActive ||
+            practiceCoordinator.IsActive ||
+            pianoRollRefreshTask is { IsCompleted: false })
+        {
+            return;
+        }
+
+        pianoRollRefreshCancellation?.Dispose();
+        pianoRollRefreshCancellation = new CancellationTokenSource();
+        pianoRollRefreshTask = RefreshPianoRollAsync(pianoRollRefreshCancellation.Token);
+    }
+
+    private async Task RefreshPianoRollAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (showPianoRoll && !cancellationToken.IsCancellationRequested)
+            {
+                TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync(cancellationToken);
+                RefreshCanvasScene(currentTime);
+                await InvokeAsync(StateHasChanged);
+                if (canvasScene is PianoRollScene { Bars.Count: 0 } && keyboardState.ActiveNoteCount == 0)
+                {
+                    break;
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(33), cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task CancelPianoRollRefreshAsync()
+    {
+        if (pianoRollRefreshCancellation is null)
+        {
+            return;
+        }
+
+        await pianoRollRefreshCancellation.CancelAsync();
+        if (pianoRollRefreshTask is not null)
+        {
+            await pianoRollRefreshTask;
+        }
+
+        pianoRollRefreshCancellation.Dispose();
+        pianoRollRefreshCancellation = null;
+        pianoRollRefreshTask = null;
+    }
+}

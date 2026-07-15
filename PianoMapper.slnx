@@ -1,4 +1,6 @@
 <Solution xmlns="http://schemas.microsoft.com/visualstudio/2010/solution">
+  <Project Path="PianoMapper.Core/PianoMapper.Core.csproj" xmlns="" />
   <Project Path="PianoMapper/PianoMapper.csproj" xmlns="" />
   <Project Path="PianoMapper.Tests/PianoMapper.Tests.csproj" xmlns="" />
+  <Project Path="PianoMapper.Web/PianoMapper.Web.csproj" xmlns="" />
 </Solution>
