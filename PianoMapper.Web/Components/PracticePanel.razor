@@ -23,13 +23,50 @@
         <ul>
             @foreach (var (verdict, count) in Result.Summary.Counts.Where(item => item.Value > 0))
             {
-                <li>@verdict: @count</li>
+                <li>@GetVerdictLabel(verdict): @count</li>
             }
         </ul>
     }
+    <details class="learning-disclosure">
+        <summary>How practice feedback works</summary>
+        <p>
+            The count-in gives you one measure of beats before playing starts. Accuracy is the percentage of expected
+            notes graded correct.
+        </p>
+        <dl class="music-term-grid practice-term-grid">
+            <div>
+                <dt>Correct</dt>
+                <dd>You played the expected pitch close enough to the score's start time and duration.</dd>
+            </div>
+            <div>
+                <dt>Wrong pitch</dt>
+                <dd>You played a different piano key near the expected time.</dd>
+            </div>
+            <div>
+                <dt>Early / late</dt>
+                <dd>You started the right pitch before or after its expected beat.</dd>
+            </div>
+            <div>
+                <dt>Too short / too long</dt>
+                <dd>You released the right pitch sooner or held it longer than its written note value.</dd>
+            </div>
+            <div>
+                <dt>Missed / extra</dt>
+                <dd>You skipped an expected note or played one that the score did not contain.</dd>
+            </div>
+        </dl>
+    </details>
 </section>
 
 @code {
+    private static string GetVerdictLabel(Verdict verdict) => verdict switch
+    {
+        Verdict.WrongPitch => "Wrong pitch",
+        Verdict.TooShort => "Too short",
+        Verdict.TooLong => "Too long",
+        _ => verdict.ToString(),
+    };
+
     [Parameter]
     public PracticeSessionState State { get; set; }
 

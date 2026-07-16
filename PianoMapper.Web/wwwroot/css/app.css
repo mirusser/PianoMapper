@@ -280,6 +280,10 @@ select {
     color: #aebdd0;
 }
 
+.score-file-help {
+    flex-basis: 100%;
+}
+
 input[type="file"] {
     max-width: 100%;
     color: #aebdd0;
@@ -437,7 +441,8 @@ input[type="file"]::file-selector-button {
     text-align: right;
 }
 
-.visualization-help {
+.learning-disclosure {
+    margin-top: 0.85rem;
     padding: 0.85rem 1rem;
     border: 1px solid #334155;
     border-radius: 0.7rem;
@@ -447,15 +452,48 @@ input[type="file"]::file-selector-button {
     line-height: 1.55;
 }
 
-.visualization-help summary {
+.score-file-help,
+.visualization-help {
+    margin-top: 0;
+}
+
+.learning-disclosure summary {
     color: #dbeafe;
     font-weight: 800;
     cursor: pointer;
 }
 
-.visualization-help p {
+.learning-disclosure > p {
     max-width: 65rem;
     margin: 0.7rem 0 0;
+}
+
+.music-term-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 0.65rem;
+    margin: 0.8rem 0 0;
+}
+
+.music-term-grid div {
+    padding: 0.7rem 0.75rem;
+    border: 1px solid rgb(71 85 105 / 70%);
+    border-radius: 0.55rem;
+    background: rgb(15 23 42 / 70%);
+}
+
+.music-term-grid dt {
+    color: #dbeafe;
+    font-weight: 800;
+}
+
+.music-term-grid dd {
+    margin: 0.2rem 0 0;
+    color: #9fb0c4;
+}
+
+.practice-term-grid {
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
 }
 
 .practice-panel {

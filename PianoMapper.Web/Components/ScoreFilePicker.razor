@@ -3,6 +3,12 @@
     <InputFile id="score-file"
                OnChange="SelectFileAsync"
                accept=".musicxml,.xml,application/vnd.recordare.musicxml+xml,application/xml,text/xml" />
+    <details class="learning-disclosure score-file-help">
+        <summary>What is MusicXML?</summary>
+        <p>
+            MusicXML stores written music such as notes, rhythm, and tempo. Audio files store the recorded sound.
+        </p>
+    </details>
     @if (!string.IsNullOrEmpty(status))
     {
         <p role="status">@status</p>
