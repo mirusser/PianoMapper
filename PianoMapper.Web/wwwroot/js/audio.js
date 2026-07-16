@@ -3,10 +3,19 @@ let masterGain;
 let analyser;
 const activeNotes = new Map();
 const scheduledScoreNotes = new Map();
+const scheduledMetronomeClicks = new Set();
 const schedulingDelaysMilliseconds = [];
+let metronomeInterval;
+let metronomeAnchorSeconds;
+let metronomeSecondsPerBeat;
+let metronomeBeatsPerMeasure;
+let nextMetronomeBeatIndex;
 
 const attackSeconds = 0.012;
 const releaseSeconds = 0.08;
+const metronomeLookaheadSeconds = 0.2;
+const metronomeSchedulerIntervalMilliseconds = 25;
+const metronomeClickDurationSeconds = 0.04;
 const harmonics = [
     { multiplier: 1, gain: 0.72 },
     { multiplier: 2, gain: 0.2 },
@@ -92,6 +101,110 @@ export function stopScore() {
     }
 }
 
+export function startMetronome(anchorSeconds, secondsPerBeat, beatsPerMeasure) {
+    ensureReady();
+    stopMetronome();
+
+    metronomeAnchorSeconds = anchorSeconds;
+    metronomeSecondsPerBeat = secondsPerBeat;
+    metronomeBeatsPerMeasure = beatsPerMeasure;
+    nextMetronomeBeatIndex = Math.max(
+        0,
+        Math.ceil((audioContext.currentTime - anchorSeconds) / secondsPerBeat));
+    scheduleMetronomeClicks();
+    metronomeInterval = window.setInterval(
+        scheduleMetronomeClicks,
+        metronomeSchedulerIntervalMilliseconds);
+}
+
+export function stopMetronome() {
+    if (metronomeInterval !== undefined) {
+        window.clearInterval(metronomeInterval);
+        metronomeInterval = undefined;
+    }
+
+    for (const click of scheduledMetronomeClicks) {
+        window.clearTimeout(click.pulseTimer);
+        window.clearTimeout(click.pulseClearTimer);
+        if (audioContext && audioContext.state !== "closed") {
+            const stopTime = audioContext.currentTime;
+            click.envelope.gain.cancelScheduledValues(stopTime);
+            click.envelope.gain.setValueAtTime(0.0001, stopTime);
+            click.oscillator.stop(stopTime);
+        }
+    }
+
+    scheduledMetronomeClicks.clear();
+    clearMetronomePulse();
+}
+
+function scheduleMetronomeClicks() {
+    if (!audioContext || audioContext.state !== "running") {
+        return;
+    }
+
+    const firstUnsoundedBeatIndex = Math.max(
+        0,
+        Math.ceil((audioContext.currentTime - metronomeAnchorSeconds) / metronomeSecondsPerBeat));
+    nextMetronomeBeatIndex = Math.max(nextMetronomeBeatIndex, firstUnsoundedBeatIndex);
+    const scheduleUntil = audioContext.currentTime + metronomeLookaheadSeconds;
+    while (true) {
+        const clickTime = metronomeAnchorSeconds + (nextMetronomeBeatIndex * metronomeSecondsPerBeat);
+        if (clickTime > scheduleUntil) {
+            return;
+        }
+
+        scheduleMetronomeClick(
+            Math.max(clickTime, audioContext.currentTime),
+            nextMetronomeBeatIndex % metronomeBeatsPerMeasure === 0);
+        nextMetronomeBeatIndex++;
+    }
+}
+
+function scheduleMetronomeClick(startTime, isDownbeat) {
+    const oscillator = audioContext.createOscillator();
+    const envelope = audioContext.createGain();
+    const peakGain = isDownbeat ? 0.55 : 0.35;
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(isDownbeat ? 1760 : 1320, startTime);
+    envelope.gain.setValueAtTime(0.0001, startTime);
+    envelope.gain.exponentialRampToValueAtTime(peakGain, startTime + 0.002);
+    envelope.gain.exponentialRampToValueAtTime(0.0001, startTime + metronomeClickDurationSeconds);
+    oscillator.connect(envelope);
+    envelope.connect(masterGain);
+
+    const click = { oscillator, envelope, pulseTimer: undefined, pulseClearTimer: undefined };
+    scheduledMetronomeClicks.add(click);
+    oscillator.onended = () => {
+        scheduledMetronomeClicks.delete(click);
+        oscillator.disconnect();
+        envelope.disconnect();
+    };
+    click.pulseTimer = window.setTimeout(
+        () => pulseMetronome(click, isDownbeat),
+        Math.max(0, (startTime - audioContext.currentTime) * 1000));
+    oscillator.start(startTime);
+    oscillator.stop(startTime + metronomeClickDurationSeconds);
+}
+
+function pulseMetronome(click, isDownbeat) {
+    const pulse = document.querySelector("[data-metronome-pulse]");
+    if (!pulse) {
+        return;
+    }
+
+    pulse.classList.toggle("metronome-pulse-downbeat", isDownbeat);
+    pulse.classList.add("metronome-pulse-active");
+    click.pulseClearTimer = window.setTimeout(
+        () => clearMetronomePulse(),
+        90);
+}
+
+function clearMetronomePulse() {
+    const pulse = document.querySelector("[data-metronome-pulse]");
+    pulse?.classList.remove("metronome-pulse-active", "metronome-pulse-downbeat");
+}
+
 function createNote(frequency, startTime) {
     const envelope = audioContext.createGain();
     envelope.gain.setValueAtTime(0.0001, startTime);
@@ -158,6 +271,7 @@ export async function dispose() {
         return;
     }
 
+    stopMetronome();
     clear(audioContext.currentTime);
     stopScore();
     await audioContext.close();

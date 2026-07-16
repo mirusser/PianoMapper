@@ -257,6 +257,56 @@ select {
     color: #fff;
 }
 
+.tempo-feedback {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    align-items: center;
+    margin-top: 0.75rem;
+}
+
+.metronome-pulse {
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 50%;
+    background: #475569;
+    transition: background-color 60ms ease, box-shadow 60ms ease, transform 60ms ease;
+}
+
+.metronome-pulse-active {
+    background: #38bdf8;
+    box-shadow: 0 0 0.75rem rgb(56 189 248 / 75%);
+    transform: scale(1.35);
+}
+
+.metronome-pulse-active.metronome-pulse-downbeat {
+    background: #facc15;
+    box-shadow: 0 0 0.9rem rgb(250 204 21 / 80%);
+    transform: scale(1.65);
+}
+
+.tempo-feedback-chip {
+    padding: 0.25rem 0.55rem;
+    border: 1px solid currentcolor;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 800;
+}
+
+.verdict-correct {
+    color: #4ade80;
+}
+
+.verdict-early,
+.verdict-late {
+    color: #fb923c;
+}
+
+.tempo-feedback-stats {
+    color: #cbd5e1;
+    font-size: 0.8rem;
+}
+
 .score-card {
     margin-bottom: 0.85rem;
     padding: 1rem;

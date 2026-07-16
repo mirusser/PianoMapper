@@ -45,6 +45,25 @@ public sealed class BrowserPracticeCoordinatorTests
     }
 
     [Fact]
+    public async Task StartAsync_CustomOnTimeTolerance_UsesOptionsForGrading()
+    {
+        var audio = new FakePracticeAudio(TimeSpan.FromSeconds(10));
+        var timeline = new NoteTimeline();
+        var coordinator = new BrowserPracticeCoordinator(audio, timeline);
+        var options = new GradingOptions { OnTimeTolerance = TimeSpan.FromMilliseconds(100) };
+        await coordinator.StartAsync(CreateScore(), options);
+        TimeSpan startTime = coordinator.PracticeAnchor + TimeSpan.FromMilliseconds(80);
+        var performed = timeline.Start(new Pitch(NoteLetter.C, 0, 4), startTime);
+        timeline.Complete(performed, startTime + TimeSpan.FromSeconds(0.5));
+        audio.CurrentTime = performed.ReleaseTime!.Value;
+
+        await coordinator.UpdateAsync();
+
+        var result = Assert.IsType<GradingResult>(coordinator.Result);
+        Assert.Equal(Verdict.Correct, Assert.Single(result.Events).Verdict);
+    }
+
+    [Fact]
     public async Task AbortAndStartAsync_ActiveSession_AbortsAndRetriesFromNewClockAnchor()
     {
         var audio = new FakePracticeAudio(TimeSpan.FromSeconds(10));

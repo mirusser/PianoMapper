@@ -4,7 +4,7 @@ using PianoMapper.Web.Playback;
 
 namespace PianoMapper.Web.Audio;
 
-internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio, IAsyncDisposable
+internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio, IBrowserMetronomeAudio, IAsyncDisposable
 {
     private const string ModulePath = "./js/audio.js";
 
@@ -97,6 +97,21 @@ internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio
 
     public ValueTask StopScoreAsync(CancellationToken cancellationToken = default) =>
         GetInitializedModule().InvokeVoidAsync("stopScore", cancellationToken);
+
+    public ValueTask StartMetronomeAsync(
+        TimeSpan anchor,
+        TimeSpan beatDuration,
+        int beatsPerMeasure,
+        CancellationToken cancellationToken = default) =>
+        GetInitializedModule().InvokeVoidAsync(
+            "startMetronome",
+            cancellationToken,
+            anchor.TotalSeconds,
+            beatDuration.TotalSeconds,
+            beatsPerMeasure);
+
+    public ValueTask StopMetronomeAsync(CancellationToken cancellationToken = default) =>
+        GetInitializedModule().InvokeVoidAsync("stopMetronome", cancellationToken);
 
     public async ValueTask DisposeAsync()
     {

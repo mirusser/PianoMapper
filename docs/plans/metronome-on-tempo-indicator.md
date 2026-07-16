@@ -72,13 +72,13 @@ downbeat (beat index modulo numerator) for later display use. Add `MetronomeGrid
 practice-grading outcome — to cover beat alignment.
 
 **Acceptance criteria:**
-- [ ] `MetronomeGrid` computes nearest beat and signed deviation for times before/after/exactly on a beat, including times before the anchor.
-- [ ] `BeatAlignment` returns `Correct` at exactly ±tolerance (inclusive boundary), `Early`/`Late` just outside it.
-- [ ] Works for non-quarter beat values (e.g. 6/8 at 90 BPM) using existing `MusicalTime` semantics (a beat = `BeatNoteValue`).
+- [x] `MetronomeGrid` computes nearest beat and signed deviation for times before/after/exactly on a beat, including times before the anchor.
+- [x] `BeatAlignment` returns `Correct` at exactly ±tolerance (inclusive boundary), `Early`/`Late` just outside it.
+- [x] Works for non-quarter beat values (e.g. 6/8 at 90 BPM) using existing `MusicalTime` semantics (a beat = `BeatNoteValue`).
 
 **Verification:**
-- [ ] Tests pass: `dotnet test --filter "MetronomeGrid|BeatAlignment"`
-- [ ] Build succeeds: `dotnet build`
+- [x] Tests pass: `dotnet test --filter "MetronomeGrid|BeatAlignment"`
+- [x] Build succeeds: `dotnet build`
 
 **Dependencies:** None
 
@@ -106,12 +106,12 @@ so practice grading picks up the new default immediately; user-selectable tolera
 lands in Task 8.
 
 **Acceptance criteria:**
-- [ ] A matched note within ±`OnTimeTolerance` of the expected onset can be graded `Correct` (subject to duration checks).
-- [ ] Notes outside the dead zone but within `OnsetTolerance` are still matched and graded `Early`/`Late`.
-- [ ] All existing `GraderTests` and `PracticeSessionTests` pass unchanged.
+- [x] A matched note within ±`OnTimeTolerance` of the expected onset can be graded `Correct` (subject to duration checks).
+- [x] Notes outside the dead zone but within `OnsetTolerance` are still matched and graded `Early`/`Late`.
+- [x] All existing `GraderTests` and `PracticeSessionTests` pass unchanged.
 
 **Verification:**
-- [ ] Tests pass: `dotnet test --filter "Grader|PracticeSession"`
+- [x] Tests pass: `dotnet test --filter "Grader|PracticeSession"`
 
 **Dependencies:** None (independent of Task 1)
 
@@ -123,7 +123,7 @@ lands in Task 8.
 **Estimated scope:** S
 
 ### Checkpoint: Foundation
-- [ ] `dotnet build` clean, full `dotnet test` green.
+- [x] `dotnet build` clean, full `dotnet test` green.
 
 ### Phase 2: Metronome audio (vertical slice: toggle → click heard)
 
@@ -168,12 +168,12 @@ scheduling-lead convention), builds a `MetronomeGrid`, passes derived values to 
 `BrowserPracticeCoordinatorTests`.
 
 **Acceptance criteria:**
-- [ ] `StartAsync` anchors the grid at audio-now + lead and forwards matching beat duration / beats-per-measure to the audio interface.
-- [ ] `StopAsync` stops audio and clears `Grid`; starting again re-anchors at the new current time.
-- [ ] `Grid` is `null`/inactive when not running.
+- [x] `StartAsync` anchors the grid at audio-now + lead and forwards matching beat duration / beats-per-measure to the audio interface.
+- [x] `StopAsync` stops audio and clears `Grid`; starting again re-anchors at the new current time.
+- [x] `Grid` is `null`/inactive when not running.
 
 **Verification:**
-- [ ] Tests pass: `dotnet test --filter "BrowserMetronome"`
+- [x] Tests pass: `dotnet test --filter "BrowserMetronome"`
 
 **Dependencies:** Tasks 1, 3
 
@@ -200,7 +200,7 @@ metronome. Status chip reflects state ("Metronome on at {TimingLabel}." / "Metro
 - [ ] Clear (`C` key or button) and page disposal stop the metronome without errors.
 
 **Verification:**
-- [ ] Build succeeds: `dotnet build`
+- [x] Build succeeds: `dotnet build`
 - [ ] Manual check via the running app (`/run`): toggle on/off, change tempo mid-run, press `C`.
 
 **Dependencies:** Task 4
@@ -227,12 +227,12 @@ Core (`PianoMapper.Core/Practice/TempoFeedbackTracker.cs`) so the desktop app ca
 `Reset()` on metronome stop/restart, timing change, and Clear.
 
 **Acceptance criteria:**
-- [ ] Feeding onsets produces correct last verdict, signed deviation in ms, rolling on-time ratio, and median deviation.
-- [ ] Window caps at 10 notes (oldest evicted); `Reset()` empties all stats.
-- [ ] No tracking occurs when the grid is inactive.
+- [x] Feeding onsets produces correct last verdict, signed deviation in ms, rolling on-time ratio, and median deviation.
+- [x] Window caps at 10 notes (oldest evicted); `Reset()` empties all stats.
+- [x] No tracking occurs when the grid is inactive.
 
 **Verification:**
-- [ ] Tests pass: `dotnet test --filter "TempoFeedbackTracker"`
+- [x] Tests pass: `dotnet test --filter "TempoFeedbackTracker"`
 
 **Dependencies:** Tasks 1, 4
 
@@ -260,7 +260,7 @@ task; the preset select lands in Task 8.
 - [ ] The pulse dot blinks in sync with the audible clicks, accented on beat 1; indicator and pulse are hidden when the metronome is off.
 
 **Verification:**
-- [ ] Build succeeds: `dotnet build`; full `dotnet test` green.
+- [x] Build succeeds: `dotnet build`; full `dotnet test` green.
 - [ ] Manual check via the running app (`/run`) per the acceptance criteria above.
 
 **Dependencies:** Tasks 3, 5, 6
@@ -284,11 +284,11 @@ Update the README `Features` list with one bullet covering the metronome and on-
 
 **Acceptance criteria:**
 - [ ] Switching the preset visibly changes how strict the indicator verdicts are.
-- [ ] Practice started after changing the preset grades with the selected `OnTimeTolerance`, covered by a `BrowserPracticeCoordinatorTests` case using the `FakePracticeAudio` pattern.
-- [ ] README `Features` mentions the metronome and on-tempo indicator.
+- [x] Practice started after changing the preset grades with the selected `OnTimeTolerance`, covered by a `BrowserPracticeCoordinatorTests` case using the `FakePracticeAudio` pattern.
+- [x] README `Features` mentions the metronome and on-tempo indicator.
 
 **Verification:**
-- [ ] Tests pass: `dotnet test --filter "BrowserPracticeCoordinator"`; full `dotnet test` green.
+- [x] Tests pass: `dotnet test --filter "BrowserPracticeCoordinator"`; full `dotnet test` green.
 - [ ] Manual check via the running app (`/run`): flip presets while playing against the click.
 
 **Dependencies:** Tasks 2, 6, 7

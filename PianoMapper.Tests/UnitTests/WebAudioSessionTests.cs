@@ -91,6 +91,26 @@ public sealed class WebAudioSessionTests
         Assert.Equal(2, scheduleBatch.Length);
     }
 
+    [Fact]
+    public async Task MetronomeCommands_InitializedSession_StartsAndStopsWithGridValues()
+    {
+        var calls = new List<string>();
+        var module = new RecordingJsModule(calls, new AudioClockAnchor(1000, 2));
+        var runtime = new RecordingJsRuntime(calls, module);
+        await using var session = new WebAudioSession(runtime);
+        await session.InitializeAsync();
+
+        await session.StartMetronomeAsync(
+            TimeSpan.FromSeconds(12.05),
+            TimeSpan.FromSeconds(0.5),
+            4);
+        await session.StopMetronomeAsync();
+
+        Assert.Contains("module:startMetronome", calls);
+        Assert.Contains("module:stopMetronome", calls);
+        Assert.Equal([12.05, 0.5, 4], module.Arguments["startMetronome"]);
+    }
+
     private sealed class RecordingJsRuntime(List<string> calls, IJSObjectReference module) : IJSRuntime
     {
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>

@@ -9,6 +9,7 @@ PianoMapper maps a computer keyboard to piano notes and renders performances as 
 - Strict uncompressed MusicXML import for one part and up to two staves, including chords, ties, rests, and backup/forward timing.
 - Scheduled score playback, measure navigation, a tempo cursor, and random-measure playback.
 - Count-in practice with pitch/timing/duration verdicts and an accuracy summary.
+- Optional browser metronome with accented downbeats, on-tempo feedback, and adjustable timing tolerance.
 - Piano-style multi-harmonic synthesis, oscilloscope, and spectrum.
 - Browser-local Web Audio, static publishing, and offline PWA startup after the first online load.
 

@@ -29,13 +29,20 @@ internal sealed class BrowserPracticeCoordinator(IBrowserScoreAudio audio, NoteT
 
     internal TimeSpan CurrentTime { get; private set; }
 
-    internal async ValueTask StartAsync(Score score, CancellationToken cancellationToken = default)
+    internal ValueTask StartAsync(Score score, CancellationToken cancellationToken = default) =>
+        StartAsync(score, new GradingOptions(), cancellationToken);
+
+    internal async ValueTask StartAsync(
+        Score score,
+        GradingOptions gradingOptions,
+        CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(gradingOptions);
         await audio.StopScoreAsync(cancellationToken);
         TimeSpan startTime = await audio.GetCurrentTimeAsync(cancellationToken) + SchedulingLead;
         CurrentTime = startTime;
         timeProvider.SetTime(startTime);
-        session = new PracticeSession(score, timeProvider);
+        session = new PracticeSession(score, timeProvider, gradingOptions);
         session.Start(startTime);
         Result = null;
 

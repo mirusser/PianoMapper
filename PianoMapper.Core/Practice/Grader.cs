@@ -132,12 +132,13 @@ public static class Grader
         }
 
         TimeSpan expectedOnset = practiceAnchor + MusicalTime.BeatsToDuration(expected.OnsetBeats, tempo);
-        if (performed.StartTime < expectedOnset)
+        TimeSpan onsetDeviation = performed.StartTime - expectedOnset;
+        if (onsetDeviation.Duration() > options.OnTimeTolerance && onsetDeviation < TimeSpan.Zero)
         {
             return Verdict.Early;
         }
 
-        if (performed.StartTime > expectedOnset)
+        if (onsetDeviation > options.OnTimeTolerance)
         {
             return Verdict.Late;
         }

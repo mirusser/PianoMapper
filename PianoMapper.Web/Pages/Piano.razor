@@ -1,6 +1,7 @@
 @page "/"
 @implements IAsyncDisposable
 @inject WebAudioSession AudioSession
+@inject BrowserMetronome Metronome
 @inject BrowserScorePlayback ScorePlaybackSession
 @inject IJSRuntime JS
 
@@ -120,7 +121,43 @@
                                value="@TempoBeatsPerMinuteText"
                                @onchange="SelectTempoAsync" />
                     </label>
+                    <label class="timing-field">
+                        <span>On-time tolerance</span>
+                        <select value="@OnTimeToleranceMilliseconds"
+                                @onchange="SelectOnTimeToleranceAsync">
+                            <option value="@StrictToleranceMilliseconds">Strict (30 ms)</option>
+                            <option value="@NormalToleranceMilliseconds">Normal (60 ms)</option>
+                            <option value="@RelaxedToleranceMilliseconds">Relaxed (100 ms)</option>
+                        </select>
+                    </label>
+                    <button type="button"
+                            @onclick="ToggleMetronomeAsync"
+                            disabled="@(!AudioSession.IsInitialized)"
+                            aria-pressed="@Metronome.IsRunning">
+                        @(Metronome.IsRunning ? "Stop metronome" : "Start metronome")
+                    </button>
                 </div>
+                @if (Metronome.IsRunning)
+                {
+                    <div class="tempo-feedback" aria-live="polite">
+                        <span class="metronome-pulse" data-metronome-pulse aria-hidden="true"></span>
+                        @if (tempoFeedbackTracker.LastAlignment is { } alignment &&
+                            tempoFeedbackTracker.MedianDeviation is { } medianDeviation)
+                        {
+                            <span class="tempo-feedback-chip @GetVerdictCssClass(alignment.Verdict)">
+                                @FormatAlignment(alignment)
+                            </span>
+                            <span class="tempo-feedback-stats">
+                                @tempoFeedbackTracker.OnTimeCount/@tempoFeedbackTracker.TotalCount on time · median
+                                @FormatSignedMilliseconds(medianDeviation)
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="tempo-feedback-stats">Play a note to check your timing.</span>
+                        }
+                    </div>
+                }
                 <p class="control-note">
                     Meter groups beats; tempo controls their speed. A change stops scheduled playback so the next
                     start can use the new timing. Note pitch and sound character stay the same.
@@ -220,10 +257,14 @@
     private const int MaximumMeterNumerator = 12;
     private const int MinimumTempoBeatsPerMinute = 30;
     private const int MaximumTempoBeatsPerMinute = 300;
+    private const int StrictToleranceMilliseconds = 30;
+    private const int NormalToleranceMilliseconds = 60;
+    private const int RelaxedToleranceMilliseconds = 100;
     private static readonly Pitch TestPitch = new(NoteLetter.A, 0, 4);
     private static readonly TimeSpan BrowserSchedulingLead = TimeSpan.FromMilliseconds(50);
 
     private readonly NoteTimeline noteTimeline = new();
+    private readonly TempoFeedbackTracker tempoFeedbackTracker = new();
     private readonly BrowserKeyboardState keyboardState;
     private ElementReference playSurface;
     private AudioClockAnchor? audioClockAnchor;
@@ -238,13 +279,14 @@
     private BrowserPracticeCoordinator practiceCoordinator = null!;
     private CancellationTokenSource? practiceRefreshCancellation;
     private Task? practiceRefreshTask;
-    private CancellationTokenSource? pianoRollRefreshCancellation;
-    private Task? pianoRollRefreshTask;
+    private CancellationTokenSource? visualizationRefreshCancellation;
+    private Task? visualizationRefreshTask;
     private string audioStatus = "Audio is not initialized.";
     private bool testNoteIsActive;
     private bool showPianoRoll;
     private TimeSignature displayTimeSignature = new(4, new NoteValue(4));
     private Tempo displayTempo = new(120);
+    private TimeSpan onTimeTolerance = TimeSpan.FromMilliseconds(NormalToleranceMilliseconds);
 
     private string TempoBeatsPerMinuteText =>
         displayTempo.BeatsPerMinute.ToString("F0", CultureInfo.InvariantCulture);
@@ -252,6 +294,8 @@
     private string TimingLabel =>
         $"{displayTimeSignature.Numerator}/{displayTimeSignature.BeatNoteValue.Denominator} · " +
         $"{TempoBeatsPerMinuteText} BPM";
+
+    private int OnTimeToleranceMilliseconds => (int)onTimeTolerance.TotalMilliseconds;
 
     public Piano()
     {
@@ -308,10 +352,22 @@
     {
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
+        bool metronomeWasRunning = Metronome.IsRunning;
+        if (metronomeWasRunning)
+        {
+            await StopMetronomeAsync();
+        }
+
         importedScore = score;
         loadedScore = score;
         displayTimeSignature = score.TimeSignature;
         displayTempo = score.Tempo;
+        if (metronomeWasRunning)
+        {
+            await StartMetronomeAsync();
+            audioStatus = $"Metronome on at {TimingLabel}.";
+        }
+
         firstVisibleMeasure = 0;
         TimeSpan currentTime = AudioSession.IsInitialized
             ? await AudioSession.GetCurrentTimeAsync()
@@ -327,7 +383,7 @@
         }
 
         await AbortPracticeAsync(updateStatus: false);
-        await CancelPianoRollRefreshAsync();
+        await CancelVisualizationRefreshAsync();
         await CancelPlaybackRefreshAsync();
         await ScorePlaybackSession.StartAsync(loadedScore);
         displayTimeSignature = loadedScore.TimeSignature;
@@ -363,13 +419,20 @@
             return;
         }
 
+        if (Metronome.IsRunning)
+        {
+            await StopMetronomeAsync();
+        }
+
         await StopScorePlaybackAsync();
         await AbortPracticeAsync(updateStatus: false);
-        await CancelPianoRollRefreshAsync();
+        await CancelVisualizationRefreshAsync();
         TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync();
         keyboardState.Clear(currentTime);
         await AudioSession.ClearAsync(currentTime);
-        await practiceCoordinator.StartAsync(loadedScore);
+        await practiceCoordinator.StartAsync(
+            loadedScore,
+            new GradingOptions { OnTimeTolerance = onTimeTolerance });
         practiceRefreshCancellation = new CancellationTokenSource();
         practiceRefreshTask = RefreshPracticeAsync(practiceRefreshCancellation.Token);
         audioStatus = "Practice count-in started.";
@@ -473,8 +536,49 @@
         return ApplyTimingAsync(displayTimeSignature, new Tempo(beatsPerMinute));
     }
 
+    private Task SelectOnTimeToleranceAsync(ChangeEventArgs eventArgs)
+    {
+        int milliseconds = int.Parse((string)eventArgs.Value!, CultureInfo.InvariantCulture);
+        onTimeTolerance = TimeSpan.FromMilliseconds(milliseconds);
+        tempoFeedbackTracker.Reset();
+        audioStatus = $"On-time tolerance set to {milliseconds} ms.";
+        return Task.CompletedTask;
+    }
+
+    private async Task ToggleMetronomeAsync()
+    {
+        if (Metronome.IsRunning)
+        {
+            await StopMetronomeAsync();
+            audioStatus = "Metronome off.";
+        }
+        else
+        {
+            await StartMetronomeAsync();
+            audioStatus = $"Metronome on at {TimingLabel}.";
+        }
+    }
+
+    private async Task StartMetronomeAsync()
+    {
+        tempoFeedbackTracker.Reset();
+        await Metronome.StartAsync(displayTimeSignature, displayTempo);
+    }
+
+    private async Task StopMetronomeAsync()
+    {
+        await Metronome.StopAsync();
+        tempoFeedbackTracker.Reset();
+    }
+
     private async Task ApplyTimingAsync(TimeSignature timeSignature, Tempo tempo)
     {
+        bool metronomeWasRunning = Metronome.IsRunning;
+        if (metronomeWasRunning)
+        {
+            await StopMetronomeAsync();
+        }
+
         bool playbackWasActive = ScorePlaybackSession.IsActive || practiceCoordinator.IsActive;
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
@@ -489,10 +593,17 @@
         TimeSpan currentTime = AudioSession.IsInitialized
             ? await AudioSession.GetCurrentTimeAsync()
             : TimeSpan.Zero;
+        if (metronomeWasRunning)
+        {
+            await StartMetronomeAsync();
+        }
+
         RefreshCanvasScene(currentTime);
-        audioStatus = playbackWasActive
-            ? $"Timing set to {TimingLabel}. Start playback again to use it."
-            : $"Timing set to {TimingLabel}.";
+        audioStatus = metronomeWasRunning
+            ? $"Metronome on at {TimingLabel}."
+            : playbackWasActive
+                ? $"Timing set to {TimingLabel}. Start playback again to use it."
+                : $"Timing set to {TimingLabel}.";
     }
 
     private static int ParseClampedInteger(
@@ -507,6 +618,33 @@
             CultureInfo.InvariantCulture,
             out int value);
         return Math.Clamp(parsed ? value : fallback, minimum, maximum);
+    }
+
+    private static string GetVerdictCssClass(Verdict verdict) => verdict switch
+    {
+        Verdict.Correct => "verdict-correct",
+        Verdict.Early => "verdict-early",
+        Verdict.Late => "verdict-late",
+        _ => string.Empty,
+    };
+
+    private static string FormatAlignment(BeatAlignment alignment) => alignment.Verdict switch
+    {
+        Verdict.Correct => "On time",
+        Verdict.Early => $"{FormatSignedMilliseconds(alignment.Deviation)} early",
+        Verdict.Late => $"{FormatSignedMilliseconds(alignment.Deviation)} late",
+        _ => string.Empty,
+    };
+
+    private static string FormatSignedMilliseconds(TimeSpan deviation)
+    {
+        long milliseconds = (long)Math.Round(deviation.TotalMilliseconds, MidpointRounding.AwayFromZero);
+        return milliseconds switch
+        {
+            > 0 => $"+{milliseconds} ms",
+            < 0 => $"−{Math.Abs(milliseconds)} ms",
+            _ => "0 ms",
+        };
     }
 
     private async Task ToggleViewAsync()
@@ -545,9 +683,13 @@
 
     public async ValueTask DisposeAsync()
     {
-        await CancelPianoRollRefreshAsync();
+        await CancelVisualizationRefreshAsync();
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
+        if (Metronome.IsRunning)
+        {
+            await StopMetronomeAsync();
+        }
 
         if (keyboardModule is not null)
         {
@@ -583,6 +725,7 @@
                 return;
             case BrowserInputCommandKind.NoteOn:
                 await AudioSession.StartNoteAsync(command.NoteId!, command.Pitch!.Value, command.EventTime);
+                tempoFeedbackTracker.Record(command.EventTime, Metronome.Grid, onTimeTolerance);
                 audioStatus = $"Playing {command.Pitch}.";
                 break;
             case BrowserInputCommandKind.NoteOff:
@@ -591,6 +734,16 @@
                 break;
             case BrowserInputCommandKind.Clear:
                 await StopScorePlaybackAsync();
+                bool metronomeWasRunning = Metronome.IsRunning;
+                if (metronomeWasRunning)
+                {
+                    await StopMetronomeAsync();
+                }
+                else
+                {
+                    tempoFeedbackTracker.Reset();
+                }
+
                 bool practiceWasActive = practiceCoordinator.State != PracticeSessionState.Idle;
                 await CancelPracticeRefreshAsync();
                 if (practiceWasActive)
@@ -600,7 +753,11 @@
 
                 await AudioSession.ClearAsync(command.EventTime);
                 testNoteIsActive = false;
-                audioStatus = practiceWasActive ? "Practice aborted." : "All notes cleared.";
+                audioStatus = metronomeWasRunning
+                    ? "Metronome off."
+                    : practiceWasActive
+                        ? "Practice aborted."
+                        : "All notes cleared.";
                 break;
             case BrowserInputCommandKind.ReleaseHeldNotes:
                 await AudioSession.ClearAsync(command.EventTime);
@@ -643,7 +800,7 @@
             BrowserInputCommandKind.ReleaseHeldNotes)
         {
             RefreshCanvasScene(command.EventTime);
-            EnsurePianoRollRefresh();
+            EnsureVisualizationRefresh();
         }
 
         await InvokeAsync(StateHasChanged);
@@ -663,7 +820,7 @@
                 if (!ScorePlaybackSession.IsActive)
                 {
                     audioStatus = "Audio is ready.";
-                    EnsurePianoRollRefresh();
+                    EnsureVisualizationRefresh();
                     break;
                 }
 
@@ -719,7 +876,7 @@
 
                 if (practiceCoordinator.State == PracticeSessionState.Finished)
                 {
-                    EnsurePianoRollRefresh();
+                    EnsureVisualizationRefresh();
                     break;
                 }
 
@@ -781,13 +938,17 @@
     {
         showPianoRoll = !showPianoRoll;
         RefreshCanvasScene(currentTime);
-        if (showPianoRoll)
+        if (ShouldContinueVisualizationRefresh(
+            showPianoRoll,
+            loadedScore is not null,
+            canvasScene,
+            keyboardState.ActiveNoteCount))
         {
-            EnsurePianoRollRefresh();
+            EnsureVisualizationRefresh();
         }
         else
         {
-            await CancelPianoRollRefreshAsync();
+            await CancelVisualizationRefreshAsync();
         }
     }
 
@@ -813,32 +974,59 @@
             : GrandStaffSceneBuilder.BuildScore(loadedScore, firstVisibleMeasure, cursorBeats, verdicts);
     }
 
-    private void EnsurePianoRollRefresh()
+    internal static bool ShouldContinueVisualizationRefresh(
+        bool showPianoRoll,
+        bool hasLoadedScore,
+        IPianoCanvasScene scene,
+        int activeNoteCount)
     {
-        if (!showPianoRoll ||
-            !AudioSession.IsInitialized ||
+        if (!showPianoRoll && hasLoadedScore)
+        {
+            return false;
+        }
+
+        return activeNoteCount > 0 || scene switch
+        {
+            GrandStaffScene { Notes.Count: > 0 } => true,
+            PianoRollScene { Bars.Count: > 0 } => true,
+            _ => false,
+        };
+    }
+
+    private void EnsureVisualizationRefresh()
+    {
+        if (!AudioSession.IsInitialized ||
             ScorePlaybackSession.IsActive ||
             practiceCoordinator.IsActive ||
-            pianoRollRefreshTask is { IsCompleted: false })
+            visualizationRefreshTask is { IsCompleted: false } ||
+            !ShouldContinueVisualizationRefresh(
+                showPianoRoll,
+                loadedScore is not null,
+                canvasScene,
+                keyboardState.ActiveNoteCount))
         {
             return;
         }
 
-        pianoRollRefreshCancellation?.Dispose();
-        pianoRollRefreshCancellation = new CancellationTokenSource();
-        pianoRollRefreshTask = RefreshPianoRollAsync(pianoRollRefreshCancellation.Token);
+        visualizationRefreshCancellation?.Dispose();
+        visualizationRefreshCancellation = new CancellationTokenSource();
+        visualizationRefreshTask = RefreshVisualizationAsync(visualizationRefreshCancellation.Token);
     }
 
-    private async Task RefreshPianoRollAsync(CancellationToken cancellationToken)
+    private async Task RefreshVisualizationAsync(CancellationToken cancellationToken)
     {
         try
         {
-            while (showPianoRoll && !cancellationToken.IsCancellationRequested)
+            while (!cancellationToken.IsCancellationRequested)
             {
                 TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync(cancellationToken);
                 RefreshCanvasScene(currentTime);
                 await InvokeAsync(StateHasChanged);
-                if (canvasScene is PianoRollScene { Bars.Count: 0 } && keyboardState.ActiveNoteCount == 0)
+                if (!ShouldContinueVisualizationRefresh(
+                    showPianoRoll,
+                    loadedScore is not null,
+                    canvasScene,
+                    keyboardState.ActiveNoteCount))
                 {
                     break;
                 }
@@ -851,21 +1039,21 @@
         }
     }
 
-    private async Task CancelPianoRollRefreshAsync()
+    private async Task CancelVisualizationRefreshAsync()
     {
-        if (pianoRollRefreshCancellation is null)
+        if (visualizationRefreshCancellation is null)
         {
             return;
         }
 
-        await pianoRollRefreshCancellation.CancelAsync();
-        if (pianoRollRefreshTask is not null)
+        await visualizationRefreshCancellation.CancelAsync();
+        if (visualizationRefreshTask is not null)
         {
-            await pianoRollRefreshTask;
+            await visualizationRefreshTask;
         }
 
-        pianoRollRefreshCancellation.Dispose();
-        pianoRollRefreshCancellation = null;
-        pianoRollRefreshTask = null;
+        visualizationRefreshCancellation.Dispose();
+        visualizationRefreshCancellation = null;
+        visualizationRefreshTask = null;
     }
 }

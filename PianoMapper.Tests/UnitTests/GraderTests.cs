@@ -149,6 +149,23 @@ public sealed class GraderTests
     }
 
     [Theory]
+    [InlineData(-60, (int)Verdict.Correct)]
+    [InlineData(60, (int)Verdict.Correct)]
+    [InlineData(-61, (int)Verdict.Early)]
+    [InlineData(61, (int)Verdict.Late)]
+    public void Grade_OnTimeToleranceBoundary_IsInclusive(int onsetOffsetMilliseconds, int expectedVerdictValue)
+    {
+        ScoreEvent[] expected = [new ScoreEvent(C4, 0, 1, Staff.Treble, [])];
+        TimeSpan start = Anchor + TimeSpan.FromMilliseconds(onsetOffsetMilliseconds);
+        var performed = Completed(C4, start, TimeSpan.FromSeconds(1));
+        var options = new GradingOptions { OnTimeTolerance = TimeSpan.FromMilliseconds(60) };
+
+        var result = Grader.Grade(expected, Tempo, [performed], Anchor, Anchor + TimeSpan.FromSeconds(2), options);
+
+        Assert.Equal((Verdict)expectedVerdictValue, Assert.Single(result.Events).Verdict);
+    }
+
+    [Theory]
     [InlineData(0.4, (int)Verdict.TooShort)]
     [InlineData(0.6, (int)Verdict.Correct)]
     [InlineData(0.8, (int)Verdict.TooLong)]
