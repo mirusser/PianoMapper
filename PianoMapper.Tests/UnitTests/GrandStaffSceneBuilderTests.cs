@@ -158,6 +158,41 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.Equal(1, marker.DurationSeconds);
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    [InlineData(8)]
+    public void Build_SelectedOctave_KeepsKeyboardRangeVisible(int selectedOctave)
+    {
+        PerformedNote[] notes =
+        [
+            new()
+            {
+                Pitch = new Pitch(NoteLetter.C, 0, selectedOctave),
+                StartTime = TimeSpan.FromSeconds(1),
+            },
+            new()
+            {
+                Pitch = new Pitch(NoteLetter.C, 0, selectedOctave + 1),
+                StartTime = TimeSpan.FromSeconds(1.5),
+            },
+        ];
+
+        var scene = GrandStaffSceneBuilder.Build(
+            notes,
+            TimeSpan.FromSeconds(2),
+            selectedOctave);
+
+        Assert.All(scene.Notes, note => Assert.InRange(note.Y, -1, 1));
+        Assert.All(
+            scene.Lines,
+            line =>
+            {
+                Assert.InRange(line.Y0, -1, 1);
+                Assert.InRange(line.Y1, -1, 1);
+            });
+    }
+
     [Fact]
     public void Build_ReleasedNote_ReturnsClosedMarkerWithMeasuredDuration()
     {

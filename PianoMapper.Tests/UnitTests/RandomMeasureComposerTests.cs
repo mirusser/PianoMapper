@@ -22,4 +22,18 @@ public sealed class RandomMeasureComposerTests
         Assert.Equal(4, measure.Events.Sum(note => note.Beats));
         Assert.All(measure.Events, note => Assert.Contains(note.NoteValue.Denominator, new[] { 1, 2, 4, 8, 16 }));
     }
+
+    [Fact]
+    public void Compose_SelectedTiming_UsesBeatNoteAndTempo()
+    {
+        Pitch[] palette = [new Pitch(NoteLetter.A, 0, 4)];
+        var timeSignature = new TimeSignature(6, new NoteValue(8));
+        var tempo = new Tempo(90);
+
+        RandomMeasure measure = RandomMeasureComposer.Compose(palette, timeSignature, tempo, new Random(42));
+
+        Assert.Equal(timeSignature, measure.TimeSignature);
+        Assert.Equal(tempo, measure.Tempo);
+        Assert.Equal(6, measure.Events.Sum(note => note.Beats));
+    }
 }

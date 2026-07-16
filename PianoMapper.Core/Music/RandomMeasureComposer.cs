@@ -19,6 +19,19 @@ public static class RandomMeasureComposer
         int maxBeatsPerMinute,
         Random random)
     {
+        ArgumentNullException.ThrowIfNull(random);
+        int numerator = random.Next(minNumerator, maxNumerator + 1);
+        var timeSignature = new TimeSignature(numerator, new NoteValue(4));
+        var tempo = new Tempo(random.Next(minBeatsPerMinute, maxBeatsPerMinute + 1));
+        return Compose(palette, timeSignature, tempo, random);
+    }
+
+    public static RandomMeasure Compose(
+        IReadOnlyList<Pitch> palette,
+        TimeSignature timeSignature,
+        Tempo tempo,
+        Random random)
+    {
         ArgumentNullException.ThrowIfNull(palette);
         ArgumentNullException.ThrowIfNull(random);
         if (palette.Count == 0)
@@ -26,11 +39,8 @@ public static class RandomMeasureComposer
             throw new ArgumentException("The pitch palette cannot be empty.", nameof(palette));
         }
 
-        int numerator = random.Next(minNumerator, maxNumerator + 1);
-        var timeSignature = new TimeSignature(numerator, new NoteValue(4));
-        var tempo = new Tempo(random.Next(minBeatsPerMinute, maxBeatsPerMinute + 1));
         var events = new List<RandomMeasureEvent>();
-        double beatsRemaining = numerator;
+        double beatsRemaining = timeSignature.Numerator;
 
         while (beatsRemaining > 0)
         {

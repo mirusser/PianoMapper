@@ -1,34 +1,137 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 
-<canvas @ref="canvas" class="piano-canvas" role="img" aria-label="@SceneLabel">
-    Piano visualization.
-</canvas>
+<div class="visualization-stack">
+    <section class="visualization-panel" aria-labelledby="piano-view-heading">
+        <div class="visualization-panel-header">
+            <div>
+                <p class="panel-kicker">Notes</p>
+                <h2 id="piano-view-heading">@SceneTitle</h2>
+            </div>
+            <span class="panel-context">@SceneContext</span>
+        </div>
+        <p class="panel-description">@SceneDescription</p>
+        <div class="legend" aria-label="Note color legend">
+            <span><span class="legend-mark legend-mark-active"></span>Held now</span>
+            <span><span class="legend-mark legend-mark-finished"></span>Released or expected</span>
+        </div>
+        <canvas @ref="canvas" class="piano-canvas" role="img" aria-label="@SceneLabel">
+            Piano visualization.
+        </canvas>
+    </section>
+
+    <div class="analysis-grid">
+        <figure class="analysis-panel">
+            <div class="visualization-panel-header">
+                <div>
+                    <p class="panel-kicker">Sound shape</p>
+                    <h2>Waveform</h2>
+                </div>
+                <span class="legend-line legend-line-waveform">Signal</span>
+            </div>
+            <p class="panel-description">
+                A tiny slice of the audio signal. Taller movement away from the center means a stronger vibration;
+                it does not directly mean a higher note.
+            </p>
+            <canvas @ref="waveformCanvas"
+                    class="analysis-canvas"
+                    role="img"
+                    aria-label="Live audio waveform: time runs from left to right and distance from the center shows signal strength.">
+                Live audio waveform.
+            </canvas>
+            <div class="axis-legend" aria-hidden="true">
+                <span>Earlier</span>
+                <span>Time →</span>
+                <span>Now</span>
+            </div>
+        </figure>
+
+        <figure class="analysis-panel">
+            <div class="visualization-panel-header">
+                <div>
+                    <p class="panel-kicker">Sound ingredients</p>
+                    <h2>Frequency spectrum</h2>
+                </div>
+                <span class="legend-line legend-line-spectrum">Relative strength</span>
+            </div>
+            <p class="panel-description">
+                Each bar is a frequency present in the sound. Higher bars are stronger right now; groups of bars
+                help give a piano note its character.
+            </p>
+            <canvas @ref="spectrumCanvas"
+                    class="analysis-canvas"
+                    role="img"
+                    aria-label="Live frequency spectrum: lower-pitched frequencies are on the left, higher-pitched frequencies are on the right, and bar height shows relative strength.">
+                Live frequency spectrum.
+            </canvas>
+            <div class="axis-legend" aria-hidden="true">
+                <span>Low pitch</span>
+                <span>Frequency →</span>
+                <span>High pitch</span>
+            </div>
+        </figure>
+    </div>
+
+    <details class="visualization-help">
+        <summary>What am I looking at?</summary>
+        <p>
+            The staff shows which notes you played and when. The waveform shows the signal moving through time,
+            while the spectrum separates that same sound into low-to-high frequency ingredients. You do not need
+            to read either analysis panel to play; they are there to connect what you hear with what sound looks like.
+        </p>
+    </details>
+</div>
 
 @code {
-    private static readonly CanvasAnalysisLayout AnalysisLayout = new(
-        SpectrumLayout.PanelX0,
-        SpectrumLayout.PanelX1,
-        SpectrumLayout.PanelY0,
-        SpectrumLayout.PanelY1,
-        SpectrumLayout.VisibleBinCount);
+    private static readonly CanvasAnalysisLayout AnalysisLayout = new(SpectrumLayout.VisibleBinCount);
 
     private ElementReference canvas;
+    private ElementReference waveformCanvas;
+    private ElementReference spectrumCanvas;
     private IJSObjectReference? module;
 
     [Parameter, EditorRequired]
     public IPianoCanvasScene Scene { get; set; } = new GrandStaffScene([], [], []);
 
+    [Parameter]
+    public int SelectedOctave { get; set; } = 4;
+
+    [Parameter]
+    public bool IsScoreView { get; set; }
+
+    private string SceneTitle => Scene.Kind == PianoCanvasSceneKind.PianoRoll
+        ? "Piano roll"
+        : "Grand staff";
+
+    private string SceneContext => Scene.Kind == PianoCanvasSceneKind.PianoRoll
+        ? "Last 8 seconds"
+        : IsScoreView
+            ? "Imported score"
+            : $"Keyboard C{SelectedOctave}–C{SelectedOctave + 1}";
+
+    private string SceneDescription => Scene.Kind == PianoCanvasSceneKind.PianoRoll
+        ? "Time moves from left to right; higher notes appear higher in the panel."
+        : IsScoreView
+            ? "The upper five lines are the treble staff and the lower five are the bass staff."
+            : "The view follows the selected keyboard octave while preserving each note's real position on the staff.";
+
     private string SceneLabel => Scene.Kind == PianoCanvasSceneKind.PianoRoll
         ? "Scrolling piano roll"
-        : "Live grand staff";
+        : IsScoreView
+            ? "Grand staff for the imported score"
+            : $"Live grand staff focused on keyboard octave {SelectedOctave}";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
             module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/canvas.js");
-            await module.InvokeVoidAsync("initialize", canvas, AnalysisLayout);
+            await module.InvokeVoidAsync(
+                "initialize",
+                canvas,
+                waveformCanvas,
+                spectrumCanvas,
+                AnalysisLayout);
         }
 
         await module!.InvokeVoidAsync("render", canvas, Scene);

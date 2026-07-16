@@ -12,11 +12,13 @@ const verdictColors = [
     "#c084fc",
 ];
 
-export function initialize(canvas, analysisLayout) {
+export function initialize(canvas, waveformCanvas, spectrumCanvas, analysisLayout) {
     dispose(canvas);
 
     const state = {
         canvas,
+        waveformCanvas,
+        spectrumCanvas,
         scene: { kind: 0, lines: [], glyphs: [], notes: [] },
         animationFrame: undefined,
         analyser: undefined,
@@ -26,6 +28,8 @@ export function initialize(canvas, analysisLayout) {
     };
     state.resizeObserver = new ResizeObserver(() => draw(state));
     state.resizeObserver.observe(canvas);
+    state.resizeObserver.observe(waveformCanvas);
+    state.resizeObserver.observe(spectrumCanvas);
     canvases.set(canvas, state);
     draw(state);
 }
@@ -56,9 +60,38 @@ export function dispose(canvas) {
 
 function draw(state) {
     const { canvas, scene } = state;
+    const surface = prepareCanvas(canvas);
+    if (!surface) {
+        return;
+    }
+
+    const { context, width, height } = surface;
+
+    if (scene.kind === 1) {
+        drawPianoRoll(context, scene, width, height);
+    } else {
+        for (const line of scene.lines) {
+            drawLine(context, line, width, height);
+        }
+
+        for (const glyph of scene.glyphs) {
+            drawGlyph(context, glyph, width, height);
+        }
+
+        for (const note of scene.notes) {
+            drawNote(context, note, width, height);
+        }
+    }
+
+    drawOscilloscope(state);
+    drawSpectrum(state);
+    ensureAnimation(state);
+}
+
+function prepareCanvas(canvas) {
     const bounds = canvas.getBoundingClientRect();
     if (bounds.width <= 0 || bounds.height <= 0) {
-        return;
+        return undefined;
     }
 
     const pixelRatio = window.devicePixelRatio || 1;
@@ -74,29 +107,28 @@ function draw(state) {
     context.clearRect(0, 0, bounds.width, bounds.height);
     context.fillStyle = "#030712";
     context.fillRect(0, 0, bounds.width, bounds.height);
-
-    if (scene.kind === 1) {
-        drawPianoRoll(context, scene, bounds.width, bounds.height);
-    } else {
-        for (const line of scene.lines) {
-            drawLine(context, line, bounds.width, bounds.height);
-        }
-
-        for (const glyph of scene.glyphs) {
-            drawGlyph(context, glyph, bounds.width, bounds.height);
-        }
-
-        for (const note of scene.notes) {
-            drawNote(context, note, bounds.width, bounds.height);
-        }
-    }
-
-    drawOscilloscope(context, state, bounds.width, bounds.height);
-    drawSpectrum(context, state, bounds.width, bounds.height);
-    ensureAnimation(state);
+    return { context, width: bounds.width, height: bounds.height };
 }
 
-function drawOscilloscope(context, state, width, height) {
+function drawOscilloscope(state) {
+    const surface = prepareCanvas(state.waveformCanvas);
+    if (!surface) {
+        return;
+    }
+
+    const { context, width, height } = surface;
+    const x0 = 12;
+    const x1 = width - 12;
+    const y0 = height - 12;
+    const y1 = 12;
+    const centerY = (y0 + y1) / 2;
+    context.strokeStyle = "#334155";
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(x0, centerY);
+    context.lineTo(x1, centerY);
+    context.stroke();
+
     const analyser = getAnalyserNode();
     if (!analyser) {
         return;
@@ -109,14 +141,8 @@ function drawOscilloscope(context, state, width, height) {
     }
 
     analyser.getByteTimeDomainData(state.timeDomainData);
-    const x0 = mapX(-0.98, width);
-    const x1 = mapX(0.98, width);
-    const y0 = mapY(-0.68, height);
-    const y1 = mapY(-0.40, height);
-    context.fillStyle = "#07111f";
-    context.fillRect(x0, y1, x1 - x0, y0 - y1);
     context.strokeStyle = "#38bdf8";
-    context.lineWidth = 1.5;
+    context.lineWidth = 2;
     context.beginPath();
     for (let index = 0; index < state.timeDomainData.length; index++) {
         const x = x0 + (index / (state.timeDomainData.length - 1)) * (x1 - x0);
@@ -132,7 +158,13 @@ function drawOscilloscope(context, state, width, height) {
     context.stroke();
 }
 
-function drawSpectrum(context, state, width, height) {
+function drawSpectrum(state) {
+    const surface = prepareCanvas(state.spectrumCanvas);
+    if (!surface) {
+        return;
+    }
+
+    const { context, width, height } = surface;
     if (!state.analyser || !state.frequencyData) {
         return;
     }
@@ -145,12 +177,10 @@ function drawSpectrum(context, state, width, height) {
         maximum = Math.max(maximum, state.frequencyData[index]);
     }
 
-    const panelX0 = mapX(layout.spectrumX0, width);
-    const panelX1 = mapX(layout.spectrumX1, width);
-    const panelY0 = mapY(layout.spectrumY0, height);
-    const panelY1 = mapY(layout.spectrumY1, height);
-    context.fillStyle = "#07111f";
-    context.fillRect(panelX0, panelY1, panelX1 - panelX0, panelY0 - panelY1);
+    const panelX0 = 12;
+    const panelX1 = width - 12;
+    const panelY0 = height - 12;
+    const panelY1 = 12;
     if (maximum === 0 || visibleCount === 0) {
         return;
     }

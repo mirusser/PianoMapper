@@ -7,79 +7,181 @@
 <PageTitle>PianoMapper</PageTitle>
 
 <main>
-    <h1>PianoMapper</h1>
+    <header class="page-header">
+        <div>
+            <p class="eyebrow">Play · see · understand</p>
+            <h1>PianoMapper</h1>
+            <p class="page-intro">Use your computer keyboard as a small piano and see each note as you play.</p>
+        </div>
+        <p class="status-chip" role="status">@audioStatus</p>
+    </header>
     <section @ref="playSurface" class="play-surface" tabindex="0" aria-label="Piano play surface">
-        <p role="status">@audioStatus</p>
-        <div class="controls" aria-label="Audio controls">
-            <button type="button" @onclick="EnableAudioAsync" disabled="@AudioSession.IsInitialized">Enable audio</button>
-            <button type="button" @onclick="PlayTestNoteAsync" disabled="@(!AudioSession.IsInitialized || testNoteIsActive)">Play test note</button>
-            <button type="button" @onclick="StopTestNoteAsync" disabled="@(!testNoteIsActive)">Stop test note</button>
-            <button type="button" @onclick="ClearNotesAsync" disabled="@(!AudioSession.IsInitialized)">Clear notes (C)</button>
-            <button type="button" @onclick="ShowTimingAsync" disabled="@(!AudioSession.IsInitialized)">Show input timing</button>
-            <button type="button" @onclick="PlayRandomMeasureAsync" disabled="@(!AudioSession.IsInitialized)">
-                Play random measure (M)
-            </button>
+        <div class="control-dashboard">
+            <section class="control-card" aria-labelledby="audio-controls-heading">
+                <div class="control-card-heading">
+                    <h2 id="audio-controls-heading">Audio</h2>
+                    <span>Start here</span>
+                </div>
+                <div class="controls">
+                    <button class="button-primary" type="button" @onclick="EnableAudioAsync" disabled="@AudioSession.IsInitialized">
+                        Enable audio
+                    </button>
+                    <button type="button" @onclick="PlayTestNoteAsync" disabled="@(!AudioSession.IsInitialized || testNoteIsActive)">
+                        Play test note
+                    </button>
+                    <button type="button" @onclick="StopTestNoteAsync" disabled="@(!testNoteIsActive)">Stop test note</button>
+                    <button class="button-quiet" type="button" @onclick="ShowTimingAsync" disabled="@(!AudioSession.IsInitialized)">
+                        Input timing
+                    </button>
+                </div>
+            </section>
+
+            <section class="control-card" aria-labelledby="play-controls-heading">
+                <div class="control-card-heading">
+                    <h2 id="play-controls-heading">Play tools</h2>
+                    <span>Optional</span>
+                </div>
+                <div class="controls">
+                    <button type="button" @onclick="ClearNotesAsync" disabled="@(!AudioSession.IsInitialized)">
+                        Clear notes <kbd>C</kbd>
+                    </button>
+                    <button type="button" @onclick="PlayRandomMeasureAsync" disabled="@(!AudioSession.IsInitialized)">
+                        Random measure <kbd>M</kbd>
+                    </button>
+                    <button class="button-quiet" type="button" @onclick="ToggleViewAsync">
+                        Show @(showPianoRoll ? "staff" : "piano roll") <kbd>V</kbd>
+                    </button>
+                </div>
+            </section>
+
+            <section class="control-card" aria-labelledby="octave-controls-heading">
+                <div class="control-card-heading">
+                    <h2 id="octave-controls-heading">Keyboard range</h2>
+                    <span>C@(keyboardState.CurrentOctave)–C@(keyboardState.CurrentOctave + 1)</span>
+                </div>
+                <div class="controls octave-controls">
+                    <button type="button"
+                            @onclick="OctaveDownAsync"
+                            disabled="@(keyboardState.CurrentOctave == 1)"
+                            aria-label="Select the previous octave">
+                        Down <kbd>Z</kbd>
+                    </button>
+                    <label class="octave-picker">
+                        Octave
+                        <select value="@keyboardState.CurrentOctave" @onchange="SelectOctaveAsync">
+                            @for (int octave = 1; octave <= 8; octave++)
+                            {
+                                <option value="@octave">@octave</option>
+                            }
+                        </select>
+                    </label>
+                    <button type="button"
+                            @onclick="OctaveUpAsync"
+                            disabled="@(keyboardState.CurrentOctave == 8)"
+                            aria-label="Select the next octave">
+                        Up <kbd>X</kbd>
+                    </button>
+                </div>
+                <p class="control-note">The staff follows this range so high and low octaves stay visible.</p>
+            </section>
+
+            <section class="control-card" aria-labelledby="timing-controls-heading">
+                <div class="control-card-heading">
+                    <h2 id="timing-controls-heading">Timing</h2>
+                    <span>@TimingLabel</span>
+                </div>
+                <div class="timing-controls">
+                    <label class="timing-field">
+                        <span>Beats per measure</span>
+                        <input type="number"
+                               min="@MinimumMeterNumerator"
+                               max="@MaximumMeterNumerator"
+                               step="1"
+                               value="@displayTimeSignature.Numerator"
+                               @onchange="SelectMeterNumeratorAsync" />
+                    </label>
+                    <label class="timing-field">
+                        <span>One beat is a</span>
+                        <select value="@displayTimeSignature.BeatNoteValue.Denominator"
+                                @onchange="SelectBeatNoteAsync">
+                            <option value="1">Whole note (1)</option>
+                            <option value="2">Half note (2)</option>
+                            <option value="4">Quarter note (4)</option>
+                            <option value="8">Eighth note (8)</option>
+                            <option value="16">Sixteenth note (16)</option>
+                        </select>
+                    </label>
+                    <label class="timing-field">
+                        <span>Tempo (BPM)</span>
+                        <input type="number"
+                               min="@MinimumTempoBeatsPerMinute"
+                               max="@MaximumTempoBeatsPerMinute"
+                               step="1"
+                               value="@TempoBeatsPerMinuteText"
+                               @onchange="SelectTempoAsync" />
+                    </label>
+                </div>
+                <p class="control-note">
+                    Meter groups beats; tempo controls their speed. A change stops scheduled playback so the next
+                    start can use the new timing. Note pitch and sound character stay the same.
+                </p>
+            </section>
         </div>
-        <div class="controls" aria-label="Octave controls">
-            <button type="button" @onclick="OctaveDownAsync">Octave down (Z)</button>
-            <label>
-                Octave
-                <select value="@keyboardState.CurrentOctave" @onchange="SelectOctaveAsync">
-                    @for (int octave = 1; octave <= 8; octave++)
-                    {
-                        <option value="@octave">@octave</option>
-                    }
-                </select>
-            </label>
-            <button type="button" @onclick="OctaveUpAsync">Octave up (X)</button>
-            <button type="button" @onclick="ToggleViewAsync">
-                Show @(showPianoRoll ? "grand staff" : "piano roll") (V)
-            </button>
+
+        <section class="score-card" aria-label="MusicXML score">
+            <ScoreFilePicker ScoreLoaded="HandleScoreLoadedAsync" />
+            @if (loadedScore is not null)
+            {
+                <p class="score-title">@loadedScore.Title — @loadedScore.Measures.Count measure(s)</p>
+                <div class="controls" aria-label="Score navigation">
+                    <button class="button-primary"
+                            type="button"
+                            @onclick="StartScorePlaybackAsync"
+                            disabled="@(!AudioSession.IsInitialized)">
+                        Play / restart <kbd>P</kbd>
+                    </button>
+                    <button type="button" @onclick="ShowPreviousMeasures" disabled="@(firstVisibleMeasure == 0)">
+                        Previous <kbd>[</kbd>
+                    </button>
+                    <span class="measure-window">
+                        Measures @(firstVisibleMeasure + 1)–@Math.Min(
+                            firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount,
+                            loadedScore.Measures.Count)
+                    </span>
+                    <button type="button"
+                            @onclick="ShowNextMeasures"
+                            disabled="@(firstVisibleMeasure >= loadedScore.Measures.Count - 1)">
+                        Next <kbd>]</kbd>
+                    </button>
+                </div>
+                <PracticePanel State="@practiceCoordinator.State"
+                               Result="@practiceCoordinator.Result"
+                               CountInTicksDue="@practiceCoordinator.CountInTicksDue"
+                               TotalCountInTicks="@loadedScore.TimeSignature.Numerator"
+                               CanStart="@AudioSession.IsInitialized"
+                               IsActive="@practiceCoordinator.IsActive"
+                               Start="StartPracticeAsync"
+                               Abort="AbortPracticeFromControlAsync" />
+            }
+        </section>
+
+        <div class="session-summary" aria-label="Current piano settings">
+            <span>Meter <strong>@displayTimeSignature.Numerator/@displayTimeSignature.BeatNoteValue.Denominator</strong></span>
+            <span>Tempo <strong>@TempoBeatsPerMinuteText BPM</strong></span>
+            <span>Play keys <strong>A W S E D F R J U K I L ;</strong></span>
         </div>
-        <ScoreFilePicker ScoreLoaded="HandleScoreLoadedAsync" />
-        @if (loadedScore is not null)
-        {
-            <p>@loadedScore.Title — @loadedScore.Measures.Count measure(s)</p>
-            <div class="controls" aria-label="Score navigation">
-                <button type="button"
-                        @onclick="StartScorePlaybackAsync"
-                        disabled="@(!AudioSession.IsInitialized)">
-                    Play / restart score (P)
-                </button>
-                <button type="button" @onclick="ShowPreviousMeasures" disabled="@(firstVisibleMeasure == 0)">
-                    Previous measures ([)
-                </button>
-                <span>
-                    Measures @(firstVisibleMeasure + 1)–@Math.Min(
-                        firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount,
-                        loadedScore.Measures.Count)
-                </span>
-                <button type="button"
-                        @onclick="ShowNextMeasures"
-                        disabled="@(firstVisibleMeasure >= loadedScore.Measures.Count - 1)">
-                    Next measures (])
-                </button>
-            </div>
-            <PracticePanel State="@practiceCoordinator.State"
-                           Result="@practiceCoordinator.Result"
-                           CountInTicksDue="@practiceCoordinator.CountInTicksDue"
-                           TotalCountInTicks="@loadedScore.TimeSignature.Numerator"
-                           CanStart="@AudioSession.IsInitialized"
-                           IsActive="@practiceCoordinator.IsActive"
-                           Start="StartPracticeAsync"
-                           Abort="AbortPracticeFromControlAsync" />
-        }
-        <p>
-            Meter @displayTimeSignature.Numerator/@displayTimeSignature.BeatNoteValue.Denominator,
-            tempo @displayTempo.BeatsPerMinute.ToString("F0", CultureInfo.InvariantCulture) BPM
-        </p>
-        <p>Play: A W S E D F R J U K I L ;</p>
-        <PianoCanvas Scene="@canvasScene" />
+        <PianoCanvas Scene="@canvasScene"
+                     SelectedOctave="@keyboardState.CurrentOctave"
+                     IsScoreView="@(loadedScore is not null && !showPianoRoll)" />
     </section>
 </main>
 
 @code {
     private const string TestNoteId = "test-note";
+    private const int MinimumMeterNumerator = 1;
+    private const int MaximumMeterNumerator = 12;
+    private const int MinimumTempoBeatsPerMinute = 30;
+    private const int MaximumTempoBeatsPerMinute = 300;
     private static readonly Pitch TestPitch = new(NoteLetter.A, 0, 4);
     private static readonly TimeSpan BrowserSchedulingLead = TimeSpan.FromMilliseconds(50);
 
@@ -89,7 +191,8 @@
     private AudioClockAnchor? audioClockAnchor;
     private IJSObjectReference? keyboardModule;
     private DotNetObjectReference<Piano>? keyboardReference;
-    private IPianoCanvasScene canvasScene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero);
+    private IPianoCanvasScene canvasScene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero, selectedOctave: 4);
+    private Score? importedScore;
     private Score? loadedScore;
     private int firstVisibleMeasure;
     private CancellationTokenSource? playbackRefreshCancellation;
@@ -104,6 +207,13 @@
     private bool showPianoRoll;
     private TimeSignature displayTimeSignature = new(4, new NoteValue(4));
     private Tempo displayTempo = new(120);
+
+    private string TempoBeatsPerMinuteText =>
+        displayTempo.BeatsPerMinute.ToString("F0", CultureInfo.InvariantCulture);
+
+    private string TimingLabel =>
+        $"{displayTimeSignature.Numerator}/{displayTimeSignature.BeatNoteValue.Denominator} · " +
+        $"{TempoBeatsPerMinuteText} BPM";
 
     public Piano()
     {
@@ -160,6 +270,7 @@
     {
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
+        importedScore = score;
         loadedScore = score;
         displayTimeSignature = score.TimeSignature;
         displayTempo = score.Tempo;
@@ -199,16 +310,12 @@
         await StopScorePlaybackAsync();
         var measure = RandomMeasureComposer.Compose(
             [TestPitch],
-            minNumerator: 4,
-            maxNumerator: 4,
-            minBeatsPerMinute: 60,
-            maxBeatsPerMinute: 60,
+            displayTimeSignature,
+            displayTempo,
             Random.Shared);
         TimeSpan anchor = await AudioSession.GetCurrentTimeAsync() + BrowserSchedulingLead;
         await AudioSession.ScheduleScoreAsync(BrowserRandomMeasureScheduler.CreateEvents(measure, anchor));
-        displayTimeSignature = measure.TimeSignature;
-        displayTempo = measure.Tempo;
-        audioStatus = "Playing a random measure.";
+        audioStatus = $"Playing a random measure at {TimingLabel}.";
     }
 
     private async Task StartPracticeAsync()
@@ -296,6 +403,72 @@
     {
         int octave = int.Parse((string)eventArgs.Value!, CultureInfo.InvariantCulture);
         return ApplyInputCommandAsync(keyboardState.ChangeOctave(octave, GetAnchorTime()));
+    }
+
+    private Task SelectMeterNumeratorAsync(ChangeEventArgs eventArgs)
+    {
+        int numerator = ParseClampedInteger(
+            eventArgs,
+            displayTimeSignature.Numerator,
+            MinimumMeterNumerator,
+            MaximumMeterNumerator);
+        return ApplyTimingAsync(
+            new TimeSignature(numerator, displayTimeSignature.BeatNoteValue),
+            displayTempo);
+    }
+
+    private Task SelectBeatNoteAsync(ChangeEventArgs eventArgs)
+    {
+        int denominator = int.Parse((string)eventArgs.Value!, CultureInfo.InvariantCulture);
+        return ApplyTimingAsync(
+            new TimeSignature(displayTimeSignature.Numerator, new NoteValue(denominator)),
+            displayTempo);
+    }
+
+    private Task SelectTempoAsync(ChangeEventArgs eventArgs)
+    {
+        int beatsPerMinute = ParseClampedInteger(
+            eventArgs,
+            (int)displayTempo.BeatsPerMinute,
+            MinimumTempoBeatsPerMinute,
+            MaximumTempoBeatsPerMinute);
+        return ApplyTimingAsync(displayTimeSignature, new Tempo(beatsPerMinute));
+    }
+
+    private async Task ApplyTimingAsync(TimeSignature timeSignature, Tempo tempo)
+    {
+        bool playbackWasActive = ScorePlaybackSession.IsActive || practiceCoordinator.IsActive;
+        await AbortPracticeAsync(updateStatus: false);
+        await StopScorePlaybackAsync();
+
+        displayTimeSignature = timeSignature;
+        displayTempo = tempo;
+        if (importedScore is not null)
+        {
+            loadedScore = ScoreTiming.Apply(importedScore, timeSignature, tempo);
+        }
+
+        TimeSpan currentTime = AudioSession.IsInitialized
+            ? await AudioSession.GetCurrentTimeAsync()
+            : TimeSpan.Zero;
+        RefreshCanvasScene(currentTime);
+        audioStatus = playbackWasActive
+            ? $"Timing set to {TimingLabel}. Start playback again to use it."
+            : $"Timing set to {TimingLabel}.";
+    }
+
+    private static int ParseClampedInteger(
+        ChangeEventArgs eventArgs,
+        int fallback,
+        int minimum,
+        int maximum)
+    {
+        bool parsed = int.TryParse(
+            eventArgs.Value?.ToString(),
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out int value);
+        return Math.Clamp(parsed ? value : fallback, minimum, maximum);
     }
 
     private async Task ToggleViewAsync()
@@ -402,6 +575,7 @@
                 break;
             case BrowserInputCommandKind.OctaveChanged:
                 audioStatus = $"Octave {keyboardState.CurrentOctave} selected.";
+                RefreshCanvasScene(command.EventTime);
                 break;
             case BrowserInputCommandKind.PreviousMeasures:
                 ShowPreviousMeasures();
@@ -594,7 +768,10 @@
         }
 
         canvasScene = loadedScore is null
-            ? GrandStaffSceneBuilder.Build(noteTimeline.Snapshot(currentTime), currentTime)
+            ? GrandStaffSceneBuilder.Build(
+                noteTimeline.Snapshot(currentTime),
+                currentTime,
+                keyboardState.CurrentOctave)
             : GrandStaffSceneBuilder.BuildScore(loadedScore, firstVisibleMeasure, cursorBeats, verdicts);
     }
 

@@ -65,4 +65,24 @@ public sealed class ScorePlaybackTests
         Assert.Equal(2, due.Count);
         Assert.All(due, item => Assert.Equal(TimeSpan.FromSeconds(5), item.DueTime));
     }
+
+    [Fact]
+    public void CreateSchedule_SelectedTiming_RecalculatesOnsetAndDuration()
+    {
+        var score = new Score(
+            "Selected timing",
+            new TimeSignature(6, new NoteValue(8)),
+            new Tempo(120),
+            0,
+            [
+                new ScoreMeasure(
+                    [new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 2, Staff.Treble)],
+                    []),
+            ]);
+
+        ScheduledScoreEvent scheduledEvent = Assert.Single(ScorePlayback.CreateSchedule(score, TimeSpan.FromSeconds(5)));
+
+        Assert.Equal(TimeSpan.FromSeconds(6), scheduledEvent.DueTime);
+        Assert.Equal(TimeSpan.FromSeconds(1), scheduledEvent.Duration);
+    }
 }
