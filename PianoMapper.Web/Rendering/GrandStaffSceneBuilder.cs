@@ -11,6 +11,16 @@ internal static class GrandStaffSceneBuilder
     private const double ClefX = -0.87;
     private const double ViewY0 = -0.9;
     private const double ViewY1 = 0.9;
+    private const int TrebleClefHeightInStaffSpaces = 6;
+    private const int BassClefHeightInStaffSpaces = 3;
+    private static readonly NoteValue[] supportedLiveNoteValues =
+    [
+        new(1),
+        new(2),
+        new(4),
+        new(8),
+        new(16),
+    ];
 
     internal static int ClampFirstVisibleMeasure(Score score, int requestedMeasure)
     {
@@ -71,7 +81,7 @@ internal static class GrandStaffSceneBuilder
                 layout.HasStem,
                 layout.StemDirection,
                 layout.HasDot,
-                layout.NeedsFlag,
+                layout.FlagCount,
                 verdict));
             lines.AddRange(layout.Position.LedgerLineYs.Select(
                 y => new GrandStaffLine(layout.X - 0.04, y, layout.X + 0.04, y, GrandStaffLineKind.Ledger)));
@@ -91,6 +101,19 @@ internal static class GrandStaffSceneBuilder
     internal static GrandStaffScene Build(
         IReadOnlyList<PerformedNote> notes,
         TimeSpan currentTime,
+        int? selectedOctave = null) =>
+        Build(
+            notes,
+            currentTime,
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            selectedOctave);
+
+    internal static GrandStaffScene Build(
+        IReadOnlyList<PerformedNote> notes,
+        TimeSpan currentTime,
+        TimeSignature timeSignature,
+        Tempo tempo,
         int? selectedOctave = null)
     {
         var lines = CreateStaffLines();
@@ -108,12 +131,34 @@ internal static class GrandStaffSceneBuilder
 
             var position = GrandStaffLayout.GetLivePosition(note.Pitch);
             double durationSeconds = Math.Max(0, endTime.TotalSeconds - note.StartTime.TotalSeconds);
+            bool isActive = note.ReleaseTime is null;
+            NoteValue? noteValue = isActive
+                ? null
+                : GetNearestLiveNoteValue(TimeSpan.FromSeconds(durationSeconds), timeSignature, tempo);
+            bool isFilled = !noteValue.HasValue || noteValue.Value.Denominator >= 4;
+            bool hasStem = noteValue.HasValue && noteValue.Value.Denominator != 1;
+            int flagCount = noteValue?.Denominator switch
+            {
+                8 => 1,
+                16 => 2,
+                _ => 0,
+            };
+            var staffLines = position.Staff == Staff.Treble
+                ? GrandStaffLayout.TrebleLineYs
+                : GrandStaffLayout.BassLineYs;
+            var stemDirection = position.Y < staffLines[2]
+                ? StemDirection.Up
+                : StemDirection.Down;
             renderedNotes.Add(new GrandStaffNote(
                 note.Pitch.ToString(),
                 x.Value,
                 position.Y,
                 durationSeconds,
-                note.ReleaseTime is null));
+                IsActive: isActive,
+                IsFilled: isFilled,
+                HasStem: hasStem,
+                StemDirection: stemDirection,
+                FlagCount: flagCount));
             lines.AddRange(position.LedgerLineYs.Select(
                 y => new GrandStaffLine(x.Value - 0.04, y, x.Value + 0.04, y, GrandStaffLineKind.Ledger)));
             if (position.NeedsAccidental)
@@ -126,7 +171,7 @@ internal static class GrandStaffSceneBuilder
             }
         }
 
-        var scene = new GrandStaffScene(lines, glyphs, renderedNotes);
+        var scene = new GrandStaffScene(lines, glyphs, renderedNotes, ShouldClipNotesAtClefs: true);
         return selectedOctave.HasValue
             ? FitToSelectedOctave(scene, selectedOctave.Value)
             : scene;
@@ -140,8 +185,18 @@ internal static class GrandStaffSceneBuilder
 
     private static List<GrandStaffGlyph> CreateClefGlyphs() =>
     [
-        new("𝄞", ClefX, GrandStaffLayout.TrebleLineYs[2], GrandStaffGlyphKind.Clef),
-        new("𝄢", ClefX, GrandStaffLayout.BassLineYs[2], GrandStaffGlyphKind.Clef),
+        new(
+            "𝄞",
+            ClefX,
+            GrandStaffLayout.TrebleLineYs[2],
+            GrandStaffGlyphKind.Clef,
+            TrebleClefHeightInStaffSpaces * (GrandStaffLayout.TrebleLineYs[1] - GrandStaffLayout.TrebleLineYs[0])),
+        new(
+            "𝄢",
+            ClefX,
+            GrandStaffLayout.BassLineYs[3],
+            GrandStaffGlyphKind.Clef,
+            BassClefHeightInStaffSpaces * (GrandStaffLayout.BassLineYs[1] - GrandStaffLayout.BassLineYs[0])),
     ];
 
     private static GrandStaffScene FitToSelectedOctave(GrandStaffScene scene, int selectedOctave)
@@ -165,14 +220,27 @@ internal static class GrandStaffSceneBuilder
         double margin = GrandStaffLayout.DiatonicStep * 2;
         double sourceY0 = yValues.Min() - margin;
         double sourceY1 = yValues.Max() + margin;
+        double yScale = (ViewY1 - ViewY0) / (sourceY1 - sourceY0);
         double MapY(double y) =>
-            ViewY0 + ((y - sourceY0) / (sourceY1 - sourceY0) * (ViewY1 - ViewY0));
+            ViewY0 + ((y - sourceY0) * yScale);
 
         return new GrandStaffScene(
             scene.Lines.Select(line => line with { Y0 = MapY(line.Y0), Y1 = MapY(line.Y1) }).ToArray(),
-            scene.Glyphs.Select(glyph => glyph with { Y = MapY(glyph.Y) }).ToArray(),
-            scene.Notes.Select(note => note with { Y = MapY(note.Y) }).ToArray());
+            scene.Glyphs.Select(glyph => glyph with
+            {
+                Y = MapY(glyph.Y),
+                Height = glyph.Height * yScale,
+            }).ToArray(),
+            scene.Notes.Select(note => note with { Y = MapY(note.Y) }).ToArray(),
+            scene.ShouldClipNotesAtClefs);
     }
+
+    private static NoteValue GetNearestLiveNoteValue(
+        TimeSpan duration,
+        TimeSignature timeSignature,
+        Tempo tempo) =>
+        supportedLiveNoteValues.MinBy(noteValue =>
+            Math.Abs((MusicalTime.ToDuration(noteValue, timeSignature, tempo) - duration).Ticks));
 
     private static string GetAccidentalGlyph(int alter) => alter switch
     {

@@ -31,6 +31,7 @@ internal sealed class StaffRenderer : IDisposable
     private const float StemLength = 0.15f;
     private const float FlagWidth = 0.04f;
     private const float FlagHalfHeight = 0.006f;
+    private const float FlagSpacing = 0.02f;
     private const float DotHalfSize = 0.006f;
 
     private readonly int vao;
@@ -263,14 +264,16 @@ internal sealed class StaffRenderer : IDisposable
             Math.Max(layout.Position.Y, stemEndY),
             color);
 
-        if (layout.NeedsFlag)
+        float flagEndX = stemX + (isUp ? FlagWidth : -FlagWidth);
+        float flagYDirection = isUp ? -1f : 1f;
+        for (int flagIndex = 0; flagIndex < layout.FlagCount; flagIndex++)
         {
-            float flagEndX = stemX + (isUp ? FlagWidth : -FlagWidth);
+            float flagY = stemEndY + (flagIndex * FlagSpacing * flagYDirection);
             AppendQuad(
                 Math.Min(stemX, flagEndX),
                 Math.Max(stemX, flagEndX),
-                stemEndY - FlagHalfHeight,
-                stemEndY + FlagHalfHeight,
+                flagY - FlagHalfHeight,
+                flagY + FlagHalfHeight,
                 color);
         }
     }

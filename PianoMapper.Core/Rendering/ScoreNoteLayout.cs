@@ -7,4 +7,4 @@ public readonly record struct ScoreNoteLayout(
     StemDirection StemDirection,
     bool HasStem,
     bool HasDot,
-    bool NeedsFlag);
+    int FlagCount);

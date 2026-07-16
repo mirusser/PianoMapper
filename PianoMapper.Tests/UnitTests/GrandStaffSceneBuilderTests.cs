@@ -45,7 +45,7 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.All(scene.Notes, note => Assert.True(note.IsFilled));
         Assert.All(scene.Notes, note => Assert.True(note.HasStem));
         Assert.All(scene.Notes, note => Assert.True(note.HasDot));
-        Assert.All(scene.Notes, note => Assert.True(note.NeedsFlag));
+        Assert.All(scene.Notes, note => Assert.Equal(1, note.FlagCount));
         Assert.Single(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Accidental);
         Assert.Equal(2, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Barline));
     }
@@ -96,6 +96,38 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.Empty(scene.Notes);
         Assert.Equal(10, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Staff));
         Assert.Equal(2, scene.Glyphs.Count(glyph => glyph.Kind == GrandStaffGlyphKind.Clef));
+    }
+
+    [Fact]
+    public void Build_LiveGrandStaff_RequestsClefAwareNoteClipping()
+    {
+        var scene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero, selectedOctave: 4);
+
+        Assert.True(scene.ShouldClipNotesAtClefs);
+    }
+
+    [Fact]
+    public void Build_EmptyTimeline_CentersBassClefOnFLine()
+    {
+        var scene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero);
+
+        var bassClef = Assert.Single(scene.Glyphs, glyph => glyph.Text == "𝄢");
+        Assert.Equal(GrandStaffLayout.BassLineYs[3], bassClef.Y, 6);
+    }
+
+    [Fact]
+    public void Build_EmptyTimeline_SizesClefsFromTheirStaffSpaces()
+    {
+        var scene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero, selectedOctave: 4);
+
+        var trebleClef = Assert.Single(scene.Glyphs, glyph => glyph.Text == "𝄞");
+        var bassClef = Assert.Single(scene.Glyphs, glyph => glyph.Text == "𝄢");
+        double trebleStaffSpace = Math.Abs(scene.Lines[1].Y0 - scene.Lines[0].Y0);
+        double bassStaffSpace = Math.Abs(scene.Lines[6].Y0 - scene.Lines[5].Y0);
+        Assert.NotNull(trebleClef.Height);
+        Assert.NotNull(bassClef.Height);
+        Assert.Equal(trebleStaffSpace * 6, trebleClef.Height.Value, 6);
+        Assert.Equal(bassStaffSpace * 3, bassClef.Height.Value, 6);
     }
 
     [Fact]
@@ -156,6 +188,8 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.True(marker.IsActive);
         Assert.Equal("C4", marker.Label);
         Assert.Equal(1, marker.DurationSeconds);
+        Assert.False(marker.HasStem);
+        Assert.Equal(0, marker.FlagCount);
     }
 
     [Theory]
@@ -205,6 +239,53 @@ public sealed class GrandStaffSceneBuilderTests
         var marker = Assert.Single(scene.Notes);
         Assert.False(marker.IsActive);
         Assert.Equal(0.5, marker.DurationSeconds);
+    }
+
+    [Theory]
+    [InlineData(2, false, false, 0)]
+    [InlineData(1, false, true, 0)]
+    [InlineData(0.46, true, true, 0)]
+    [InlineData(0.25, true, true, 1)]
+    [InlineData(0.125, true, true, 2)]
+    public void Build_ReleasedRhythmicValue_ReturnsStandardNotation(
+        double durationSeconds,
+        bool expectedIsFilled,
+        bool expectedHasStem,
+        int expectedFlagCount)
+    {
+        var timeline = new NoteTimeline();
+        var note = timeline.Start(new Pitch(NoteLetter.E, 0, 4), TimeSpan.FromSeconds(1));
+        timeline.Complete(note, TimeSpan.FromSeconds(1 + durationSeconds));
+
+        var scene = GrandStaffSceneBuilder.Build(
+            [note],
+            TimeSpan.FromSeconds(4),
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120));
+
+        var marker = Assert.Single(scene.Notes);
+        Assert.Equal(expectedIsFilled, marker.IsFilled);
+        Assert.Equal(expectedHasStem, marker.HasStem);
+        Assert.Equal(expectedFlagCount, marker.FlagCount);
+    }
+
+    [Fact]
+    public void Build_ReleasedNoteWithEighthBeatUnit_ReturnsQuarterNotation()
+    {
+        var timeline = new NoteTimeline();
+        var note = timeline.Start(new Pitch(NoteLetter.E, 0, 4), TimeSpan.FromSeconds(1));
+        timeline.Complete(note, TimeSpan.FromSeconds(3));
+
+        var scene = GrandStaffSceneBuilder.Build(
+            [note],
+            TimeSpan.FromSeconds(4),
+            new TimeSignature(4, new NoteValue(8)),
+            new Tempo(60));
+
+        var marker = Assert.Single(scene.Notes);
+        Assert.True(marker.IsFilled);
+        Assert.True(marker.HasStem);
+        Assert.Equal(0, marker.FlagCount);
     }
 
     [Fact]

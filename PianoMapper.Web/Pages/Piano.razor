@@ -970,6 +970,8 @@
             ? GrandStaffSceneBuilder.Build(
                 noteTimeline.Snapshot(currentTime),
                 currentTime,
+                displayTimeSignature,
+                displayTempo,
                 keyboardState.CurrentOctave)
             : GrandStaffSceneBuilder.BuildScore(loadedScore, firstVisibleMeasure, cursorBeats, verdicts);
     }

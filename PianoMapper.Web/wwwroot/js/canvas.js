@@ -74,12 +74,30 @@ function draw(state) {
             drawLine(context, line, width, height);
         }
 
+        let clefRight;
         for (const glyph of scene.glyphs) {
-            drawGlyph(context, glyph, width, height);
+            const glyphRight = drawGlyph(context, glyph, width, height);
+            if (Number.isFinite(glyphRight)) {
+                clefRight = Math.max(clefRight ?? glyphRight, glyphRight);
+            }
+        }
+
+        const shouldClipNotes = scene.shouldClipNotesAtClefs && Number.isFinite(clefRight);
+        if (shouldClipNotes) {
+            const clefGap = 8;
+            const noteAreaX0 = clefRight + clefGap;
+            context.save();
+            context.beginPath();
+            context.rect(noteAreaX0, 0, Math.max(0, width - noteAreaX0), height);
+            context.clip();
         }
 
         for (const note of scene.notes) {
             drawNote(context, note, width, height);
+        }
+
+        if (shouldClipNotes) {
+            context.restore();
         }
     }
 
@@ -241,12 +259,28 @@ function drawLine(context, line, width, height) {
 
 function drawGlyph(context, glyph, width, height) {
     context.fillStyle = glyph.kind === 0 ? "#e2e8f0" : "#f8fafc";
-    context.font = glyph.kind === 0
-        ? "34px 'Noto Music', 'Bravura Text', serif"
-        : "18px 'Noto Music', 'Bravura Text', serif";
     context.textAlign = "center";
+    const x = mapX(glyph.x, width);
+    const y = mapY(glyph.y, height);
+    if (glyph.kind === 0 && glyph.height > 0) {
+        const measurementFontSize = 100;
+        context.font = `${measurementFontSize}px 'Noto Music', 'Bravura Text', serif`;
+        const measurement = context.measureText(glyph.text);
+        const measuredHeight = measurement.actualBoundingBoxAscent + measurement.actualBoundingBoxDescent;
+        const targetHeight = mapHeight(glyph.height, height);
+        const fontSize = measurementFontSize * targetHeight / measuredHeight;
+        context.font = `${fontSize}px 'Noto Music', 'Bravura Text', serif`;
+
+        const metrics = context.measureText(glyph.text);
+        context.textBaseline = "alphabetic";
+        const baselineY = y + ((metrics.actualBoundingBoxAscent - metrics.actualBoundingBoxDescent) / 2);
+        context.fillText(glyph.text, x, baselineY);
+        return x + metrics.actualBoundingBoxRight;
+    }
+
+    context.font = "18px 'Noto Music', 'Bravura Text', serif";
     context.textBaseline = "middle";
-    context.fillText(glyph.text, mapX(glyph.x, width), mapY(glyph.y, height));
+    context.fillText(glyph.text, x, y);
 }
 
 function drawNote(context, note, width, height) {
@@ -258,12 +292,14 @@ function drawNote(context, note, width, height) {
     context.strokeStyle = noteColor;
     context.fillStyle = context.strokeStyle;
     context.lineWidth = 2;
-    if (note.durationSeconds > 0) {
+    let labelX = x + 11;
+    if (note.isActive && note.durationSeconds > 0) {
         const durationWidth = Math.min(80, Math.max(12, note.durationSeconds * 40));
         context.beginPath();
-        context.moveTo(x - durationWidth, y);
-        context.lineTo(x, y);
+        context.moveTo(x, y);
+        context.lineTo(x + durationWidth, y);
         context.stroke();
+        labelX = x + durationWidth + 4;
     }
 
     context.beginPath();
@@ -276,8 +312,8 @@ function drawNote(context, note, width, height) {
 
     let stemEndY = y;
     let stemX = x;
+    const stemGoesUp = note.stemDirection === 0;
     if (note.hasStem) {
-        const stemGoesUp = note.stemDirection === 0;
         stemX = x + (stemGoesUp ? 7 : -7);
         stemEndY = y + (stemGoesUp ? -30 : 30);
         context.beginPath();
@@ -286,11 +322,17 @@ function drawNote(context, note, width, height) {
         context.stroke();
     }
 
-    if (note.needsFlag) {
-        const flagDirection = note.stemDirection === 0 ? 1 : -1;
+    const flagXDirection = stemGoesUp ? 1 : -1;
+    const flagYDirection = stemGoesUp ? 1 : -1;
+    for (let flagIndex = 0; flagIndex < note.flagCount; flagIndex++) {
+        const flagStartY = stemEndY + (flagIndex * 8 * flagYDirection);
         context.beginPath();
-        context.moveTo(stemX, stemEndY);
-        context.quadraticCurveTo(stemX + (10 * flagDirection), stemEndY + 8, stemX, stemEndY + 15);
+        context.moveTo(stemX, flagStartY);
+        context.quadraticCurveTo(
+            stemX + (10 * flagXDirection),
+            flagStartY + (8 * flagYDirection),
+            stemX,
+            flagStartY + (15 * flagYDirection));
         context.stroke();
     }
 
@@ -303,7 +345,7 @@ function drawNote(context, note, width, height) {
     context.font = "12px system-ui, sans-serif";
     context.textAlign = "left";
     context.textBaseline = "alphabetic";
-    context.fillText(note.label, x + 11, y + 4);
+    context.fillText(note.label, labelX, y + 4);
 }
 
 function mapX(value, width) {
@@ -314,4 +356,9 @@ function mapX(value, width) {
 function mapY(value, height) {
     const padding = 18;
     return height - padding - ((value + 1) / 2) * Math.max(0, height - (padding * 2));
+}
+
+function mapHeight(value, height) {
+    const padding = 18;
+    return (value / 2) * Math.max(0, height - (padding * 2));
 }

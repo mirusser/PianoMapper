@@ -105,6 +105,17 @@ public sealed class GrandStaffLayoutTests
     }
 
     [Fact]
+    public void MapTimeToX_LaterNote_PlacesItToTheRightOfEarlierNote()
+    {
+        var now = TimeSpan.FromSeconds(10);
+
+        float earlierX = GrandStaffLayout.MapTimeToX(TimeSpan.FromSeconds(3), now);
+        float laterX = GrandStaffLayout.MapTimeToX(TimeSpan.FromSeconds(7), now);
+
+        Assert.True(laterX > earlierX);
+    }
+
+    [Fact]
     public void GetLiveNoteX_NoteEndedBeforeWindow_ReturnsNull()
     {
         var start = TimeSpan.Zero;
@@ -130,19 +141,19 @@ public sealed class GrandStaffLayoutTests
     }
 
     [Theory]
-    [InlineData(1, 0, (int)NoteHeadStyle.Hollow, false, false, false)]
-    [InlineData(2, 0, (int)NoteHeadStyle.Hollow, true, false, false)]
-    [InlineData(4, 0, (int)NoteHeadStyle.Filled, true, false, false)]
-    [InlineData(4, 1, (int)NoteHeadStyle.Filled, true, true, false)]
-    [InlineData(8, 0, (int)NoteHeadStyle.Filled, true, false, true)]
-    [InlineData(16, 0, (int)NoteHeadStyle.Filled, true, false, true)]
+    [InlineData(1, 0, (int)NoteHeadStyle.Hollow, false, false, 0)]
+    [InlineData(2, 0, (int)NoteHeadStyle.Hollow, true, false, 0)]
+    [InlineData(4, 0, (int)NoteHeadStyle.Filled, true, false, 0)]
+    [InlineData(4, 1, (int)NoteHeadStyle.Filled, true, true, 0)]
+    [InlineData(8, 0, (int)NoteHeadStyle.Filled, true, false, 1)]
+    [InlineData(16, 0, (int)NoteHeadStyle.Filled, true, false, 2)]
     public void GetScoreNoteLayout_NoteValue_ReturnsHeadDotAndFlagStyle(
         int denominator,
         int dots,
         int expectedHeadValue,
         bool expectedStem,
         bool expectedDot,
-        bool expectedFlag)
+        int expectedFlagCount)
     {
         var expectedHead = (NoteHeadStyle)expectedHeadValue;
         var note = new ScoreNote(
@@ -158,7 +169,7 @@ public sealed class GrandStaffLayoutTests
         Assert.Equal(expectedHead, layout.Value.HeadStyle);
         Assert.Equal(expectedStem, layout.Value.HasStem);
         Assert.Equal(expectedDot, layout.Value.HasDot);
-        Assert.Equal(expectedFlag, layout.Value.NeedsFlag);
+        Assert.Equal(expectedFlagCount, layout.Value.FlagCount);
         Assert.Equal(StemDirection.Up, layout.Value.StemDirection);
     }
 

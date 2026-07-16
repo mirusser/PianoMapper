@@ -61,7 +61,12 @@ public static class GrandStaffLayout
             stemDirection,
             HasStem: note.NoteValue.Denominator != 1,
             HasDot: note.NoteValue.Dots > 0,
-            NeedsFlag: note.NoteValue.Denominator >= 8);
+            FlagCount: note.NoteValue.Denominator switch
+            {
+                8 => 1,
+                16 => 2,
+                _ => 0,
+            });
     }
 
     public static IReadOnlyList<float> GetScoreBarlineXs(int firstVisibleMeasure, int measureCount)

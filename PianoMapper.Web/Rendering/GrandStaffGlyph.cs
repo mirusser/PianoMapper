@@ -4,4 +4,5 @@ public sealed record GrandStaffGlyph(
     string Text,
     double X,
     double Y,
-    GrandStaffGlyphKind Kind);
+    GrandStaffGlyphKind Kind,
+    double? Height = null);

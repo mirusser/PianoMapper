@@ -13,5 +13,5 @@ public sealed record GrandStaffNote(
     bool HasStem = false,
     StemDirection StemDirection = StemDirection.Up,
     bool HasDot = false,
-    bool NeedsFlag = false,
+    int FlagCount = 0,
     Verdict? Verdict = null);
