@@ -67,7 +67,9 @@ MetronomeGrid + BeatAlignment (Core, pure)          Grader dead zone (Core, inde
 (`TimeSpan`, negative = early). Add `BeatAlignment` (`PianoMapper.Practice`): given a note onset,
 a grid, and an `OnTimeTolerance`, returns the nearest beat index, signed deviation, and a
 `Verdict` (`Correct` when `|deviation| <= tolerance`, else `Early`/`Late`). Also identifies the
-downbeat (beat index modulo numerator) for later display use.
+downbeat (beat index modulo numerator) for later display use. Add `MetronomeGrid` and
+`BeatAlignment` entries to `CONTEXT.md`, and widen its `Verdict` entry — today defined only as a
+practice-grading outcome — to cover beat alignment.
 
 **Acceptance criteria:**
 - [ ] `MetronomeGrid` computes nearest beat and signed deviation for times before/after/exactly on a beat, including times before the anchor.
@@ -85,6 +87,7 @@ downbeat (beat index modulo numerator) for later display use.
 - `PianoMapper.Core/Practice/BeatAlignment.cs` (new)
 - `PianoMapper.Tests/UnitTests/MetronomeGridTests.cs` (new)
 - `PianoMapper.Tests/UnitTests/BeatAlignmentTests.cs` (new)
+- `CONTEXT.md`
 
 **Estimated scope:** S–M
 
@@ -92,8 +95,15 @@ downbeat (beat index modulo numerator) for later display use.
 
 **Description:** Add `OnTimeTolerance` to `GradingOptions` (default 60 ms). In `Grader.Classify`,
 treat `|performed.StartTime - expectedOnset| <= OnTimeTolerance` as on time (continue to duration
-checks); only outside the dead zone classify `Early`/`Late`. Existing tests use exact onsets
-(deviation 0), so they keep passing; add boundary tests.
+checks); only outside the dead zone classify `Early`/`Late`. Existing tests stay green because
+their onsets are either exact or already outside the new dead zone:
+`Grade_SinglePerformance_ReturnsExpectedVerdict` asserts `Early`/`Late` at ±100 ms and
+`Grade_WrongPitchCloserThanCorrectPitch_PrefersCorrectPitch` asserts `Late` at +150 ms, so the
+default must stay below 100 ms or those tests change. Add boundary tests at exactly
+±`OnTimeTolerance` and just outside it. Note: the web practice path
+(`BrowserPracticeCoordinator.StartAsync`) constructs `PracticeSession` without `GradingOptions`,
+so practice grading picks up the new default immediately; user-selectable tolerance plumbing
+lands in Task 8.
 
 **Acceptance criteria:**
 - [ ] A matched note within ±`OnTimeTolerance` of the expected onset can be graded `Correct` (subject to duration checks).
@@ -123,15 +133,18 @@ checks); only outside the dead zone classify `Early`/`Late`. Existing tests use 
 piano notes; accented downbeat — higher pitch and gain on beat 1, e.g. ~1760 Hz vs ~1320 Hz) and
 `startMetronome(anchorSeconds, secondsPerBeat, beatsPerMeasure)` / `stopMetronome()`. Internally a
 ~25 ms `setInterval` schedules clicks ~0.2 s ahead on the audio clock from the given anchor —
-unbounded, unlike the finite count-in. `stopMetronome()` cancels pending clicks; `dispose()` and
-the metronome do not interfere with `clear`/`stopScore` (piano notes and score events unaffected).
+unbounded, unlike the finite count-in. `stopMetronome()` cancels pending clicks and pulse timers.
+`dispose()` currently closes the `AudioContext` and clears module state, so it must also stop the
+metronome (clear the interval, cancel scheduled click nodes) — a surviving `setInterval` would
+throw repeatedly against the closed context. The metronome must not interfere with
+`clear`/`stopScore` (piano notes and score events unaffected).
 Each scheduled click also arms a `setTimeout` at click time that pulses a CSS class on a
 `data-metronome-pulse` element if present (consumed by Task 7; harmless no-op until then).
 
 **Acceptance criteria:**
 - [ ] With the metronome started, clicks are audible, evenly spaced, and beat 1 of each measure is audibly accented.
 - [ ] Clicks stay steady while playing piano keys and while a score plays (no drift or stutter).
-- [ ] `stopMetronome()` silences it immediately; starting again re-anchors cleanly.
+- [ ] `stopMetronome()` silences it immediately; starting again re-anchors cleanly; `dispose()` while running produces no console errors.
 
 **Verification:**
 - [ ] Manual check via the running app (`/run`): enable audio, start metronome at 4/4 · 120 BPM, listen for accent pattern; change nothing else.
@@ -230,19 +243,20 @@ Core (`PianoMapper.Core/Practice/TempoFeedbackTracker.cs`) so the desktop app ca
 
 **Estimated scope:** M
 
-## Task 7: Indicator UI — deviation chip, rolling stats, tolerance presets, beat pulse
+## Task 7: Indicator UI — deviation chip, rolling stats, beat pulse
 
 **Description:** Render the feedback in/next to the Timing card, visible only while the metronome
-runs: a chip for the last note ("On time" / "+42 ms late" / "−35 ms early") colored by verdict
-(reuse the existing verdict color scheme), a rolling stat line ("8/10 on time · median +18 ms"),
-and a tolerance preset select (Strict 30 ms / Normal 60 ms / Relaxed 100 ms, default Normal)
-feeding both `TempoFeedbackTracker` and the shared `GradingOptions.OnTimeTolerance`. Add the beat
-pulse element (`data-metronome-pulse`) whose CSS class is pulsed by `audio.js` at each click
-(Task 3), with a stronger style on downbeats — no Blazor render loop needed for the pulse.
+runs: a chip for the last note ("On time" / "+42 ms late" / "−35 ms early") colored by verdict,
+and a rolling stat line ("8/10 on time · median +18 ms"). The verdict color scheme currently
+exists only as the `verdictColors` array in `wwwroot/js/canvas.js` (indexed by `Verdict` enum
+order: `Correct` #4ade80, `Early`/`Late` #fb923c); add matching CSS classes to `app.css` — there
+are no HTML verdict styles yet. Add the beat pulse element (`data-metronome-pulse`) whose CSS
+class is pulsed by `audio.js` at each click (Task 3), with a stronger style on downbeats — no
+Blazor render loop needed for the pulse. Tolerance stays at the default (Normal, 60 ms) in this
+task; the preset select lands in Task 8.
 
 **Acceptance criteria:**
-- [ ] With metronome on, each keypress updates the chip and stats; deliberately early/late presses show signed ms and the right color; presses on the click show "On time" at Normal tolerance.
-- [ ] Switching the preset visibly changes how strict the verdicts are.
+- [ ] With metronome on, each keypress updates the chip and stats; deliberately early/late presses show signed ms and the right color; presses on the click show "On time" at the default (Normal) tolerance.
 - [ ] The pulse dot blinks in sync with the audible clicks, accented on beat 1; indicator and pulse are hidden when the metronome is off.
 
 **Verification:**
@@ -258,6 +272,35 @@ pulse element (`data-metronome-pulse`) whose CSS class is pulsed by `audio.js` a
 
 **Estimated scope:** M
 
+## Task 8: Tolerance presets shared with practice grading + docs
+
+**Description:** Add the tolerance preset select (Strict 30 ms / Normal 60 ms / Relaxed 100 ms,
+default Normal) next to the indicator, feeding both `TempoFeedbackTracker` and practice grading.
+The practice side needs plumbing that does not exist yet: `BrowserPracticeCoordinator.StartAsync`
+constructs `new PracticeSession(score, timeProvider)` with default options and `Piano.razor`
+passes nothing — extend the coordinator to accept a `GradingOptions` (parameter or property) and
+forward it to `PracticeSession`, then supply the preset-derived options from `Piano.razor`.
+Update the README `Features` list with one bullet covering the metronome and on-tempo indicator.
+
+**Acceptance criteria:**
+- [ ] Switching the preset visibly changes how strict the indicator verdicts are.
+- [ ] Practice started after changing the preset grades with the selected `OnTimeTolerance`, covered by a `BrowserPracticeCoordinatorTests` case using the `FakePracticeAudio` pattern.
+- [ ] README `Features` mentions the metronome and on-tempo indicator.
+
+**Verification:**
+- [ ] Tests pass: `dotnet test --filter "BrowserPracticeCoordinator"`; full `dotnet test` green.
+- [ ] Manual check via the running app (`/run`): flip presets while playing against the click.
+
+**Dependencies:** Tasks 2, 6, 7
+
+**Files likely touched:**
+- `PianoMapper.Web/Pages/Piano.razor`
+- `PianoMapper.Web/Practice/BrowserPracticeCoordinator.cs`
+- `PianoMapper.Tests/UnitTests/BrowserPracticeCoordinatorTests.cs`
+- `README.md`
+
+**Estimated scope:** S–M
+
 ### Checkpoint: Complete
 - [ ] All acceptance criteria met; full `dotnet test` green; feature exercised end-to-end in the browser.
 - [ ] Ready for review.
@@ -268,9 +311,9 @@ pulse element (`data-metronome-pulse`) whose CSS class is pulsed by `audio.js` a
 |------|--------|------------|
 | Blazor WASM pauses (GC, interop) starve a C#-driven scheduler | High | Lookahead loop lives in JS (Task 3); C# only sets/clears the grid |
 | Visual pulse drifts from audible click | Med | Pulse is armed per scheduled click in JS from the same audio-clock times — no separate animation clock |
-| Grader dead zone changes practice grading semantics | Med | Existing tests use exact onsets (deviation 0) and stay green; boundary tests added; default 60 ms matches indicator default |
+| Grader dead zone changes practice grading semantics | Med | Existing tests use exact onsets or offsets outside the 60 ms default (±100 ms / +150 ms) and stay green; boundary tests added; default 60 ms matches indicator default |
 | Metronome interferes with `clear`/`stopScore`/dispose paths | Med | Metronome nodes tracked separately from `activeNotes`/`scheduledScoreNotes`; explicit stop wiring in Task 5 acceptance criteria |
-| Working tree already has uncommitted changes (`ScoreTiming`, Razor/CSS edits) | Low | Plan builds on the current working tree; implementer should not revert or "clean up" unrelated pending changes |
+| Working tree has staged uncommitted edits (Razor components, `app.css`) | Low | Plan builds on the current working tree; implementer must not revert or "clean up" these pending changes |
 
 ## Out of Scope (agreed follow-ups)
 
