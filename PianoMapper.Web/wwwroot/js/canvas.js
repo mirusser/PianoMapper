@@ -1,6 +1,21 @@
 import { getAnalyserNode, isAudioActive } from "./audio.js";
 
 const canvases = new Map();
+const staffLineKind = 0;
+const ledgerLineKind = 1;
+const defaultStaffSpace = 11;
+const noteHeadWidthInStaffSpaces = 1.4;
+const stemLengthInStaffSpaces = 3;
+const flagControlWidthInStaffSpaces = 1.2;
+const flagControlHeightInStaffSpaces = 0.5;
+const flagHeightInStaffSpaces = 1.15;
+const flagSpacingInStaffSpaces = 0.45;
+const staffLineWidth = 1.5;
+const spectrumReleaseClearMilliseconds = 120;
+const plotLeftMargin = 44;
+const plotRightMargin = 16;
+const plotTopMargin = 26;
+const plotBottomMargin = 34;
 const verdictColors = [
     "#4ade80",
     "#f87171",
@@ -21,6 +36,7 @@ export function initialize(canvas, waveformCanvas, spectrumCanvas, analysisLayou
         spectrumCanvas,
         scene: { kind: 0, lines: [], glyphs: [], notes: [] },
         animationFrame: undefined,
+        lastAudioActiveTimeMilliseconds: undefined,
         analyser: undefined,
         timeDomainData: undefined,
         frequencyData: undefined,
@@ -71,19 +87,27 @@ function draw(state) {
         drawPianoRoll(context, scene, width, height);
     } else {
         for (const line of scene.lines) {
+            if (scene.shouldClipNotesAtClefs && line.kind === ledgerLineKind) {
+                continue;
+            }
+
             drawLine(context, line, width, height);
         }
 
         let clefRight;
         for (const glyph of scene.glyphs) {
+            if (glyph.kind !== 0) {
+                continue;
+            }
+
             const glyphRight = drawGlyph(context, glyph, width, height);
             if (Number.isFinite(glyphRight)) {
                 clefRight = Math.max(clefRight ?? glyphRight, glyphRight);
             }
         }
 
-        const shouldClipNotes = scene.shouldClipNotesAtClefs && Number.isFinite(clefRight);
-        if (shouldClipNotes) {
+        const shouldClipNoteElements = scene.shouldClipNotesAtClefs && Number.isFinite(clefRight);
+        if (shouldClipNoteElements) {
             const clefGap = 8;
             const noteAreaX0 = clefRight + clefGap;
             context.save();
@@ -92,11 +116,29 @@ function draw(state) {
             context.clip();
         }
 
-        for (const note of scene.notes) {
-            drawNote(context, note, width, height);
+        if (scene.shouldClipNotesAtClefs) {
+            for (const line of scene.lines) {
+                if (line.kind === ledgerLineKind) {
+                    drawLine(context, line, width, height);
+                }
+            }
         }
 
-        if (shouldClipNotes) {
+        for (const glyph of scene.glyphs) {
+            if (glyph.kind !== 0) {
+                drawGlyph(context, glyph, width, height);
+            }
+        }
+
+        const staffLines = scene.lines.filter(line => line.kind === staffLineKind);
+        const staffSpace = staffLines.length >= 2
+            ? mapHeight(Math.abs(staffLines[1].y0 - staffLines[0].y0), height)
+            : defaultStaffSpace;
+        for (const note of scene.notes) {
+            drawNote(context, note, width, height, staffSpace);
+        }
+
+        if (shouldClipNoteElements) {
             context.restore();
         }
     }
@@ -128,6 +170,28 @@ function prepareCanvas(canvas) {
     return { context, width: bounds.width, height: bounds.height };
 }
 
+function drawPlotFrame(context, x0, x1, y0, y1) {
+    context.strokeStyle = "#334155";
+    context.lineWidth = 1;
+    context.strokeRect(x0, y1, x1 - x0, y0 - y1);
+}
+
+function drawPlotText(context, text, x, y, align = "left") {
+    context.fillStyle = "#cbd5e1";
+    context.font = "12px system-ui, sans-serif";
+    context.textAlign = align;
+    context.textBaseline = "middle";
+    context.fillText(text, x, y);
+}
+
+function drawRotatedPlotText(context, text, x, y) {
+    context.save();
+    context.translate(x, y);
+    context.rotate(-Math.PI / 2);
+    drawPlotText(context, text, 0, 0, "center");
+    context.restore();
+}
+
 function drawOscilloscope(state) {
     const surface = prepareCanvas(state.waveformCanvas);
     if (!surface) {
@@ -135,11 +199,20 @@ function drawOscilloscope(state) {
     }
 
     const { context, width, height } = surface;
-    const x0 = 12;
-    const x1 = width - 12;
-    const y0 = height - 12;
-    const y1 = 12;
+    const x0 = plotLeftMargin;
+    const x1 = width - plotRightMargin;
+    const y0 = height - plotBottomMargin;
+    const y1 = plotTopMargin;
     const centerY = (y0 + y1) / 2;
+
+    drawPlotFrame(context, x0, x1, y0, y1);
+    drawPlotText(context, "Waveform", x0, 14);
+    drawPlotText(context, "time", (x0 + x1) / 2, height - 12, "center");
+    drawRotatedPlotText(context, "amplitude", 14, centerY);
+    drawPlotText(context, "+", x0 - 12, y1, "center");
+    drawPlotText(context, "0", x0 - 12, centerY, "center");
+    drawPlotText(context, "-", x0 - 12, y0, "center");
+
     context.strokeStyle = "#334155";
     context.lineWidth = 1;
     context.beginPath();
@@ -183,11 +256,28 @@ function drawSpectrum(state) {
     }
 
     const { context, width, height } = surface;
+    const panelX0 = plotLeftMargin;
+    const panelX1 = width - plotRightMargin;
+    const panelY0 = height - plotBottomMargin;
+    const panelY1 = plotTopMargin;
+
+    drawPlotFrame(context, panelX0, panelX1, panelY0, panelY1);
+    drawPlotText(context, "Frequency spectrum", panelX0, 14);
+    drawPlotText(context, "low Hz", panelX0, height - 12);
+    drawPlotText(context, "high Hz", panelX1, height - 12, "right");
+    drawRotatedPlotText(context, "magnitude", 14, (panelY0 + panelY1) / 2);
+    drawPlotText(context, "max", panelX0 - 14, panelY1, "center");
+    drawPlotText(context, "0", panelX0 - 14, panelY0, "center");
+
     if (!state.analyser || !state.frequencyData) {
         return;
     }
 
-    state.analyser.getByteFrequencyData(state.frequencyData);
+    if (isAudioActive()) {
+        state.analyser.getByteFrequencyData(state.frequencyData);
+    } else {
+        state.frequencyData.fill(0);
+    }
     const layout = state.analysisLayout;
     const visibleCount = Math.min(layout.spectrumVisibleBinCount, state.frequencyData.length);
     let maximum = 0;
@@ -195,10 +285,6 @@ function drawSpectrum(state) {
         maximum = Math.max(maximum, state.frequencyData[index]);
     }
 
-    const panelX0 = 12;
-    const panelX1 = width - 12;
-    const panelY0 = height - 12;
-    const panelY1 = 12;
     if (maximum === 0 || visibleCount === 0) {
         return;
     }
@@ -217,7 +303,17 @@ function drawSpectrum(state) {
 }
 
 function ensureAnimation(state) {
-    if (!isAudioActive() || state.animationFrame !== undefined) {
+    const audioActive = isAudioActive();
+    const now = performance.now();
+    if (audioActive) {
+        state.lastAudioActiveTimeMilliseconds = now;
+    }
+
+    const shouldAnimate = audioActive
+        || (state.lastAudioActiveTimeMilliseconds !== undefined
+            && now - state.lastAudioActiveTimeMilliseconds < spectrumReleaseClearMilliseconds);
+
+    if (!shouldAnimate || state.animationFrame !== undefined) {
         return;
     }
 
@@ -250,7 +346,7 @@ function drawLine(context, line, width, height) {
         : line.kind === 2
             ? "#64748b"
             : line.kind === 0 ? "#94a3b8" : "#cbd5e1";
-    context.lineWidth = line.kind === 0 ? 1 : line.kind === 3 ? 2 : 1.5;
+    context.lineWidth = line.kind === staffLineKind ? staffLineWidth : line.kind === 3 ? 2 : 1.5;
     context.beginPath();
     context.moveTo(mapX(line.x0, width), mapY(line.y0, height));
     context.lineTo(mapX(line.x1, width), mapY(line.y1, height));
@@ -283,16 +379,18 @@ function drawGlyph(context, glyph, width, height) {
     context.fillText(glyph.text, x, y);
 }
 
-function drawNote(context, note, width, height) {
+function drawNote(context, note, width, height, staffSpace) {
     const x = mapX(note.x, width);
     const y = mapY(note.y, height);
+    const noteHeadRadiusX = staffSpace * noteHeadWidthInStaffSpaces / 2;
+    const noteHeadRadiusY = staffSpace / 2;
     const noteColor = Number.isInteger(note.verdict)
         ? verdictColors[note.verdict]
         : note.isActive ? "#22d3ee" : "#fbbf24";
     context.strokeStyle = noteColor;
     context.fillStyle = context.strokeStyle;
     context.lineWidth = 2;
-    let labelX = x + 11;
+    let labelX = x + noteHeadRadiusX + 4;
     if (note.isActive && note.durationSeconds > 0) {
         const durationWidth = Math.min(80, Math.max(12, note.durationSeconds * 40));
         context.beginPath();
@@ -303,7 +401,7 @@ function drawNote(context, note, width, height) {
     }
 
     context.beginPath();
-    context.ellipse(x, y, 8, 5.5, -0.2, 0, Math.PI * 2);
+    context.ellipse(x, y, noteHeadRadiusX, noteHeadRadiusY, -0.2, 0, Math.PI * 2);
     if (note.isFilled) {
         context.fill();
     } else {
@@ -314,8 +412,8 @@ function drawNote(context, note, width, height) {
     let stemX = x;
     const stemGoesUp = note.stemDirection === 0;
     if (note.hasStem) {
-        stemX = x + (stemGoesUp ? 7 : -7);
-        stemEndY = y + (stemGoesUp ? -30 : 30);
+        stemX = x + (stemGoesUp ? noteHeadRadiusX : -noteHeadRadiusX);
+        stemEndY = y + (stemGoesUp ? -1 : 1) * staffSpace * stemLengthInStaffSpaces;
         context.beginPath();
         context.moveTo(stemX, y);
         context.lineTo(stemX, stemEndY);
@@ -325,20 +423,26 @@ function drawNote(context, note, width, height) {
     const flagXDirection = stemGoesUp ? 1 : -1;
     const flagYDirection = stemGoesUp ? 1 : -1;
     for (let flagIndex = 0; flagIndex < note.flagCount; flagIndex++) {
-        const flagStartY = stemEndY + (flagIndex * 8 * flagYDirection);
+        const flagStartY = stemEndY
+            + (flagIndex * staffSpace * flagSpacingInStaffSpaces * flagYDirection);
         context.beginPath();
         context.moveTo(stemX, flagStartY);
         context.quadraticCurveTo(
-            stemX + (10 * flagXDirection),
-            flagStartY + (8 * flagYDirection),
+            stemX + (staffSpace * flagControlWidthInStaffSpaces * flagXDirection),
+            flagStartY + (staffSpace * flagControlHeightInStaffSpaces * flagYDirection),
             stemX,
-            flagStartY + (15 * flagYDirection));
+            flagStartY + (staffSpace * flagHeightInStaffSpaces * flagYDirection));
         context.stroke();
     }
 
     if (note.hasDot) {
         context.beginPath();
-        context.arc(x + 14, y, 2, 0, Math.PI * 2);
+        context.arc(
+            x + noteHeadRadiusX + (staffSpace * 0.25),
+            y,
+            Math.max(2, staffSpace * 0.08),
+            0,
+            Math.PI * 2);
         context.fill();
     }
 

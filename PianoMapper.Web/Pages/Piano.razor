@@ -262,6 +262,7 @@
     private const int RelaxedToleranceMilliseconds = 100;
     private static readonly Pitch TestPitch = new(NoteLetter.A, 0, 4);
     private static readonly TimeSpan BrowserSchedulingLead = TimeSpan.FromMilliseconds(50);
+    private static readonly TimeSpan CanvasRefreshInterval = TimeSpan.FromMilliseconds(16);
 
     private readonly NoteTimeline noteTimeline = new();
     private readonly TempoFeedbackTracker tempoFeedbackTracker = new();
@@ -824,7 +825,7 @@
                     break;
                 }
 
-                await Task.Delay(TimeSpan.FromMilliseconds(33), cancellationToken);
+                await Task.Delay(CanvasRefreshInterval, cancellationToken);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -880,7 +881,7 @@
                     break;
                 }
 
-                await Task.Delay(TimeSpan.FromMilliseconds(33), cancellationToken);
+                await Task.Delay(CanvasRefreshInterval, cancellationToken);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1033,7 +1034,7 @@
                     break;
                 }
 
-                await Task.Delay(TimeSpan.FromMilliseconds(33), cancellationToken);
+                await Task.Delay(CanvasRefreshInterval, cancellationToken);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

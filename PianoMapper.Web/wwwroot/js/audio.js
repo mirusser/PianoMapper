@@ -13,6 +13,7 @@ let nextMetronomeBeatIndex;
 
 const attackSeconds = 0.012;
 const releaseSeconds = 0.08;
+const minimumEnvelopeGain = 0.0001;
 const metronomeLookaheadSeconds = 0.2;
 const metronomeSchedulerIntervalMilliseconds = 25;
 const metronomeClickDurationSeconds = 0.04;
@@ -45,7 +46,7 @@ export async function initialize() {
     if (!analyser) {
         analyser = audioContext.createAnalyser();
         analyser.fftSize = 2048;
-        analyser.smoothingTimeConstant = 0.8;
+        analyser.smoothingTimeConstant = 0.2;
         masterGain.connect(analyser);
         analyser.connect(audioContext.destination);
     }
@@ -207,7 +208,7 @@ function clearMetronomePulse() {
 
 function createNote(frequency, startTime) {
     const envelope = audioContext.createGain();
-    envelope.gain.setValueAtTime(0.0001, startTime);
+    envelope.gain.setValueAtTime(minimumEnvelopeGain, startTime);
     envelope.gain.exponentialRampToValueAtTime(1, startTime + attackSeconds);
     envelope.connect(masterGain);
 
@@ -223,7 +224,7 @@ function createNote(frequency, startTime) {
         return { oscillator, harmonicGain };
     });
 
-    return { envelope, oscillators };
+    return { envelope, oscillators, startTime };
 }
 
 export function noteOff(noteId, releaseTimeSeconds) {
@@ -309,12 +310,17 @@ function releaseNodes(note, releaseTimeSeconds, onDisconnected) {
         ? Math.max(releaseTimeSeconds, audioContext.currentTime)
         : audioContext.currentTime;
     const stopTime = isRunning ? releaseTime + releaseSeconds : audioContext.currentTime;
-    note.envelope.gain.cancelScheduledValues(releaseTime);
-    note.envelope.gain.setValueAtTime(Math.max(note.envelope.gain.value, 0.0001), releaseTime);
-    if (isRunning) {
-        note.envelope.gain.exponentialRampToValueAtTime(0.0001, stopTime);
+    const releaseGain = getEnvelopeGainAtTime(note, releaseTime);
+    if (typeof note.envelope.gain.cancelAndHoldAtTime === "function") {
+        note.envelope.gain.cancelAndHoldAtTime(releaseTime);
     } else {
-        note.envelope.gain.setValueAtTime(0.0001, stopTime);
+        note.envelope.gain.cancelScheduledValues(releaseTime);
+        note.envelope.gain.setValueAtTime(releaseGain, releaseTime);
+    }
+    if (isRunning) {
+        note.envelope.gain.exponentialRampToValueAtTime(minimumEnvelopeGain, stopTime);
+    } else {
+        note.envelope.gain.setValueAtTime(minimumEnvelopeGain, stopTime);
     }
 
     for (const { oscillator } of note.oscillators) {
@@ -330,4 +336,18 @@ function releaseNodes(note, releaseTimeSeconds, onDisconnected) {
         note.envelope.disconnect();
         onDisconnected?.();
     }, Math.max(0, (stopTime - audioContext.currentTime) * 1000) + 25);
+}
+
+function getEnvelopeGainAtTime(note, timeSeconds) {
+    const attackEndTime = note.startTime + attackSeconds;
+    if (timeSeconds <= note.startTime) {
+        return minimumEnvelopeGain;
+    }
+
+    if (timeSeconds >= attackEndTime) {
+        return 1;
+    }
+
+    const attackProgress = (timeSeconds - note.startTime) / attackSeconds;
+    return minimumEnvelopeGain * Math.pow(1 / minimumEnvelopeGain, attackProgress);
 }

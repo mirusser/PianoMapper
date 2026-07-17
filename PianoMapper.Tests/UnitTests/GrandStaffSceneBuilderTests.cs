@@ -116,6 +116,15 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
+    public void Build_EmptyTimeline_PositionsTrebleClefForGLineAlignment()
+    {
+        var scene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero);
+
+        var trebleClef = Assert.Single(scene.Glyphs, glyph => glyph.Text == "𝄞");
+        Assert.Equal(GrandStaffLayout.TrebleLineYs[2], trebleClef.Y, 6);
+    }
+
+    [Fact]
     public void Build_EmptyTimeline_SizesClefsFromTheirStaffSpaces()
     {
         var scene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero, selectedOctave: 4);
@@ -145,6 +154,7 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.Equal(GrandStaffLayout.MiddleCY, renderedNote.Y, 6);
         var ledgerLine = Assert.Single(scene.Lines, line => line.Kind == GrandStaffLineKind.Ledger);
         Assert.Equal(GrandStaffLayout.MiddleCY, ledgerLine.Y0, 6);
+        Assert.Equal(0.13, ledgerLine.X1 - ledgerLine.X0, 6);
     }
 
     [Fact]

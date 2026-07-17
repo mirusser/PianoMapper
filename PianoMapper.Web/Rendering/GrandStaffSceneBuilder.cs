@@ -9,6 +9,7 @@ internal static class GrandStaffSceneBuilder
     private const double StaffX0 = -0.92;
     private const double StaffX1 = 0.96;
     private const double ClefX = -0.87;
+    private const double LedgerLineHalfWidth = 0.065;
     private const double ViewY0 = -0.9;
     private const double ViewY1 = 0.9;
     private const int TrebleClefHeightInStaffSpaces = 6;
@@ -84,7 +85,12 @@ internal static class GrandStaffSceneBuilder
                 layout.FlagCount,
                 verdict));
             lines.AddRange(layout.Position.LedgerLineYs.Select(
-                y => new GrandStaffLine(layout.X - 0.04, y, layout.X + 0.04, y, GrandStaffLineKind.Ledger)));
+                y => new GrandStaffLine(
+                    layout.X - LedgerLineHalfWidth,
+                    y,
+                    layout.X + LedgerLineHalfWidth,
+                    y,
+                    GrandStaffLineKind.Ledger)));
             if (layout.Position.NeedsAccidental)
             {
                 glyphs.Add(new GrandStaffGlyph(
@@ -160,7 +166,12 @@ internal static class GrandStaffSceneBuilder
                 StemDirection: stemDirection,
                 FlagCount: flagCount));
             lines.AddRange(position.LedgerLineYs.Select(
-                y => new GrandStaffLine(x.Value - 0.04, y, x.Value + 0.04, y, GrandStaffLineKind.Ledger)));
+                y => new GrandStaffLine(
+                    x.Value - LedgerLineHalfWidth,
+                    y,
+                    x.Value + LedgerLineHalfWidth,
+                    y,
+                    GrandStaffLineKind.Ledger)));
             if (position.NeedsAccidental)
             {
                 glyphs.Add(new GrandStaffGlyph(

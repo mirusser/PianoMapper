@@ -18,7 +18,6 @@ body {
 }
 
 main {
-    max-width: 80rem;
     margin: 0 auto;
     padding: clamp(1rem, 3vw, 2.5rem);
 }
@@ -447,7 +446,7 @@ input[type="file"]::file-selector-button {
 }
 
 .analysis-canvas {
-    height: 11rem;
+    height: clamp(13rem, 24vw, 16rem);
 }
 
 .legend-line {
@@ -587,6 +586,10 @@ input[type="file"]::file-selector-button {
 
     .piano-canvas {
         height: 24rem;
+    }
+
+    .analysis-canvas {
+        height: 12rem;
     }
 }
 
