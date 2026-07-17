@@ -210,4 +210,60 @@ public sealed class GrandStaffLayoutTests
 
         Assert.Equal(expectedX, cursorX);
     }
+
+    [Fact]
+    public void GetLiveFirstVisibleMeasure_CurrentBeatInSecondGroup_ReturnsMeasureGroupStart()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        var currentTime = TimeSpan.FromSeconds(9);
+
+        int firstVisibleMeasure = GrandStaffLayout.GetLiveFirstVisibleMeasure(currentTime, signature, tempo);
+
+        Assert.Equal(4, firstVisibleMeasure);
+    }
+
+    [Fact]
+    public void GetLiveNoteLayout_NoteInCurrentMeasureGroup_MapsOnsetAndDurationToBeatSpace()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        var currentTime = TimeSpan.FromSeconds(3);
+        var startTime = TimeSpan.FromSeconds(1);
+
+        var layout = GrandStaffLayout.GetLiveNoteLayout(
+            new Pitch(NoteLetter.C, 0, 4),
+            startTime,
+            currentTime,
+            currentTime,
+            signature,
+            tempo);
+
+        Assert.NotNull(layout);
+        Assert.Equal(
+            GrandStaffLayout.MapAbsoluteBeatToScoreX(2, signature, firstVisibleMeasure: 0),
+            layout.Value.X);
+        Assert.Equal(
+            GrandStaffLayout.MapAbsoluteBeatToScoreX(6, signature, firstVisibleMeasure: 0),
+            layout.Value.DurationEndX);
+        Assert.True(layout.Value.DurationEndX > layout.Value.X);
+    }
+
+    [Fact]
+    public void GetLiveNoteLayout_NoteEndedBeforeCurrentMeasureGroup_ReturnsNull()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        var currentTime = TimeSpan.FromSeconds(17);
+
+        var layout = GrandStaffLayout.GetLiveNoteLayout(
+            new Pitch(NoteLetter.C, 0, 4),
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(2),
+            currentTime,
+            signature,
+            tempo);
+
+        Assert.Null(layout);
+    }
 }

@@ -6,4 +6,5 @@ public enum GrandStaffLineKind
     Ledger,
     Barline,
     Cursor,
+    Beat,
 }

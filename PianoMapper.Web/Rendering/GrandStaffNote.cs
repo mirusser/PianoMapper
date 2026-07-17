@@ -14,4 +14,5 @@ public sealed record GrandStaffNote(
     StemDirection StemDirection = StemDirection.Up,
     bool HasDot = false,
     int FlagCount = 0,
-    Verdict? Verdict = null);
+    Verdict? Verdict = null,
+    double? DurationEndX = null);

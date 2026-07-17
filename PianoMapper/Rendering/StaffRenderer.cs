@@ -7,6 +7,7 @@ namespace PianoMapper.Rendering;
 internal sealed class StaffRenderer : IDisposable
 {
     private static readonly float[] StaffColor = [0.8f, 0.8f, 0.8f];
+    private static readonly float[] BeatColor = [0.25f, 0.3f, 0.38f];
     private static readonly float[] NoteColor = [0.95f, 0.95f, 0.95f];
     private static readonly float[] CursorColor = [0.2f, 0.9f, 0.4f];
     private static readonly float[] CorrectColor = [0.2f, 0.9f, 0.3f];
@@ -51,14 +52,20 @@ internal sealed class StaffRenderer : IDisposable
         GL.BindVertexArray(0);
     }
 
-    public void Render(IReadOnlyList<PerformedNote> notes, TimeSpan now, TextRenderer textRenderer)
+    public void Render(
+        IReadOnlyList<PerformedNote> notes,
+        TimeSpan now,
+        TextRenderer textRenderer,
+        TimeSignature timeSignature,
+        Tempo tempo)
     {
         vertices.Clear();
         AppendStaffLines(GrandStaffLayout.TrebleLineYs);
         AppendStaffLines(GrandStaffLayout.BassLineYs);
         AppendGlyph(StaffGlyphs.TrebleClef, GrandStaffLayout.TrebleLineYs[1]);
         AppendGlyph(StaffGlyphs.BassClef, GrandStaffLayout.BassLineYs[3]);
-        AppendPerformedNotes(notes, now, textRenderer);
+        AppendLiveMeasureGrid(now, timeSignature, tempo);
+        AppendPerformedNotes(notes, now, textRenderer, timeSignature, tempo);
 
         DrawVertices();
     }
@@ -102,7 +109,7 @@ internal sealed class StaffRenderer : IDisposable
             AppendScoreNote(note, layout.Value, textRenderer, color);
         }
 
-        AppendPerformedNotes(performedNotes, now, textRenderer);
+        AppendPerformedNotes(performedNotes, now, textRenderer, score.TimeSignature, score.Tempo);
 
         if (cursorBeat.HasValue)
         {
@@ -158,6 +165,57 @@ internal sealed class StaffRenderer : IDisposable
     private void AppendHorizontalLine(float x0, float x1, float y, float halfHeight) =>
         AppendQuad(x0, x1, y - halfHeight, y + halfHeight, StaffColor);
 
+    private void AppendLiveMeasureGrid(TimeSpan now, TimeSignature timeSignature, Tempo tempo)
+    {
+        int firstVisibleMeasure = GrandStaffLayout.GetLiveFirstVisibleMeasure(now, timeSignature, tempo);
+        float y0 = GrandStaffLayout.BassLineYs[0];
+        float y1 = GrandStaffLayout.TrebleLineYs[^1];
+        foreach (float barlineX in GrandStaffLayout.GetScoreBarlineXs(
+            firstVisibleMeasure,
+            firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount))
+        {
+            AppendQuad(
+                barlineX - StaffLineHalfHeight,
+                barlineX + StaffLineHalfHeight,
+                y0,
+                y1,
+                StaffColor);
+        }
+
+        int visibleBeatCount = GrandStaffLayout.VisibleMeasureCount * timeSignature.Numerator;
+        for (int beatIndex = 1; beatIndex < visibleBeatCount; beatIndex++)
+        {
+            if (beatIndex % timeSignature.Numerator == 0)
+            {
+                continue;
+            }
+
+            double absoluteBeat = (firstVisibleMeasure * timeSignature.Numerator) + beatIndex;
+            float beatX = GrandStaffLayout.MapAbsoluteBeatToScoreX(
+                absoluteBeat,
+                timeSignature,
+                firstVisibleMeasure);
+            AppendQuad(
+                beatX - (StaffLineHalfHeight / 2f),
+                beatX + (StaffLineHalfHeight / 2f),
+                y0,
+                y1,
+                BeatColor);
+        }
+
+        double currentBeat = MusicalTime.DurationToBeats(now, tempo);
+        float cursorX = GrandStaffLayout.MapAbsoluteBeatToScoreX(currentBeat, timeSignature, firstVisibleMeasure);
+        if (cursorX >= GrandStaffLayout.ScoreX0 && cursorX <= GrandStaffLayout.ScoreX1)
+        {
+            AppendQuad(
+                cursorX - StaffLineHalfHeight,
+                cursorX + StaffLineHalfHeight,
+                y0,
+                y1,
+                CursorColor);
+        }
+    }
+
     private void AppendScoreNote(ScoreNote note, ScoreNoteLayout layout, TextRenderer textRenderer, float[] color)
     {
         foreach (float ledgerY in layout.Position.LedgerLineYs)
@@ -207,26 +265,51 @@ internal sealed class StaffRenderer : IDisposable
         }
     }
 
-    private void AppendPerformedNotes(IReadOnlyList<PerformedNote> notes, TimeSpan now, TextRenderer textRenderer)
+    private void AppendPerformedNotes(
+        IReadOnlyList<PerformedNote> notes,
+        TimeSpan now,
+        TextRenderer textRenderer,
+        TimeSignature timeSignature,
+        Tempo tempo)
     {
         foreach (var note in notes)
         {
             var endTime = note.ReleaseTime ?? now;
-            float? x = GrandStaffLayout.GetLiveNoteX(note.StartTime, endTime, now);
-            if (x is null)
+            var layout = GrandStaffLayout.GetLiveNoteLayout(
+                note.Pitch,
+                note.StartTime,
+                endTime,
+                now,
+                timeSignature,
+                tempo);
+            if (!layout.HasValue)
             {
                 continue;
             }
 
-            var position = GrandStaffLayout.GetLivePosition(note.Pitch);
+            var position = layout.Value.Position;
+            if (layout.Value.DurationEndX > layout.Value.X)
+            {
+                AppendQuad(
+                    layout.Value.X,
+                    layout.Value.DurationEndX,
+                    position.Y - StaffLineHalfHeight,
+                    position.Y + StaffLineHalfHeight,
+                    NoteColor);
+            }
+
             foreach (float ledgerY in position.LedgerLineYs)
             {
-                AppendHorizontalLine(x.Value - LedgerHalfWidth, x.Value + LedgerHalfWidth, ledgerY, StaffLineHalfHeight);
+                AppendHorizontalLine(
+                    layout.Value.X - LedgerHalfWidth,
+                    layout.Value.X + LedgerHalfWidth,
+                    ledgerY,
+                    StaffLineHalfHeight);
             }
 
             AppendQuad(
-                x.Value - NoteHeadHalfWidth,
-                x.Value + NoteHeadHalfWidth,
+                layout.Value.X - NoteHeadHalfWidth,
+                layout.Value.X + NoteHeadHalfWidth,
                 position.Y - NoteHeadHalfHeight,
                 position.Y + NoteHeadHalfHeight,
                 NoteColor);
@@ -235,7 +318,7 @@ internal sealed class StaffRenderer : IDisposable
             {
                 textRenderer.Render(
                     GetAccidentalText(note.Pitch.Alter),
-                    x.Value - AccidentalXOffset,
+                    layout.Value.X - AccidentalXOffset,
                     position.Y - AccidentalYOffset,
                     AccidentalGlyphWidth,
                     AccidentalGlyphHeight,

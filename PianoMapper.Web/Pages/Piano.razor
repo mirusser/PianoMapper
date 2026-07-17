@@ -315,6 +315,7 @@
             audioClockAnchor = await AudioSession.InitializeAsync();
             await AttachKeyboardAsync();
             audioStatus = "Audio is ready.";
+            EnsureVisualizationRefresh();
         }
         catch (JSException exception)
         {
@@ -986,6 +987,11 @@
         if (!showPianoRoll && hasLoadedScore)
         {
             return false;
+        }
+
+        if (!showPianoRoll)
+        {
+            return true;
         }
 
         return activeNoteCount > 0 || scene switch

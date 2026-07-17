@@ -124,18 +124,26 @@ internal static class GrandStaffSceneBuilder
     {
         var lines = CreateStaffLines();
         var glyphs = CreateClefGlyphs();
+        int firstVisibleMeasure = GrandStaffLayout.GetLiveFirstVisibleMeasure(currentTime, timeSignature, tempo);
+        AddLiveMeasureGrid(lines, firstVisibleMeasure, currentTime, timeSignature, tempo);
 
         var renderedNotes = new List<GrandStaffNote>(notes.Count);
         foreach (var note in notes)
         {
             TimeSpan endTime = note.ReleaseTime ?? currentTime;
-            float? x = GrandStaffLayout.GetLiveNoteX(note.StartTime, endTime, currentTime);
-            if (!x.HasValue)
+            var layout = GrandStaffLayout.GetLiveNoteLayout(
+                note.Pitch,
+                note.StartTime,
+                endTime,
+                currentTime,
+                timeSignature,
+                tempo);
+            if (!layout.HasValue)
             {
                 continue;
             }
 
-            var position = GrandStaffLayout.GetLivePosition(note.Pitch);
+            var position = layout.Value.Position;
             double durationSeconds = Math.Max(0, endTime.TotalSeconds - note.StartTime.TotalSeconds);
             bool isActive = note.ReleaseTime is null;
             NoteValue? noteValue = isActive
@@ -157,26 +165,27 @@ internal static class GrandStaffSceneBuilder
                 : StemDirection.Down;
             renderedNotes.Add(new GrandStaffNote(
                 note.Pitch.ToString(),
-                x.Value,
+                layout.Value.X,
                 position.Y,
                 durationSeconds,
                 IsActive: isActive,
                 IsFilled: isFilled,
                 HasStem: hasStem,
                 StemDirection: stemDirection,
-                FlagCount: flagCount));
+                FlagCount: flagCount,
+                DurationEndX: layout.Value.DurationEndX));
             lines.AddRange(position.LedgerLineYs.Select(
                 y => new GrandStaffLine(
-                    x.Value - LedgerLineHalfWidth,
+                    layout.Value.X - LedgerLineHalfWidth,
                     y,
-                    x.Value + LedgerLineHalfWidth,
+                    layout.Value.X + LedgerLineHalfWidth,
                     y,
                     GrandStaffLineKind.Ledger)));
             if (position.NeedsAccidental)
             {
                 glyphs.Add(new GrandStaffGlyph(
                     GetAccidentalGlyph(note.Pitch.Alter),
-                    x.Value - 0.055,
+                    layout.Value.X - 0.055,
                     position.Y,
                     GrandStaffGlyphKind.Accidental));
             }
@@ -193,6 +202,41 @@ internal static class GrandStaffSceneBuilder
             .Concat(GrandStaffLayout.BassLineYs)
             .Select(y => new GrandStaffLine(StaffX0, y, StaffX1, y, GrandStaffLineKind.Staff))
             .ToList();
+
+    private static void AddLiveMeasureGrid(
+        List<GrandStaffLine> lines,
+        int firstVisibleMeasure,
+        TimeSpan currentTime,
+        TimeSignature timeSignature,
+        Tempo tempo)
+    {
+        float barlineY0 = GrandStaffLayout.BassLineYs[0];
+        float barlineY1 = GrandStaffLayout.TrebleLineYs[^1];
+        lines.AddRange(GrandStaffLayout.GetScoreBarlineXs(
+                firstVisibleMeasure,
+                firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount)
+            .Select(x => new GrandStaffLine(x, barlineY0, x, barlineY1, GrandStaffLineKind.Barline)));
+
+        int visibleBeatCount = GrandStaffLayout.VisibleMeasureCount * timeSignature.Numerator;
+        for (int beatIndex = 1; beatIndex < visibleBeatCount; beatIndex++)
+        {
+            if (beatIndex % timeSignature.Numerator == 0)
+            {
+                continue;
+            }
+
+            double absoluteBeat = (firstVisibleMeasure * timeSignature.Numerator) + beatIndex;
+            float x = GrandStaffLayout.MapAbsoluteBeatToScoreX(absoluteBeat, timeSignature, firstVisibleMeasure);
+            lines.Add(new GrandStaffLine(x, barlineY0, x, barlineY1, GrandStaffLineKind.Beat));
+        }
+
+        double currentBeat = MusicalTime.DurationToBeats(currentTime, tempo);
+        float cursorX = GrandStaffLayout.MapAbsoluteBeatToScoreX(currentBeat, timeSignature, firstVisibleMeasure);
+        if (cursorX >= GrandStaffLayout.ScoreX0 && cursorX <= GrandStaffLayout.ScoreX1)
+        {
+            lines.Add(new GrandStaffLine(cursorX, barlineY0, cursorX, barlineY1, GrandStaffLineKind.Cursor));
+        }
+    }
 
     private static List<GrandStaffGlyph> CreateClefGlyphs() =>
     [

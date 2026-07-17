@@ -41,6 +41,40 @@ public static class GrandStaffLayout
         return ScoreX0 + (float)(relativeMeasure / VisibleMeasureCount * (ScoreX1 - ScoreX0));
     }
 
+    public static int GetLiveFirstVisibleMeasure(
+        TimeSpan currentTime,
+        TimeSignature timeSignature,
+        Tempo tempo)
+    {
+        double currentBeat = MusicalTime.DurationToBeats(currentTime, tempo);
+        int currentMeasure = Math.Max(0, (int)Math.Floor(currentBeat / timeSignature.Numerator));
+        return currentMeasure / VisibleMeasureCount * VisibleMeasureCount;
+    }
+
+    public static LiveNoteLayout? GetLiveNoteLayout(
+        Pitch pitch,
+        TimeSpan startTime,
+        TimeSpan endTime,
+        TimeSpan currentTime,
+        TimeSignature timeSignature,
+        Tempo tempo)
+    {
+        int firstVisibleMeasure = GetLiveFirstVisibleMeasure(currentTime, timeSignature, tempo);
+        double windowStartBeat = firstVisibleMeasure * timeSignature.Numerator;
+        double windowEndBeat = (firstVisibleMeasure + VisibleMeasureCount) * timeSignature.Numerator;
+        double startBeat = MusicalTime.DurationToBeats(startTime, tempo);
+        double endBeat = Math.Max(startBeat, MusicalTime.DurationToBeats(endTime, tempo));
+        if (endBeat <= windowStartBeat || startBeat >= windowEndBeat)
+        {
+            return null;
+        }
+
+        return new LiveNoteLayout(
+            MapAbsoluteBeatToScoreX(startBeat, timeSignature, firstVisibleMeasure),
+            MapAbsoluteBeatToScoreX(endBeat, timeSignature, firstVisibleMeasure),
+            GetLivePosition(pitch));
+    }
+
     public static ScoreNoteLayout? GetScoreNoteLayout(
         ScoreNote note,
         TimeSignature timeSignature,

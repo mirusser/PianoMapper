@@ -200,7 +200,12 @@ internal sealed class PianoMapperWindow : GameWindow
                 }
                 else
                 {
-                    staffRenderer?.Render(notes, now, textRenderer);
+                    staffRenderer?.Render(
+                        notes,
+                        now,
+                        textRenderer,
+                        new TimeSignature(measureNumerator, new NoteValue(measureBeatNoteValue)),
+                        new Tempo(measureBpm));
                 }
             }
             else

@@ -3,6 +3,9 @@ import { getAnalyserNode, isAudioActive } from "./audio.js";
 const canvases = new Map();
 const staffLineKind = 0;
 const ledgerLineKind = 1;
+const barlineKind = 2;
+const cursorLineKind = 3;
+const beatLineKind = 4;
 const defaultStaffSpace = 11;
 const noteHeadWidthInStaffSpaces = 1.4;
 const stemLengthInStaffSpaces = 3;
@@ -341,12 +344,18 @@ function drawPianoRoll(context, scene, width, height) {
 }
 
 function drawLine(context, line, width, height) {
-    context.strokeStyle = line.kind === 3
+    context.strokeStyle = line.kind === cursorLineKind
         ? "#fb7185"
-        : line.kind === 2
+        : line.kind === beatLineKind
+            ? "#334155"
+            : line.kind === barlineKind
             ? "#64748b"
             : line.kind === 0 ? "#94a3b8" : "#cbd5e1";
-    context.lineWidth = line.kind === staffLineKind ? staffLineWidth : line.kind === 3 ? 2 : 1.5;
+    context.lineWidth = line.kind === staffLineKind
+        ? staffLineWidth
+        : line.kind === cursorLineKind
+            ? 2
+            : line.kind === beatLineKind ? 1 : 1.5;
     context.beginPath();
     context.moveTo(mapX(line.x0, width), mapY(line.y0, height));
     context.lineTo(mapX(line.x1, width), mapY(line.y1, height));
@@ -391,13 +400,15 @@ function drawNote(context, note, width, height, staffSpace) {
     context.fillStyle = context.strokeStyle;
     context.lineWidth = 2;
     let labelX = x + noteHeadRadiusX + 4;
-    if (note.isActive && note.durationSeconds > 0) {
-        const durationWidth = Math.min(80, Math.max(12, note.durationSeconds * 40));
+    if (Number.isFinite(note.durationEndX)) {
+        const durationEndX = mapX(note.durationEndX, width);
+        if (durationEndX > x) {
         context.beginPath();
         context.moveTo(x, y);
-        context.lineTo(x + durationWidth, y);
+            context.lineTo(durationEndX, y);
         context.stroke();
-        labelX = x + durationWidth + 4;
+            labelX = durationEndX + 4;
+        }
     }
 
     context.beginPath();

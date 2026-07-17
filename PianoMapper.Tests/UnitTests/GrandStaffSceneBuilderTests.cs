@@ -99,6 +99,21 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
+    public void Build_EmptyTimeline_ReturnsLiveMeasureGridAndCursor()
+    {
+        var scene = GrandStaffSceneBuilder.Build(
+            [],
+            TimeSpan.Zero,
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120));
+
+        Assert.Equal(5, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Barline));
+        Assert.Equal(12, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Beat));
+        var cursor = Assert.Single(scene.Lines, line => line.Kind == GrandStaffLineKind.Cursor);
+        Assert.Equal(GrandStaffLayout.ScoreX0, cursor.X0, 6);
+    }
+
+    [Fact]
     public void Build_LiveGrandStaff_RequestsClefAwareNoteClipping()
     {
         var scene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero, selectedOctave: 4);
@@ -200,6 +215,8 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.Equal(1, marker.DurationSeconds);
         Assert.False(marker.HasStem);
         Assert.Equal(0, marker.FlagCount);
+        Assert.NotNull(marker.DurationEndX);
+        Assert.True(marker.DurationEndX > marker.X);
     }
 
     [Theory]

@@ -20,7 +20,7 @@ public sealed class PianoTests
     }
 
     [Fact]
-    public void ShouldContinueVisualizationRefresh_LiveGrandStaffWithoutNotes_ReturnsFalse()
+    public void ShouldContinueVisualizationRefresh_LiveGrandStaffWithoutNotes_ReturnsTrue()
     {
         var scene = new GrandStaffScene([], [], []);
 
@@ -30,7 +30,7 @@ public sealed class PianoTests
             scene,
             activeNoteCount: 0);
 
-        Assert.False(shouldContinue);
+        Assert.True(shouldContinue);
     }
 
     [Fact]
