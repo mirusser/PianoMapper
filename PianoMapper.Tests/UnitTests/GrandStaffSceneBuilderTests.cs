@@ -266,6 +266,7 @@ public sealed class GrandStaffSceneBuilderTests
         var marker = Assert.Single(scene.Notes);
         Assert.False(marker.IsActive);
         Assert.Equal(0.5, marker.DurationSeconds);
+        Assert.Null(marker.DurationEndX);
     }
 
     [Theory]

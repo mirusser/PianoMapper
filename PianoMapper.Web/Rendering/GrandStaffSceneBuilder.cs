@@ -173,7 +173,7 @@ internal static class GrandStaffSceneBuilder
                 HasStem: hasStem,
                 StemDirection: stemDirection,
                 FlagCount: flagCount,
-                DurationEndX: layout.Value.DurationEndX));
+                DurationEndX: isActive ? layout.Value.DurationEndX : null));
             lines.AddRange(position.LedgerLineYs.Select(
                 y => new GrandStaffLine(
                     layout.Value.X - LedgerLineHalfWidth,

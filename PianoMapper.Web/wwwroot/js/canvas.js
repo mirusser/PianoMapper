@@ -399,15 +399,13 @@ function drawNote(context, note, width, height, staffSpace) {
     context.strokeStyle = noteColor;
     context.fillStyle = context.strokeStyle;
     context.lineWidth = 2;
-    let labelX = x + noteHeadRadiusX + 4;
     if (Number.isFinite(note.durationEndX)) {
         const durationEndX = mapX(note.durationEndX, width);
         if (durationEndX > x) {
-        context.beginPath();
-        context.moveTo(x, y);
+            context.beginPath();
+            context.moveTo(x, y);
             context.lineTo(durationEndX, y);
-        context.stroke();
-            labelX = durationEndX + 4;
+            context.stroke();
         }
     }
 
@@ -457,10 +455,10 @@ function drawNote(context, note, width, height, staffSpace) {
         context.fill();
     }
 
-    context.font = "12px system-ui, sans-serif";
-    context.textAlign = "left";
-    context.textBaseline = "alphabetic";
-    context.fillText(note.label, labelX, y + 4);
+    context.font = "16px system-ui, sans-serif";
+    context.textAlign = "center";
+    context.textBaseline = "top";
+    context.fillText(note.label, x, y + noteHeadRadiusY + 6);
 }
 
 function mapX(value, width) {
