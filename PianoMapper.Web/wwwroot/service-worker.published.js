@@ -7,6 +7,7 @@ const cacheableAssets = [
     /\.css$/,
     /\.js$/,
     /\.json$/,
+    /\.mp3$/,
     /\.wasm$/,
     /\.dll$/,
     /\.dat$/,

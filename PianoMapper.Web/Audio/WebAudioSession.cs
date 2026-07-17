@@ -7,6 +7,7 @@ namespace PianoMapper.Web.Audio;
 internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio, IBrowserMetronomeAudio, IAsyncDisposable
 {
     private const string ModulePath = "./js/audio.js";
+    internal const int DefaultNoteVelocity = 80;
 
     private IJSObjectReference? module;
     private AudioClockAnchor? anchor;
@@ -46,7 +47,21 @@ internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio
             noteId,
             pitch.Frequency,
             startTime.TotalSeconds,
-            eventPerformanceTimeMilliseconds);
+            eventPerformanceTimeMilliseconds,
+            DefaultNoteVelocity);
+    }
+
+    internal ValueTask SetSoundSourceAsync(
+        BrowserSoundSource soundSource,
+        CancellationToken cancellationToken = default)
+    {
+        string sourceName = soundSource switch
+        {
+            BrowserSoundSource.Synth => "synth",
+            BrowserSoundSource.Piano => "piano",
+            _ => throw new ArgumentOutOfRangeException(nameof(soundSource)),
+        };
+        return GetInitializedModule().InvokeVoidAsync("setSoundSource", cancellationToken, sourceName);
     }
 
     internal ValueTask StopNoteAsync(
@@ -89,6 +104,7 @@ internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio
         {
             scoreEvent.NoteId,
             scoreEvent.Frequency,
+            Velocity = DefaultNoteVelocity,
             StartTimeSeconds = scoreEvent.StartTime.TotalSeconds,
             DurationSeconds = scoreEvent.Duration.TotalSeconds,
         }).ToArray();

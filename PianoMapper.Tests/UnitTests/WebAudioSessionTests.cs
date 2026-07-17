@@ -52,6 +52,30 @@ public sealed class WebAudioSessionTests
     }
 
     [Fact]
+    public async Task SoundSourceCommands_PianoMode_UseDefaultVelocityForNotesAndScore()
+    {
+        var calls = new List<string>();
+        var module = new RecordingJsModule(calls, new AudioClockAnchor(1000, 2));
+        var runtime = new RecordingJsRuntime(calls, module);
+        await using var session = new WebAudioSession(runtime);
+        var pitch = new Pitch(NoteLetter.A, 0, 4);
+        await session.InitializeAsync();
+
+        await session.SetSoundSourceAsync(BrowserSoundSource.Piano);
+        await session.StartNoteAsync("KeyA", pitch, TimeSpan.FromSeconds(2));
+        await session.ScheduleScoreAsync(
+            [new BrowserScoreAudioEvent("score-0", 440, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(0.5))]);
+
+        Assert.Equal(["piano"], module.Arguments["setSoundSource"]);
+        Assert.Equal(WebAudioSession.DefaultNoteVelocity, module.Arguments["noteOn"]![4]);
+        var scheduleArguments = Assert.Single(module.Arguments["scheduleScore"]!);
+        var scheduleBatch = Assert.IsAssignableFrom<Array>(scheduleArguments);
+        var command = Assert.Single(scheduleBatch.Cast<object>());
+        var velocity = command.GetType().GetProperty("Velocity")?.GetValue(command);
+        Assert.Equal(WebAudioSession.DefaultNoteVelocity, velocity);
+    }
+
+    [Fact]
     public async Task GetSchedulingLatencyAsync_InitializedSession_RequestsOneSummary()
     {
         var calls = new List<string>();

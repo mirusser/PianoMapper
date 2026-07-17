@@ -1,10 +1,19 @@
+import {
+    defaultPianoVelocity,
+    getPianoSamplesForVelocity,
+    selectPianoSample,
+} from "./piano-samples.js";
+
 let audioContext;
 let masterGain;
 let analyser;
+let soundSource = "synth";
 const activeNotes = new Map();
 const scheduledScoreNotes = new Map();
 const scheduledMetronomeClicks = new Set();
 const schedulingDelaysMilliseconds = [];
+const pianoBuffers = new Map();
+const pianoLayerLoads = new Map();
 let metronomeInterval;
 let metronomeAnchorSeconds;
 let metronomeSecondsPerBeat;
@@ -22,6 +31,7 @@ const harmonics = [
     { multiplier: 2, gain: 0.2 },
     { multiplier: 3, gain: 0.08 },
 ];
+const pianoSampleBaseUrl = new URL("../audio/piano/salamander/", import.meta.url);
 
 export async function initialize() {
     const AudioContextType = window.AudioContext ?? window.webkitAudioContext;
@@ -57,8 +67,17 @@ export async function initialize() {
     };
 }
 
-export function noteOn(noteId, frequency, startTimeSeconds, eventPerformanceTimeMilliseconds) {
+export async function noteOn(
+    noteId,
+    frequency,
+    startTimeSeconds,
+    eventPerformanceTimeMilliseconds,
+    velocity = defaultPianoVelocity) {
     ensureReady();
+    if (soundSource === "piano") {
+        await ensurePianoSamplesLoaded(velocity);
+    }
+
     releaseNote(noteId, audioContext.currentTime);
 
     if (eventPerformanceTimeMilliseconds !== null) {
@@ -69,7 +88,26 @@ export function noteOn(noteId, frequency, startTimeSeconds, eventPerformanceTime
     }
 
     const startTime = Math.max(startTimeSeconds, audioContext.currentTime);
-    activeNotes.set(noteId, createNote(frequency, startTime));
+    activeNotes.set(noteId, createNote(frequency, velocity, startTime));
+}
+
+export async function setSoundSource(source) {
+    ensureReady();
+    if (source !== "synth" && source !== "piano") {
+        throw new RangeError(`Unknown sound source: ${source}`);
+    }
+
+    if (source === soundSource) {
+        return;
+    }
+
+    if (source === "piano") {
+        await ensurePianoSamplesLoaded(defaultPianoVelocity);
+    }
+
+    clear(audioContext.currentTime);
+    stopScore();
+    soundSource = source;
 }
 
 export function getCurrentTime() {
@@ -77,13 +115,21 @@ export function getCurrentTime() {
     return audioContext.currentTime;
 }
 
-export function scheduleScore(events) {
+export async function scheduleScore(events) {
     ensureReady();
+    if (soundSource === "piano") {
+        const velocities = [...new Set(events.map(event => event.velocity ?? defaultPianoVelocity))];
+        await Promise.all(velocities.map(ensurePianoSamplesLoaded));
+    }
+
     stopScore();
 
     for (const event of events) {
         const startTime = Math.max(event.startTimeSeconds, audioContext.currentTime);
-        const note = createNote(event.frequency, startTime);
+        const note = createNote(
+            event.frequency,
+            event.velocity ?? defaultPianoVelocity,
+            startTime);
         scheduledScoreNotes.set(event.noteId, note);
         releaseNodes(note, startTime + event.durationSeconds, () => {
             if (scheduledScoreNotes.get(event.noteId) === note) {
@@ -206,12 +252,14 @@ function clearMetronomePulse() {
     pulse?.classList.remove("metronome-pulse-active", "metronome-pulse-downbeat");
 }
 
-function createNote(frequency, startTime) {
-    const envelope = audioContext.createGain();
-    envelope.gain.setValueAtTime(minimumEnvelopeGain, startTime);
-    envelope.gain.exponentialRampToValueAtTime(1, startTime + attackSeconds);
-    envelope.connect(masterGain);
+function createNote(frequency, velocity, startTime) {
+    return soundSource === "piano"
+        ? createPianoNote(frequency, velocity, startTime)
+        : createSynthNote(frequency, startTime);
+}
 
+function createSynthNote(frequency, startTime) {
+    const envelope = createNoteEnvelope(startTime);
     const oscillators = harmonics.map(harmonic => {
         const oscillator = audioContext.createOscillator();
         const harmonicGain = audioContext.createGain();
@@ -224,7 +272,46 @@ function createNote(frequency, startTime) {
         return { oscillator, harmonicGain };
     });
 
-    return { envelope, oscillators, startTime };
+    return {
+        envelope,
+        startTime,
+        stop: stopTime => oscillators.forEach(({ oscillator }) => oscillator.stop(stopTime)),
+        disconnect: () => {
+            for (const { oscillator, harmonicGain } of oscillators) {
+                oscillator.disconnect();
+                harmonicGain.disconnect();
+            }
+        },
+    };
+}
+
+function createPianoNote(frequency, velocity, startTime) {
+    const sample = selectPianoSample(frequency, velocity);
+    const buffer = pianoBuffers.get(getPianoBufferKey(sample));
+    if (!buffer) {
+        throw new Error(`Piano sample ${sample.fileName} is not loaded.`);
+    }
+
+    const envelope = createNoteEnvelope(startTime);
+    const source = audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.playbackRate.setValueAtTime(sample.playbackRate, startTime);
+    source.connect(envelope);
+    source.start(startTime);
+    return {
+        envelope,
+        startTime,
+        stop: stopTime => source.stop(stopTime),
+        disconnect: () => source.disconnect(),
+    };
+}
+
+function createNoteEnvelope(startTime) {
+    const envelope = audioContext.createGain();
+    envelope.gain.setValueAtTime(minimumEnvelopeGain, startTime);
+    envelope.gain.exponentialRampToValueAtTime(1, startTime + attackSeconds);
+    envelope.connect(masterGain);
+    return envelope;
 }
 
 export function noteOff(noteId, releaseTimeSeconds) {
@@ -279,6 +366,9 @@ export async function dispose() {
     audioContext = undefined;
     masterGain = undefined;
     analyser = undefined;
+    soundSource = "synth";
+    pianoBuffers.clear();
+    pianoLayerLoads.clear();
 }
 
 function ensureReady() {
@@ -323,19 +413,52 @@ function releaseNodes(note, releaseTimeSeconds, onDisconnected) {
         note.envelope.gain.setValueAtTime(minimumEnvelopeGain, stopTime);
     }
 
-    for (const { oscillator } of note.oscillators) {
-        oscillator.stop(stopTime);
-    }
+    note.stop(stopTime);
 
     window.setTimeout(() => {
-        for (const { oscillator, harmonicGain } of note.oscillators) {
-            oscillator.disconnect();
-            harmonicGain.disconnect();
-        }
-
+        note.disconnect();
         note.envelope.disconnect();
         onDisconnected?.();
     }, Math.max(0, (stopTime - audioContext.currentTime) * 1000) + 25);
+}
+
+async function ensurePianoSamplesLoaded(velocity) {
+    const samples = getPianoSamplesForVelocity(velocity);
+    const velocityLayer = samples[0].velocityLayer;
+    let load = pianoLayerLoads.get(velocityLayer);
+    if (!load) {
+        load = loadPianoSamples(samples);
+        pianoLayerLoads.set(velocityLayer, load);
+    }
+
+    try {
+        await load;
+    } catch (error) {
+        pianoLayerLoads.delete(velocityLayer);
+        throw error;
+    }
+}
+
+async function loadPianoSamples(samples) {
+    await Promise.all(samples.map(async sample => {
+        const key = getPianoBufferKey(sample);
+        if (pianoBuffers.has(key)) {
+            return;
+        }
+
+        const response = await fetch(new URL(sample.fileName, pianoSampleBaseUrl));
+        if (!response.ok) {
+            throw new Error(`Could not load piano sample ${sample.fileName}: HTTP ${response.status}.`);
+        }
+
+        const encodedAudio = await response.arrayBuffer();
+        const buffer = await audioContext.decodeAudioData(encodedAudio);
+        pianoBuffers.set(key, buffer);
+    }));
+}
+
+function getPianoBufferKey(sample) {
+    return `${sample.sampleMidi}:${sample.velocityLayer}`;
 }
 
 function getEnvelopeGainAtTime(note, timeSeconds) {

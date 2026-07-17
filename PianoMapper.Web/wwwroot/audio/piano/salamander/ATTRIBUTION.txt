@@ -1,0 +1,10 @@
+Salamander Grand Piano V3
+
+Yamaha C5 piano samples recorded by Alexander Holm.
+Original source: https://archive.org/details/SalamanderGrandPianoV3
+License: Creative Commons Attribution 3.0
+License URL: https://creativecommons.org/licenses/by/3.0/
+
+PianoMapper includes the v1, v5, v10, and v15 MP3 velocity layers from the
+Tone Piano distribution at https://github.com/tambien/Piano. The selection is
+a curated subset; the sample recordings and file names are otherwise unchanged.

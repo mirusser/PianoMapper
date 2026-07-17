@@ -134,6 +134,49 @@ p {
     align-items: center;
 }
 
+.sound-source-control {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    min-height: 2.55rem;
+    color: #cbd5e1;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.sound-source-picker {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(4.5rem, 1fr));
+    min-width: 10rem;
+    overflow: hidden;
+    border: 1px solid #475569;
+    border-radius: 0.6rem;
+    background: #1e293b;
+}
+
+.sound-source-option {
+    min-height: 2.35rem;
+    padding: 0.5rem 0.65rem;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.sound-source-option + .sound-source-option {
+    border-left: 1px solid #475569;
+}
+
+.sound-source-option:hover:not(:disabled) {
+    background: #31415f;
+    transform: none;
+}
+
+.sound-source-option-active,
+.sound-source-option-active:hover:not(:disabled) {
+    background: #2563eb;
+}
+
 button,
 select,
 input {

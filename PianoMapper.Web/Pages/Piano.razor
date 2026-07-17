@@ -27,6 +27,25 @@
                     <button class="button-primary" type="button" @onclick="EnableAudioAsync" disabled="@AudioSession.IsInitialized">
                         Enable audio
                     </button>
+                    <div class="sound-source-control">
+                        <span>Sound</span>
+                        <div class="sound-source-picker" role="group" aria-label="Sound source">
+                            <button class="@GetSoundSourceClass(BrowserSoundSource.Synth)"
+                                    type="button"
+                                    aria-pressed="@(soundSource == BrowserSoundSource.Synth)"
+                                    disabled="@(!AudioSession.IsInitialized || isSoundSourceChanging)"
+                                    @onclick="() => SelectSoundSourceAsync(BrowserSoundSource.Synth)">
+                                Synth
+                            </button>
+                            <button class="@GetSoundSourceClass(BrowserSoundSource.Piano)"
+                                    type="button"
+                                    aria-pressed="@(soundSource == BrowserSoundSource.Piano)"
+                                    disabled="@(!AudioSession.IsInitialized || isSoundSourceChanging)"
+                                    @onclick="() => SelectSoundSourceAsync(BrowserSoundSource.Piano)">
+                                Piano
+                            </button>
+                        </div>
+                    </div>
                     <button type="button" @onclick="PlayTestNoteAsync" disabled="@(!AudioSession.IsInitialized || testNoteIsActive)">
                         Play test note
                     </button>
@@ -283,6 +302,8 @@
     private CancellationTokenSource? visualizationRefreshCancellation;
     private Task? visualizationRefreshTask;
     private string audioStatus = "Audio is not initialized.";
+    private BrowserSoundSource soundSource = BrowserSoundSource.Synth;
+    private bool isSoundSourceChanging;
     private bool testNoteIsActive;
     private bool showPianoRoll;
     private TimeSignature displayTimeSignature = new(4, new NoteValue(4));
@@ -297,6 +318,10 @@
         $"{TempoBeatsPerMinuteText} BPM";
 
     private int OnTimeToleranceMilliseconds => (int)onTimeTolerance.TotalMilliseconds;
+
+    private string AudioReadyStatus => soundSource == BrowserSoundSource.Piano
+        ? "Piano samples are ready."
+        : "Synth audio is ready.";
 
     public Piano()
     {
@@ -314,7 +339,7 @@
         {
             audioClockAnchor = await AudioSession.InitializeAsync();
             await AttachKeyboardAsync();
-            audioStatus = "Audio is ready.";
+            audioStatus = AudioReadyStatus;
             EnsureVisualizationRefresh();
         }
         catch (JSException exception)
@@ -334,8 +359,46 @@
     {
         await AudioSession.StopNoteAsync(TestNoteId, GetAnchorTime());
         testNoteIsActive = false;
-        audioStatus = "Audio is ready.";
+        audioStatus = AudioReadyStatus;
     }
+
+    private async Task SelectSoundSourceAsync(BrowserSoundSource selectedSource)
+    {
+        if (!AudioSession.IsInitialized || selectedSource == soundSource || isSoundSourceChanging)
+        {
+            return;
+        }
+
+        isSoundSourceChanging = true;
+        audioStatus = selectedSource == BrowserSoundSource.Piano
+            ? "Loading piano samples..."
+            : "Switching to synth audio...";
+        try
+        {
+            await AbortPracticeAsync(updateStatus: false);
+            await StopScorePlaybackAsync();
+            TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync();
+            keyboardState.Clear(currentTime);
+            await AudioSession.ClearAsync(currentTime);
+            testNoteIsActive = false;
+            await AudioSession.SetSoundSourceAsync(selectedSource);
+            soundSource = selectedSource;
+            audioStatus = AudioReadyStatus;
+        }
+        catch (JSException exception)
+        {
+            audioStatus = $"Sound could not change: {exception.Message}";
+        }
+        finally
+        {
+            isSoundSourceChanging = false;
+        }
+    }
+
+    private string GetSoundSourceClass(BrowserSoundSource source) =>
+        source == soundSource
+            ? "sound-source-option sound-source-option-active"
+            : "sound-source-option";
 
     private async Task ClearNotesAsync()
     {
