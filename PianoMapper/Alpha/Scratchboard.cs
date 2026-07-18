@@ -1,6 +1,6 @@
 namespace PianoMapper.Alpha;
 
-public class Scratchboard
+public sealed class Scratchboard
 {
     
     public static short[] GeneratePianoWave(float frequency, float durationSeconds)

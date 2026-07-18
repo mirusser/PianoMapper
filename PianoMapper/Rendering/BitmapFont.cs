@@ -19,7 +19,7 @@ public static class BitmapFont
     /// </summary>
     public static IReadOnlyList<bool> GetGlyph(char c)
     {
-        var upper = char.ToUpperInvariant(c);
+        char upper = char.ToUpperInvariant(c);
         return Glyphs.TryGetValue(upper, out var glyph) ? glyph : Glyphs[' '];
     }
 
@@ -74,9 +74,9 @@ public static class BitmapFont
         string[] rows = [row0, row1, row2, row3, row4];
         var pixels = new bool[GlyphWidth * GlyphHeight];
 
-        for (var row = 0; row < GlyphHeight; row++)
+        for (int row = 0; row < GlyphHeight; row++)
         {
-            for (var col = 0; col < GlyphWidth; col++)
+            for (int col = 0; col < GlyphWidth; col++)
             {
                 pixels[row * GlyphWidth + col] = rows[row][col] == '1';
             }

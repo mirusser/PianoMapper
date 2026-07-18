@@ -13,7 +13,7 @@ public static class Fft
     /// </summary>
     public static double[] ComputeMagnitudes(IReadOnlyList<short> samples)
     {
-        var n = samples.Count;
+        int n = samples.Count;
         if (n == 0 || (n & (n - 1)) != 0)
         {
             throw new ArgumentException("Sample window length must be a non-zero power of two.", nameof(samples));
@@ -21,17 +21,17 @@ public static class Fft
 
         var real = new double[n];
         var imag = new double[n];
-        for (var i = 0; i < n; i++)
+        for (int i = 0; i < n; i++)
         {
             // Hann window to reduce spectral leakage from the finite sample window.
-            var hann = 0.5 * (1 - Math.Cos(2 * Math.PI * i / (n - 1)));
+            double hann = 0.5 * (1 - Math.Cos(2 * Math.PI * i / (n - 1)));
             real[i] = samples[i] * hann;
         }
 
         Transform(real, imag);
 
         var magnitudes = new double[n / 2];
-        for (var i = 0; i < magnitudes.Length; i++)
+        for (int i = 0; i < magnitudes.Length; i++)
         {
             magnitudes[i] = Math.Sqrt(real[i] * real[i] + imag[i] * imag[i]);
         }
@@ -47,11 +47,11 @@ public static class Fft
 
     private static void Transform(double[] real, double[] imag)
     {
-        var n = real.Length;
+        int n = real.Length;
 
         for (int i = 1, j = 0; i < n; i++)
         {
-            var bit = n >> 1;
+            int bit = n >> 1;
             for (; (j & bit) != 0; bit >>= 1)
             {
                 j ^= bit;
@@ -65,32 +65,32 @@ public static class Fft
             }
         }
 
-        for (var len = 2; len <= n; len <<= 1)
+        for (int len = 2; len <= n; len <<= 1)
         {
-            var angle = -2 * Math.PI / len;
-            var wLenReal = Math.Cos(angle);
-            var wLenImag = Math.Sin(angle);
-            var half = len / 2;
+            double angle = -2 * Math.PI / len;
+            double wLenReal = Math.Cos(angle);
+            double wLenImag = Math.Sin(angle);
+            int half = len / 2;
 
-            for (var start = 0; start < n; start += len)
+            for (int start = 0; start < n; start += len)
             {
                 double wReal = 1, wImag = 0;
 
-                for (var k = 0; k < half; k++)
+                for (int k = 0; k < half; k++)
                 {
-                    var evenIndex = start + k;
-                    var oddIndex = start + k + half;
+                    int evenIndex = start + k;
+                    int oddIndex = start + k + half;
 
-                    var oddReal = real[oddIndex] * wReal - imag[oddIndex] * wImag;
-                    var oddImag = real[oddIndex] * wImag + imag[oddIndex] * wReal;
+                    double oddReal = real[oddIndex] * wReal - imag[oddIndex] * wImag;
+                    double oddImag = real[oddIndex] * wImag + imag[oddIndex] * wReal;
 
                     real[oddIndex] = real[evenIndex] - oddReal;
                     imag[oddIndex] = imag[evenIndex] - oddImag;
                     real[evenIndex] += oddReal;
                     imag[evenIndex] += oddImag;
 
-                    var nextWReal = wReal * wLenReal - wImag * wLenImag;
-                    var nextWImag = wReal * wLenImag + wImag * wLenReal;
+                    double nextWReal = wReal * wLenReal - wImag * wLenImag;
+                    double nextWImag = wReal * wLenImag + wImag * wLenReal;
                     wReal = nextWReal;
                     wImag = nextWImag;
                 }

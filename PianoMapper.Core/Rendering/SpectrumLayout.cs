@@ -23,9 +23,9 @@ public static class SpectrumLayout
             return [];
         }
 
-        var visibleCount = Math.Min(VisibleBinCount, magnitudes.Count);
-        var maxMagnitude = 0.0;
-        for (var i = 0; i < visibleCount; i++)
+        int visibleCount = Math.Min(VisibleBinCount, magnitudes.Count);
+        double maxMagnitude = 0.0;
+        for (int i = 0; i < visibleCount; i++)
         {
             maxMagnitude = Math.Max(maxMagnitude, magnitudes[i]);
         }
@@ -36,15 +36,15 @@ public static class SpectrumLayout
         }
 
         var bars = new List<BarRect>(visibleCount);
-        var panelWidth = PanelX1 - PanelX0;
-        var barWidth = panelWidth / visibleCount;
+        float panelWidth = PanelX1 - PanelX0;
+        float barWidth = panelWidth / visibleCount;
 
-        for (var i = 0; i < visibleCount; i++)
+        for (int i = 0; i < visibleCount; i++)
         {
-            var x0 = PanelX0 + i * barWidth;
-            var x1 = x0 + barWidth * 0.85f; // small gap between bars
+            float x0 = PanelX0 + i * barWidth;
+            float x1 = x0 + barWidth * 0.85f; // small gap between bars
             var normalizedHeight = (float)(magnitudes[i] / maxMagnitude);
-            var y1 = PanelY0 + normalizedHeight * (PanelY1 - PanelY0);
+            float y1 = PanelY0 + normalizedHeight * (PanelY1 - PanelY0);
 
             bars.Add(new BarRect(x0, x1, PanelY0, y1));
         }

@@ -24,9 +24,9 @@ public static class TextLayout
         {
             var glyph = BitmapFont.GetGlyph(c);
 
-            for (var row = 0; row < BitmapFont.GlyphHeight; row++)
+            for (int row = 0; row < BitmapFont.GlyphHeight; row++)
             {
-                for (var col = 0; col < BitmapFont.GlyphWidth; col++)
+                for (int col = 0; col < BitmapFont.GlyphWidth; col++)
                 {
                     if (!glyph[row * BitmapFont.GlyphWidth + col])
                     {

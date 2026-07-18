@@ -25,12 +25,12 @@ public static class OscilloscopeLayout
         var panelHeight = PanelY1 - PanelY0;
         var centerY = (PanelY0 + PanelY1) / 2f;
 
-        for (var i = 0; i < window.Count; i++)
+        for (int i = 0; i < window.Count; i++)
         {
             var x = window.Count == 1
                 ? PanelX0
                 : PanelX0 + (PanelX1 - PanelX0) * i / (window.Count - 1);
-            var normalizedAmplitude = Math.Clamp(window[i] / (float)short.MaxValue, -1f, 1f);
+            float normalizedAmplitude = Math.Clamp(window[i] / (float)short.MaxValue, -1f, 1f);
             var y = centerY + normalizedAmplitude * (panelHeight / 2f);
             points.Add(new Vector2(x, y));
         }

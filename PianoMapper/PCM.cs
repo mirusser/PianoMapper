@@ -90,9 +90,9 @@ public static class PCM
         var sampleCount = (int)(Consts.SampleRate * durationSeconds);
         var buffer = new short[sampleCount];
 
-        var increment = 2 * Math.PI * frequency / Consts.SampleRate;
+        double increment = 2 * Math.PI * frequency / Consts.SampleRate;
         double angle = 0;
-        for (var i = 0; i < sampleCount; i++)
+        for (int i = 0; i < sampleCount; i++)
         {
             buffer[i] = (short)(Consts.Amplitude * Math.Sin(angle));
             angle += increment;
@@ -161,7 +161,7 @@ public static class PCM
             // must clamp (not wrap): C#'s double-to-short cast wraps around
             // (two's-complement truncation) for out-of-range values instead of
             // saturating, which produces harsh crackling instead of a clean tone.
-            var scaled = Consts.Amplitude * Y;
+            double scaled = Consts.Amplitude * Y;
             buffer[i] = (short)Math.Clamp(scaled, short.MinValue, short.MaxValue);
         }
 

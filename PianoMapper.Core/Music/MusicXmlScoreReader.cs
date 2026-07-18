@@ -153,7 +153,7 @@ public sealed class MusicXmlScoreReader
                             rests);
                         break;
                     case "backup":
-                        cursorDivisions -= ParsePositiveInt(RequiredChild(element, "duration"), "duration");
+                        cursorDivisions -= ParsePositiveInt(RequiredChild(element, DurationElementName), DurationElementName);
                         if (cursorDivisions < 0)
                         {
                             throw new InvalidDataException("MusicXML <backup> moves before the start of the measure.");
@@ -161,7 +161,7 @@ public sealed class MusicXmlScoreReader
 
                         break;
                     case "forward":
-                        cursorDivisions += ParsePositiveInt(RequiredChild(element, "duration"), "duration");
+                        cursorDivisions += ParsePositiveInt(RequiredChild(element, DurationElementName), DurationElementName);
                         break;
                     default:
                         throw Unsupported(name);
@@ -439,7 +439,7 @@ public sealed class MusicXmlScoreReader
 
     private static NoteValue ParseNoteValue(XElement noteElement)
     {
-        string type = RequiredChild(noteElement, "type").Value;
+        string type = RequiredChild(noteElement, TypeElementName).Value;
         int denominator = type switch
         {
             "whole" => 1,
@@ -449,7 +449,7 @@ public sealed class MusicXmlScoreReader
             "16th" => 16,
             _ => throw new NotSupportedException($"Unsupported MusicXML note type '{type}'."),
         };
-        int dots = noteElement.Elements().Count(element => element.Name.LocalName == "dot");
+        int dots = noteElement.Elements().Count(element => element.Name.LocalName == DotElementName);
         return new NoteValue(denominator, dots);
     }
 

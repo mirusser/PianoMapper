@@ -25,9 +25,9 @@ public static class PianoRollLayout
     /// </summary>
     public static BarRect? GetBarRect(PerformedNote note, TimeSpan now)
     {
-        var nowSeconds = now.TotalSeconds;
-        var windowStart = nowSeconds - RollingWindowSeconds;
-        var noteStart = note.StartTime.TotalSeconds;
+        double nowSeconds = now.TotalSeconds;
+        double windowStart = nowSeconds - RollingWindowSeconds;
+        double noteStart = note.StartTime.TotalSeconds;
         double noteEnd = (note.ReleaseTime ?? now).TotalSeconds;
 
         if (noteEnd < windowStart)
@@ -35,29 +35,29 @@ public static class PianoRollLayout
             return null;
         }
 
-        var visibleEnd = Math.Min(noteEnd, nowSeconds);
+        double visibleEnd = Math.Min(noteEnd, nowSeconds);
 
-        var x0 = MapTimeToX(noteStart, nowSeconds);
-        var x1 = MapTimeToX(visibleEnd, nowSeconds);
-        var y = MapPitchToY(note.Pitch);
+        float x0 = MapTimeToX(noteStart, nowSeconds);
+        float x1 = MapTimeToX(visibleEnd, nowSeconds);
+        float y = MapPitchToY(note.Pitch);
 
         return new BarRect(x0, x1, y - BarHalfHeight, y + BarHalfHeight);
     }
 
     public static float MapTimeToX(double time, double now)
     {
-        var windowStart = now - RollingWindowSeconds;
-        var t = (time - windowStart) / RollingWindowSeconds; // 0..1 across the window
+        double windowStart = now - RollingWindowSeconds;
+        double t = (time - windowStart) / RollingWindowSeconds; // 0..1 across the window
         return (float)Math.Clamp(t * 2.0 - 1.0, -1.0, 1.0); // -1..1
     }
 
     private static float MapPitchToY(Pitch pitch)
     {
         int semitoneOffset = pitch.MidiNumber - ReferenceMidiNumber;
-        var normalized = Math.Clamp(semitoneOffset / SemitoneRange, -1.0, 1.0); // -1..1
+        double normalized = Math.Clamp(semitoneOffset / SemitoneRange, -1.0, 1.0); // -1..1
 
-        var bandMid = (BandY0 + BandY1) / 2.0;
-        var bandHalfSpan = (BandY1 - BandY0) / 2.0;
+        double bandMid = (BandY0 + BandY1) / 2.0;
+        double bandHalfSpan = (BandY1 - BandY0) / 2.0;
         return (float)(bandMid + normalized * bandHalfSpan);
     }
 }

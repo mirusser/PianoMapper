@@ -13,7 +13,7 @@ internal static class PlaybackPosition
 
     public static int EstimateSampleOffset(PerformedNote note, TimeSpan now, int sampleCount)
     {
-        var elapsedSeconds = now.TotalSeconds - note.StartTime.TotalSeconds;
+        double elapsedSeconds = now.TotalSeconds - note.StartTime.TotalSeconds;
         var estimated = (int)(elapsedSeconds * Consts.SampleRate);
         return Math.Clamp(estimated, 0, Math.Max(0, sampleCount - 1));
     }
@@ -21,12 +21,12 @@ internal static class PlaybackPosition
     public static short[] ExtractWindow(IReadOnlyList<short> samples, int centerOffset, int windowSize)
     {
         var window = new short[windowSize];
-        var half = windowSize / 2;
-        var start = centerOffset - half;
+        int half = windowSize / 2;
+        int start = centerOffset - half;
 
-        for (var i = 0; i < windowSize; i++)
+        for (int i = 0; i < windowSize; i++)
         {
-            var sourceIndex = start + i;
+            int sourceIndex = start + i;
             if (sourceIndex >= 0 && sourceIndex < samples.Count)
             {
                 window[i] = samples[sourceIndex];
