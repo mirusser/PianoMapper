@@ -47,7 +47,7 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.All(scene.Notes, note => Assert.True(note.HasDot));
         Assert.All(scene.Notes, note => Assert.Equal(1, note.FlagCount));
         Assert.Single(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Accidental);
-        Assert.Equal(2, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Barline));
+        Assert.Equal(5, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Barline));
     }
 
     [Fact]
@@ -107,10 +107,21 @@ public sealed class GrandStaffSceneBuilderTests
             new TimeSignature(4, new NoteValue(4)),
             new Tempo(120));
 
-        Assert.Equal(5, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Barline));
+        Assert.Equal(7, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Barline));
         Assert.Equal(12, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Beat));
         var cursor = Assert.Single(scene.Lines, line => line.Kind == GrandStaffLineKind.Cursor);
         Assert.Equal(GrandStaffLayout.ScoreX0, cursor.X0, 6);
+    }
+
+    [Fact]
+    public void Build_EmptyTimeline_AddsStartingBarlineAndEndingDoubleBarline()
+    {
+        var scene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero);
+
+        var staffLine = scene.Lines.First(line => line.Kind == GrandStaffLineKind.Staff);
+        var barlines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Barline).ToArray();
+        Assert.Single(barlines, line => line.X0 == staffLine.X0);
+        Assert.Equal(2, barlines.Count(line => line.X0 > staffLine.X1 - 0.02 && line.X0 <= staffLine.X1));
     }
 
     [Fact]
@@ -122,12 +133,24 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
-    public void Build_EmptyTimeline_CentersBassClefOnFLine()
+    public void Build_EmptyTimeline_PositionsBassClefForFLineAlignment()
     {
         var scene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero);
 
         var bassClef = Assert.Single(scene.Glyphs, glyph => glyph.Text == "𝄢");
-        Assert.Equal(GrandStaffLayout.BassLineYs[3], bassClef.Y, 6);
+        var bassLines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Staff).Skip(5).ToArray();
+        double expectedY = (bassLines[2].Y0 + bassLines[3].Y0) / 2;
+        Assert.Equal(expectedY, bassClef.Y, 6);
+    }
+
+    [Fact]
+    public void Build_EmptyTimeline_LeavesThreeStaffSpacesBetweenStaves()
+    {
+        var scene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero);
+
+        var staffLines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Staff).ToArray();
+        double staffSpace = staffLines[1].Y0 - staffLines[0].Y0;
+        Assert.Equal(staffSpace * 3, staffLines[0].Y0 - staffLines[^1].Y0, 6);
     }
 
     [Fact]
@@ -136,7 +159,8 @@ public sealed class GrandStaffSceneBuilderTests
         var scene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero);
 
         var trebleClef = Assert.Single(scene.Glyphs, glyph => glyph.Text == "𝄞");
-        Assert.Equal(GrandStaffLayout.TrebleLineYs[2], trebleClef.Y, 6);
+        var trebleLines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Staff).Take(5).ToArray();
+        Assert.Equal(trebleLines[2].Y0, trebleClef.Y, 6);
     }
 
     [Fact]
@@ -150,7 +174,7 @@ public sealed class GrandStaffSceneBuilderTests
         double bassStaffSpace = Math.Abs(scene.Lines[6].Y0 - scene.Lines[5].Y0);
         Assert.NotNull(trebleClef.Height);
         Assert.NotNull(bassClef.Height);
-        Assert.Equal(trebleStaffSpace * 6, trebleClef.Height.Value, 6);
+        Assert.Equal(trebleStaffSpace * 7, trebleClef.Height.Value, 6);
         Assert.Equal(bassStaffSpace * 3, bassClef.Height.Value, 6);
     }
 
@@ -166,9 +190,11 @@ public sealed class GrandStaffSceneBuilderTests
         var scene = GrandStaffSceneBuilder.Build([note], TimeSpan.FromSeconds(2));
 
         var renderedNote = Assert.Single(scene.Notes);
-        Assert.Equal(GrandStaffLayout.MiddleCY, renderedNote.Y, 6);
+        var trebleBottomLine = scene.Lines.First(line => line.Kind == GrandStaffLineKind.Staff);
+        double trebleOffset = trebleBottomLine.Y0 - GrandStaffLayout.TrebleLineYs[0];
+        Assert.Equal(GrandStaffLayout.MiddleCY + trebleOffset, renderedNote.Y, 6);
         var ledgerLine = Assert.Single(scene.Lines, line => line.Kind == GrandStaffLineKind.Ledger);
-        Assert.Equal(GrandStaffLayout.MiddleCY, ledgerLine.Y0, 6);
+        Assert.Equal(renderedNote.Y, ledgerLine.Y0, 6);
         Assert.Equal(0.13, ledgerLine.X1 - ledgerLine.X0, 6);
     }
 

@@ -8,11 +8,13 @@ internal static class GrandStaffSceneBuilder
 {
     private const double StaffX0 = -0.92;
     private const double StaffX1 = 0.96;
+    private const double EndingBarlineGap = 0.012;
     private const double ClefX = -0.87;
     private const double LedgerLineHalfWidth = 0.065;
+    private const double StaffSeparationOffset = GrandStaffLayout.DiatonicStep;
     private const double ViewY0 = -0.9;
     private const double ViewY1 = 0.9;
-    private const int TrebleClefHeightInStaffSpaces = 6;
+    private const int TrebleClefHeightInStaffSpaces = 7;
     private const int BassClefHeightInStaffSpaces = 3;
     private static readonly NoteValue[] supportedLiveNoteValues =
     [
@@ -40,9 +42,10 @@ internal static class GrandStaffSceneBuilder
         var glyphs = CreateClefGlyphs();
         var renderedNotes = new List<GrandStaffNote>();
 
-        float barlineY0 = GrandStaffLayout.BassLineYs[0];
-        float barlineY1 = GrandStaffLayout.TrebleLineYs[^1];
+        double barlineY0 = SeparateStaffY(GrandStaffLayout.BassLineYs[0], Staff.Bass);
+        double barlineY1 = SeparateStaffY(GrandStaffLayout.TrebleLineYs[^1], Staff.Treble);
         lines.AddRange(GrandStaffLayout.GetScoreBarlineXs(clampedMeasure, score.Measures.Count)
+            .Where(x => x < GrandStaffLayout.ScoreX1)
             .Select(x => new GrandStaffLine(x, barlineY0, x, barlineY1, GrandStaffLineKind.Barline)));
         if (cursorBeats.HasValue)
         {
@@ -71,11 +74,12 @@ internal static class GrandStaffSceneBuilder
             Verdict? verdict = verdicts is not null && verdicts.TryGetValue(note, out var visibleVerdict)
                 ? visibleVerdict
                 : null;
+            double noteY = SeparateStaffY(layout.Position.Y, layout.Position.Staff);
 
             renderedNotes.Add(new GrandStaffNote(
                 note.Pitch.ToString(),
                 layout.X,
-                layout.Position.Y,
+                noteY,
                 DurationSeconds: 0,
                 IsActive: false,
                 IsFilled: layout.HeadStyle == NoteHeadStyle.Filled,
@@ -87,16 +91,16 @@ internal static class GrandStaffSceneBuilder
             lines.AddRange(layout.Position.LedgerLineYs.Select(
                 y => new GrandStaffLine(
                     layout.X - LedgerLineHalfWidth,
-                    y,
+                    SeparateStaffY(y, layout.Position.Staff),
                     layout.X + LedgerLineHalfWidth,
-                    y,
+                    SeparateStaffY(y, layout.Position.Staff),
                     GrandStaffLineKind.Ledger)));
             if (layout.Position.NeedsAccidental)
             {
                 glyphs.Add(new GrandStaffGlyph(
                     GetAccidentalGlyph(note.Pitch.Alter),
                     layout.X - 0.055,
-                    layout.Position.Y,
+                    noteY,
                     GrandStaffGlyphKind.Accidental));
             }
         }
@@ -124,8 +128,7 @@ internal static class GrandStaffSceneBuilder
     {
         var lines = CreateStaffLines();
         var glyphs = CreateClefGlyphs();
-        int firstVisibleMeasure = GrandStaffLayout.GetLiveFirstVisibleMeasure(currentTime, timeSignature, tempo);
-        AddLiveMeasureGrid(lines, firstVisibleMeasure, currentTime, timeSignature, tempo);
+        AddLiveMeasureGrid(lines, currentTime, timeSignature, tempo);
 
         var renderedNotes = new List<GrandStaffNote>(notes.Count);
         foreach (var note in notes)
@@ -144,6 +147,7 @@ internal static class GrandStaffSceneBuilder
             }
 
             var position = layout.Value.Position;
+            double noteY = SeparateStaffY(position.Y, position.Staff);
             double durationSeconds = Math.Max(0, endTime.TotalSeconds - note.StartTime.TotalSeconds);
             bool isActive = note.ReleaseTime is null;
             NoteValue? noteValue = isActive
@@ -157,16 +161,11 @@ internal static class GrandStaffSceneBuilder
                 16 => 2,
                 _ => 0,
             };
-            var staffLines = position.Staff == Staff.Treble
-                ? GrandStaffLayout.TrebleLineYs
-                : GrandStaffLayout.BassLineYs;
-            var stemDirection = position.Y < staffLines[2]
-                ? StemDirection.Up
-                : StemDirection.Down;
+            var stemDirection = GrandStaffLayout.GetStemDirection(position);
             renderedNotes.Add(new GrandStaffNote(
                 note.Pitch.ToString(),
                 layout.Value.X,
-                position.Y,
+                noteY,
                 durationSeconds,
                 IsActive: isActive,
                 IsFilled: isFilled,
@@ -177,16 +176,16 @@ internal static class GrandStaffSceneBuilder
             lines.AddRange(position.LedgerLineYs.Select(
                 y => new GrandStaffLine(
                     layout.Value.X - LedgerLineHalfWidth,
-                    y,
+                    SeparateStaffY(y, position.Staff),
                     layout.Value.X + LedgerLineHalfWidth,
-                    y,
+                    SeparateStaffY(y, position.Staff),
                     GrandStaffLineKind.Ledger)));
             if (position.NeedsAccidental)
             {
                 glyphs.Add(new GrandStaffGlyph(
                     GetAccidentalGlyph(note.Pitch.Alter),
                     layout.Value.X - 0.055,
-                    position.Y,
+                    noteY,
                     GrandStaffGlyphKind.Accidental));
             }
         }
@@ -197,44 +196,50 @@ internal static class GrandStaffSceneBuilder
             : scene;
     }
 
-    private static List<GrandStaffLine> CreateStaffLines() =>
-        GrandStaffLayout.TrebleLineYs
-            .Concat(GrandStaffLayout.BassLineYs)
+    private static List<GrandStaffLine> CreateStaffLines()
+    {
+        var lines = GrandStaffLayout.TrebleLineYs
+            .Select(y => SeparateStaffY(y, Staff.Treble))
+            .Concat(GrandStaffLayout.BassLineYs.Select(y => SeparateStaffY(y, Staff.Bass)))
             .Select(y => new GrandStaffLine(StaffX0, y, StaffX1, y, GrandStaffLineKind.Staff))
             .ToList();
+        double barlineY0 = SeparateStaffY(GrandStaffLayout.BassLineYs[0], Staff.Bass);
+        double barlineY1 = SeparateStaffY(GrandStaffLayout.TrebleLineYs[^1], Staff.Treble);
+        lines.Add(new GrandStaffLine(StaffX0, barlineY0, StaffX0, barlineY1, GrandStaffLineKind.Barline));
+        lines.Add(new GrandStaffLine(
+            StaffX1 - EndingBarlineGap,
+            barlineY0,
+            StaffX1 - EndingBarlineGap,
+            barlineY1,
+            GrandStaffLineKind.Barline));
+        lines.Add(new GrandStaffLine(StaffX1, barlineY0, StaffX1, barlineY1, GrandStaffLineKind.Barline));
+        return lines;
+    }
 
     private static void AddLiveMeasureGrid(
         List<GrandStaffLine> lines,
-        int firstVisibleMeasure,
         TimeSpan currentTime,
         TimeSignature timeSignature,
         Tempo tempo)
     {
-        float barlineY0 = GrandStaffLayout.BassLineYs[0];
-        float barlineY1 = GrandStaffLayout.TrebleLineYs[^1];
-        lines.AddRange(GrandStaffLayout.GetScoreBarlineXs(
-                firstVisibleMeasure,
-                firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount)
-            .Select(x => new GrandStaffLine(x, barlineY0, x, barlineY1, GrandStaffLineKind.Barline)));
-
-        int visibleBeatCount = GrandStaffLayout.VisibleMeasureCount * timeSignature.Numerator;
-        for (int beatIndex = 1; beatIndex < visibleBeatCount; beatIndex++)
+        double barlineY0 = SeparateStaffY(GrandStaffLayout.BassLineYs[0], Staff.Bass);
+        double barlineY1 = SeparateStaffY(GrandStaffLayout.TrebleLineYs[^1], Staff.Treble);
+        foreach (var gridLine in GrandStaffLayout.GetLiveMeasureGridLines(currentTime, timeSignature, tempo))
         {
-            if (beatIndex % timeSignature.Numerator == 0)
+            if (gridLine.Kind == GridLineKind.Barline && gridLine.X >= GrandStaffLayout.ScoreX1)
             {
+                // Skip: CreateStaffLines() already draws the ending double barline at ScoreX1.
                 continue;
             }
 
-            double absoluteBeat = (firstVisibleMeasure * timeSignature.Numerator) + beatIndex;
-            float x = GrandStaffLayout.MapAbsoluteBeatToScoreX(absoluteBeat, timeSignature, firstVisibleMeasure);
-            lines.Add(new GrandStaffLine(x, barlineY0, x, barlineY1, GrandStaffLineKind.Beat));
-        }
-
-        double currentBeat = MusicalTime.DurationToBeats(currentTime, tempo);
-        float cursorX = GrandStaffLayout.MapAbsoluteBeatToScoreX(currentBeat, timeSignature, firstVisibleMeasure);
-        if (cursorX >= GrandStaffLayout.ScoreX0 && cursorX <= GrandStaffLayout.ScoreX1)
-        {
-            lines.Add(new GrandStaffLine(cursorX, barlineY0, cursorX, barlineY1, GrandStaffLineKind.Cursor));
+            var kind = gridLine.Kind switch
+            {
+                GridLineKind.Barline => GrandStaffLineKind.Barline,
+                GridLineKind.Beat => GrandStaffLineKind.Beat,
+                GridLineKind.Cursor => GrandStaffLineKind.Cursor,
+                _ => throw new ArgumentOutOfRangeException(nameof(gridLine), gridLine.Kind, message: null),
+            };
+            lines.Add(new GrandStaffLine(gridLine.X, barlineY0, gridLine.X, barlineY1, kind));
         }
     }
 
@@ -243,13 +248,15 @@ internal static class GrandStaffSceneBuilder
         new(
             "𝄞",
             ClefX,
-            GrandStaffLayout.TrebleLineYs[2],
+            SeparateStaffY(GrandStaffLayout.TrebleLineYs[2], Staff.Treble),
             GrandStaffGlyphKind.Clef,
             TrebleClefHeightInStaffSpaces * (GrandStaffLayout.TrebleLineYs[1] - GrandStaffLayout.TrebleLineYs[0])),
         new(
             "𝄢",
             ClefX,
-            GrandStaffLayout.BassLineYs[3],
+            SeparateStaffY(
+                (GrandStaffLayout.BassLineYs[2] + GrandStaffLayout.BassLineYs[3]) / 2,
+                Staff.Bass),
             GrandStaffGlyphKind.Clef,
             BassClefHeightInStaffSpaces * (GrandStaffLayout.BassLineYs[1] - GrandStaffLayout.BassLineYs[0])),
     ];
@@ -268,8 +275,8 @@ internal static class GrandStaffSceneBuilder
         for (int octave = selectedOctave; octave <= selectedOctave + 1; octave++)
         {
             var position = GrandStaffLayout.GetLivePosition(new Pitch(NoteLetter.C, 0, octave));
-            yValues.Add(position.Y);
-            yValues.AddRange(position.LedgerLineYs.Select(y => (double)y));
+            yValues.Add(SeparateStaffY(position.Y, position.Staff));
+            yValues.AddRange(position.LedgerLineYs.Select(y => SeparateStaffY(y, position.Staff)));
         }
 
         double margin = GrandStaffLayout.DiatonicStep * 2;
@@ -289,6 +296,9 @@ internal static class GrandStaffSceneBuilder
             scene.Notes.Select(note => note with { Y = MapY(note.Y) }).ToArray(),
             scene.ShouldClipNotesAtClefs);
     }
+
+    private static double SeparateStaffY(double y, Staff staff) =>
+        y + (staff == Staff.Treble ? StaffSeparationOffset : -StaffSeparationOffset);
 
     private static NoteValue GetNearestLiveNoteValue(
         TimeSpan duration,

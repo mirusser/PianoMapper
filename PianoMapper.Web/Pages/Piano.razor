@@ -56,55 +56,6 @@
                 </div>
             </section>
 
-            <section class="control-card" aria-labelledby="play-controls-heading">
-                <div class="control-card-heading">
-                    <h2 id="play-controls-heading">Play tools</h2>
-                    <span>Optional</span>
-                </div>
-                <div class="controls">
-                    <button type="button" @onclick="ClearNotesAsync" disabled="@(!AudioSession.IsInitialized)">
-                        Clear notes <kbd>C</kbd>
-                    </button>
-                    <button type="button" @onclick="PlayRandomMeasureAsync" disabled="@(!AudioSession.IsInitialized)">
-                        Random measure <kbd>M</kbd>
-                    </button>
-                    <button class="button-quiet" type="button" @onclick="ToggleViewAsync">
-                        Show @(showPianoRoll ? "staff" : "piano roll") <kbd>V</kbd>
-                    </button>
-                </div>
-            </section>
-
-            <section class="control-card" aria-labelledby="octave-controls-heading">
-                <div class="control-card-heading">
-                    <h2 id="octave-controls-heading">Keyboard range</h2>
-                    <span>C@(keyboardState.CurrentOctave)–C@(keyboardState.CurrentOctave + 1)</span>
-                </div>
-                <div class="controls octave-controls">
-                    <button type="button"
-                            @onclick="OctaveDownAsync"
-                            disabled="@(keyboardState.CurrentOctave == 1)"
-                            aria-label="Select the previous octave">
-                        Down <kbd>Z</kbd>
-                    </button>
-                    <label class="octave-picker">
-                        Octave
-                        <select value="@keyboardState.CurrentOctave" @onchange="SelectOctaveAsync">
-                            @for (int octave = 1; octave <= 8; octave++)
-                            {
-                                <option value="@octave">@octave</option>
-                            }
-                        </select>
-                    </label>
-                    <button type="button"
-                            @onclick="OctaveUpAsync"
-                            disabled="@(keyboardState.CurrentOctave == 8)"
-                            aria-label="Select the next octave">
-                        Up <kbd>X</kbd>
-                    </button>
-                </div>
-                <p class="control-note">The staff follows this range so high and low octaves stay visible.</p>
-            </section>
-
             <section class="control-card" aria-labelledby="timing-controls-heading">
                 <div class="control-card-heading">
                     <h2 id="timing-controls-heading">Timing</h2>
@@ -219,6 +170,57 @@
                         </div>
                     </dl>
                 </details>
+            </section>
+
+            <section class="control-card control-card-wide" aria-labelledby="play-controls-heading">
+                <div class="control-card-heading">
+                    <h2 id="play-controls-heading">Play &amp; keyboard tools</h2>
+                    <span>C@(keyboardState.CurrentOctave)–C@(keyboardState.CurrentOctave + 1)</span>
+                </div>
+                <div class="control-card-groups">
+                    <div class="control-group" role="group" aria-labelledby="play-tools-heading">
+                        <span class="control-group-label" id="play-tools-heading">Play tools</span>
+                        <div class="controls">
+                            <button type="button" @onclick="ClearNotesAsync" disabled="@(!AudioSession.IsInitialized)">
+                                Clear notes <kbd>C</kbd>
+                            </button>
+                            <button type="button" @onclick="PlayRandomMeasureAsync" disabled="@(!AudioSession.IsInitialized)">
+                                Random measure <kbd>M</kbd>
+                            </button>
+                            <button class="button-quiet" type="button" @onclick="ToggleViewAsync">
+                                Show @(showPianoRoll ? "staff" : "piano roll") <kbd>V</kbd>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="control-group" role="group" aria-labelledby="keyboard-range-heading">
+                        <span class="control-group-label" id="keyboard-range-heading">Keyboard range</span>
+                        <div class="controls octave-controls">
+                            <button type="button"
+                                    @onclick="OctaveDownAsync"
+                                    disabled="@(keyboardState.CurrentOctave == 1)"
+                                    aria-label="Select the previous octave">
+                                Down <kbd>Z</kbd>
+                            </button>
+                            <label class="octave-picker">
+                                Octave
+                                <select value="@keyboardState.CurrentOctave" @onchange="SelectOctaveAsync">
+                                    @for (int octave = 1; octave <= 8; octave++)
+                                    {
+                                        <option value="@octave">@octave</option>
+                                    }
+                                </select>
+                            </label>
+                            <button type="button"
+                                    @onclick="OctaveUpAsync"
+                                    disabled="@(keyboardState.CurrentOctave == 8)"
+                                    aria-label="Select the next octave">
+                                Up <kbd>X</kbd>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <p class="control-note">The staff follows this range so high and low octaves stay visible.</p>
             </section>
         </div>
 

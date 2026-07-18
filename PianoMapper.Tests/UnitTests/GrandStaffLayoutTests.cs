@@ -190,6 +190,27 @@ public sealed class GrandStaffLayoutTests
         Assert.True(layout.Value.Position.NeedsAccidental);
     }
 
+    [Theory]
+    [InlineData("G4", (int)Staff.Treble, StemDirection.Up)]
+    [InlineData("B4", (int)Staff.Treble, StemDirection.Down)]
+    [InlineData("D5", (int)Staff.Treble, StemDirection.Down)]
+    [InlineData("B2", (int)Staff.Bass, StemDirection.Up)]
+    [InlineData("D3", (int)Staff.Bass, StemDirection.Down)]
+    [InlineData("F3", (int)Staff.Bass, StemDirection.Down)]
+    public void GetStemDirection_PitchRelativeToMiddleLine_ReturnsUpBelowAndDownAtOrAboveMiddleLine(
+        string pitchName,
+        int staffValue,
+        StemDirection expectedDirection)
+    {
+        var staff = (Staff)staffValue;
+        Assert.True(Pitch.TryParse(pitchName, out var pitch));
+        var position = GrandStaffLayout.GetPosition(pitch, staff);
+
+        var stemDirection = GrandStaffLayout.GetStemDirection(position);
+
+        Assert.Equal(expectedDirection, stemDirection);
+    }
+
     [Fact]
     public void GetScoreBarlineXs_FourMeasureWindow_ReturnsMeasureBoundaries()
     {
@@ -265,5 +286,89 @@ public sealed class GrandStaffLayoutTests
             tempo);
 
         Assert.Null(layout);
+    }
+
+    [Fact]
+    public void GetLiveMeasureGridLines_CurrentBeatInSecondGroup_ReturnsBarlinesMatchingVisibleWindow()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        var currentTime = TimeSpan.FromSeconds(9);
+        int firstVisibleMeasure = GrandStaffLayout.GetLiveFirstVisibleMeasure(currentTime, signature, tempo);
+
+        var gridLines = GrandStaffLayout.GetLiveMeasureGridLines(currentTime, signature, tempo);
+
+        var expectedBarlineXs = GrandStaffLayout.GetScoreBarlineXs(
+            firstVisibleMeasure,
+            firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount);
+        var actualBarlineXs = gridLines
+            .Where(line => line.Kind == GridLineKind.Barline)
+            .Select(line => line.X)
+            .ToArray();
+        Assert.Equal(expectedBarlineXs, actualBarlineXs);
+    }
+
+    [Theory]
+    [InlineData(4, 12)]
+    [InlineData(3, 8)]
+    public void GetLiveMeasureGridLines_TimeSignature_ReturnsBeatTicksExcludingDownbeats(
+        int numerator,
+        int expectedBeatTickCount)
+    {
+        var signature = new TimeSignature(numerator, new NoteValue(4));
+        var tempo = new Tempo(120);
+        var currentTime = TimeSpan.Zero;
+
+        var gridLines = GrandStaffLayout.GetLiveMeasureGridLines(currentTime, signature, tempo);
+
+        var beatTicks = gridLines.Where(line => line.Kind == GridLineKind.Beat).ToArray();
+        Assert.Equal(expectedBeatTickCount, beatTicks.Length);
+
+        int visibleBeatCount = GrandStaffLayout.VisibleMeasureCount * numerator;
+        var expectedXs = Enumerable.Range(1, visibleBeatCount - 1)
+            .Where(beatIndex => beatIndex % numerator != 0)
+            .Select(beatIndex => GrandStaffLayout.MapAbsoluteBeatToScoreX(beatIndex, signature, firstVisibleMeasure: 0))
+            .ToArray();
+        Assert.Equal(expectedXs, beatTicks.Select(line => line.X).ToArray());
+    }
+
+    [Fact]
+    public void GetLiveMeasureGridLines_CursorAtWindowStart_ReturnsCursorLineAtScoreX0()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+
+        var gridLines = GrandStaffLayout.GetLiveMeasureGridLines(TimeSpan.Zero, signature, tempo);
+
+        var cursor = Assert.Single(gridLines, line => line.Kind == GridLineKind.Cursor);
+        Assert.Equal(GrandStaffLayout.ScoreX0, cursor.X, 5);
+    }
+
+    [Fact]
+    public void GetLiveMeasureGridLines_CursorBeforeVisibleWindow_OmitsCursorLine()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        var currentTime = TimeSpan.FromSeconds(-1);
+
+        var gridLines = GrandStaffLayout.GetLiveMeasureGridLines(currentTime, signature, tempo);
+
+        Assert.DoesNotContain(gridLines, line => line.Kind == GridLineKind.Cursor);
+    }
+
+    [Fact]
+    public void GetLiveMeasureGridLines_AnyWindow_OrdersBarlinesThenBeatsThenCursor()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+
+        var gridLines = GrandStaffLayout.GetLiveMeasureGridLines(TimeSpan.Zero, signature, tempo);
+
+        var kinds = gridLines.Select(line => line.Kind).ToArray();
+        int lastBarlineIndex = Array.LastIndexOf(kinds, GridLineKind.Barline);
+        int firstBeatIndex = Array.IndexOf(kinds, GridLineKind.Beat);
+        int cursorIndex = Array.IndexOf(kinds, GridLineKind.Cursor);
+        Assert.True(lastBarlineIndex < firstBeatIndex);
+        Assert.True(cursorIndex > Array.LastIndexOf(kinds, GridLineKind.Beat));
     }
 }

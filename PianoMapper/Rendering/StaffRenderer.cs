@@ -146,19 +146,9 @@ internal sealed class StaffRenderer : IDisposable
 
     private void AppendGlyph(StaffGlyph glyph, float anchorY)
     {
-        for (int row = 0; row < glyph.Height; row++)
+        foreach (var quad in ClefGlyphLayout.BuildQuads(glyph, ClefX, anchorY, ClefCellWidth, ClefCellHeight))
         {
-            for (int column = 0; column < glyph.Width; column++)
-            {
-                if (!glyph.Pixels[(row * glyph.Width) + column])
-                {
-                    continue;
-                }
-
-                float x0 = ClefX + (column * ClefCellWidth);
-                float yCenter = anchorY + ((glyph.AnchorRow - row) * ClefCellHeight);
-                AppendQuad(x0, x0 + ClefCellWidth, yCenter - (ClefCellHeight / 2f), yCenter + (ClefCellHeight / 2f), StaffColor);
-            }
+            AppendQuad(quad.X0, quad.X1, quad.Y0, quad.Y1, StaffColor);
         }
     }
 
@@ -167,52 +157,27 @@ internal sealed class StaffRenderer : IDisposable
 
     private void AppendLiveMeasureGrid(TimeSpan now, TimeSignature timeSignature, Tempo tempo)
     {
-        int firstVisibleMeasure = GrandStaffLayout.GetLiveFirstVisibleMeasure(now, timeSignature, tempo);
         float y0 = GrandStaffLayout.BassLineYs[0];
         float y1 = GrandStaffLayout.TrebleLineYs[^1];
-        foreach (float barlineX in GrandStaffLayout.GetScoreBarlineXs(
-            firstVisibleMeasure,
-            firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount))
+        foreach (var line in GrandStaffLayout.GetLiveMeasureGridLines(now, timeSignature, tempo))
         {
-            AppendQuad(
-                barlineX - StaffLineHalfHeight,
-                barlineX + StaffLineHalfHeight,
-                y0,
-                y1,
-                StaffColor);
-        }
-
-        int visibleBeatCount = GrandStaffLayout.VisibleMeasureCount * timeSignature.Numerator;
-        for (int beatIndex = 1; beatIndex < visibleBeatCount; beatIndex++)
-        {
-            if (beatIndex % timeSignature.Numerator == 0)
+            switch (line.Kind)
             {
-                continue;
+                case GridLineKind.Barline:
+                    AppendQuad(line.X - StaffLineHalfHeight, line.X + StaffLineHalfHeight, y0, y1, StaffColor);
+                    break;
+                case GridLineKind.Beat:
+                    AppendQuad(
+                        line.X - (StaffLineHalfHeight / 2f),
+                        line.X + (StaffLineHalfHeight / 2f),
+                        y0,
+                        y1,
+                        BeatColor);
+                    break;
+                case GridLineKind.Cursor:
+                    AppendQuad(line.X - StaffLineHalfHeight, line.X + StaffLineHalfHeight, y0, y1, CursorColor);
+                    break;
             }
-
-            double absoluteBeat = (firstVisibleMeasure * timeSignature.Numerator) + beatIndex;
-            float beatX = GrandStaffLayout.MapAbsoluteBeatToScoreX(
-                absoluteBeat,
-                timeSignature,
-                firstVisibleMeasure);
-            AppendQuad(
-                beatX - (StaffLineHalfHeight / 2f),
-                beatX + (StaffLineHalfHeight / 2f),
-                y0,
-                y1,
-                BeatColor);
-        }
-
-        double currentBeat = MusicalTime.DurationToBeats(now, tempo);
-        float cursorX = GrandStaffLayout.MapAbsoluteBeatToScoreX(currentBeat, timeSignature, firstVisibleMeasure);
-        if (cursorX >= GrandStaffLayout.ScoreX0 && cursorX <= GrandStaffLayout.ScoreX1)
-        {
-            AppendQuad(
-                cursorX - StaffLineHalfHeight,
-                cursorX + StaffLineHalfHeight,
-                y0,
-                y1,
-                CursorColor);
         }
     }
 

@@ -75,6 +75,42 @@ public static class GrandStaffLayout
             GetLivePosition(pitch));
     }
 
+    public static IReadOnlyList<GridLine> GetLiveMeasureGridLines(
+        TimeSpan now,
+        TimeSignature timeSignature,
+        Tempo tempo)
+    {
+        int firstVisibleMeasure = GetLiveFirstVisibleMeasure(now, timeSignature, tempo);
+        var lines = new List<GridLine>();
+
+        foreach (float barlineX in GetScoreBarlineXs(firstVisibleMeasure, firstVisibleMeasure + VisibleMeasureCount))
+        {
+            lines.Add(new GridLine(barlineX, GridLineKind.Barline));
+        }
+
+        int visibleBeatCount = VisibleMeasureCount * timeSignature.Numerator;
+        for (int beatIndex = 1; beatIndex < visibleBeatCount; beatIndex++)
+        {
+            if (beatIndex % timeSignature.Numerator == 0)
+            {
+                continue;
+            }
+
+            double absoluteBeat = (firstVisibleMeasure * timeSignature.Numerator) + beatIndex;
+            float beatX = MapAbsoluteBeatToScoreX(absoluteBeat, timeSignature, firstVisibleMeasure);
+            lines.Add(new GridLine(beatX, GridLineKind.Beat));
+        }
+
+        double currentBeat = MusicalTime.DurationToBeats(now, tempo);
+        float cursorX = MapAbsoluteBeatToScoreX(currentBeat, timeSignature, firstVisibleMeasure);
+        if (cursorX >= ScoreX0 && cursorX <= ScoreX1)
+        {
+            lines.Add(new GridLine(cursorX, GridLineKind.Cursor));
+        }
+
+        return lines;
+    }
+
     public static ScoreNoteLayout? GetScoreNoteLayout(
         ScoreNote note,
         TimeSignature timeSignature,
@@ -86,8 +122,7 @@ public static class GrandStaffLayout
         }
 
         var position = GetPosition(note.Pitch, note.Staff);
-        var staffLines = note.Staff == Staff.Treble ? TrebleLineYs : BassLineYs;
-        var stemDirection = position.Y < staffLines[2] ? StemDirection.Up : StemDirection.Down;
+        var stemDirection = GetStemDirection(position);
         return new ScoreNoteLayout(
             MapScoreOnsetToX(note.MeasureIndex, note.BeatOffset, timeSignature, firstVisibleMeasure),
             position,
@@ -139,6 +174,12 @@ public static class GrandStaffLayout
             .Select(offset => bottomY + (offset * DiatonicStep))
             .ToArray();
         return new StaffPlacement(position, y, ledgerLineYs, pitch.Alter != 0);
+    }
+
+    public static StemDirection GetStemDirection(StaffPlacement position)
+    {
+        var staffLines = position.Staff == Staff.Treble ? TrebleLineYs : BassLineYs;
+        return position.Y < staffLines[2] ? StemDirection.Up : StemDirection.Down;
     }
 
     private static IReadOnlyList<float> BuildLineYs(float bottomY) =>
