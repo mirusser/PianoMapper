@@ -161,10 +161,39 @@
             </section>
 
             <section class="score-card control-card-wide" aria-label="MusicXML score">
-                <ScoreFilePicker ScoreLoaded="HandleScoreLoadedAsync" />
-                @if (loadedScore is not null)
+                <ScoreFilePicker ScoreLoaded="HandleScoreLoadedAsync"
+                                 ScoreUnloaded="HandleScoreUnloadedAsync"
+                                 HasLoadedScore="@(loadedScore is not null)" />
+                @if (loadedScore is not null && selectedScore is not null)
                 {
                     <p class="score-title">@loadedScore.Title — @loadedScore.Measures.Count measure(s)</p>
+                    <div class="controls measure-range-controls"
+                         role="group"
+                         aria-labelledby="measure-range-label">
+                        <span class="measure-range-label" id="measure-range-label">Play measures</span>
+                        <label class="octave-picker">
+                            From
+                            <select value="@(selectedFirstMeasure + 1)"
+                                    @onchange="SelectFirstMeasureAsync"
+                                    aria-label="First measure to play">
+                                @for (int measureNumber = 1; measureNumber <= loadedScore.Measures.Count; measureNumber++)
+                                {
+                                    <option value="@measureNumber">@measureNumber</option>
+                                }
+                            </select>
+                        </label>
+                        <label class="octave-picker">
+                            To
+                            <select value="@(selectedLastMeasure + 1)"
+                                    @onchange="SelectLastMeasureAsync"
+                                    aria-label="Last measure to play">
+                                @for (int measureNumber = 1; measureNumber <= loadedScore.Measures.Count; measureNumber++)
+                                {
+                                    <option value="@measureNumber">@measureNumber</option>
+                                }
+                            </select>
+                        </label>
+                    </div>
                     <div class="controls" aria-label="Score navigation">
                         <button class="button-primary"
                                 type="button"
@@ -176,13 +205,14 @@
                             Previous <kbd>[</kbd>
                         </button>
                         <span class="measure-window">
-                            Measures @(firstVisibleMeasure + 1)–@Math.Min(
-                                firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount,
-                                loadedScore.Measures.Count)
+                            Measures @(selectedFirstMeasure + firstVisibleMeasure + 1)–@(
+                                selectedFirstMeasure + Math.Min(
+                                    firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount,
+                                    selectedScore.Measures.Count))
                         </span>
                         <button type="button"
                                 @onclick="ShowNextMeasures"
-                                disabled="@(firstVisibleMeasure >= loadedScore.Measures.Count - 1)">
+                                disabled="@(firstVisibleMeasure >= selectedScore.Measures.Count - 1)">
                             Next <kbd>]</kbd>
                         </button>
                     </div>
@@ -261,7 +291,7 @@
         </div>
         <PianoCanvas Scene="@canvasScene"
                      SelectedOctave="@keyboardState.CurrentOctave"
-                     IsScoreView="@(loadedScore is not null && !showPianoRoll)"
+                     IsScoreView="@(selectedScore is not null && !showPianoRoll)"
                      ScoreCursor="@scoreCursorState" />
     </section>
 </main>
@@ -296,6 +326,9 @@
     private ScoreCursorPlaybackState? scoreCursorState;
     private Score? importedScore;
     private Score? loadedScore;
+    private Score? selectedScore;
+    private int selectedFirstMeasure;
+    private int selectedLastMeasure;
     private int firstVisibleMeasure;
     private CancellationTokenSource? playbackRefreshCancellation;
     private Task? playbackRefreshTask;
@@ -325,6 +358,10 @@
     private string AudioReadyStatus => soundSource == BrowserSoundSource.Piano
         ? "Piano samples are ready."
         : "Synth audio is ready.";
+
+    private string SelectedMeasureRangeLabel => selectedFirstMeasure == selectedLastMeasure
+        ? $"measure {selectedFirstMeasure + 1}"
+        : $"measures {selectedFirstMeasure + 1}–{selectedLastMeasure + 1}";
 
     public Piano()
     {
@@ -428,6 +465,11 @@
 
         importedScore = score;
         loadedScore = score;
+        selectedFirstMeasure = 0;
+        selectedLastMeasure = Math.Max(0, score.Measures.Count - 1);
+        selectedScore = score.Measures.Count == 0
+            ? score
+            : ScoreMeasureRange.Create(score, selectedFirstMeasure, selectedLastMeasure);
         displayTimeSignature = score.TimeSignature;
         displayTempo = score.Tempo;
         if (metronomeWasRunning)
@@ -443,9 +485,77 @@
         RefreshCanvasScene(currentTime);
     }
 
+    private async Task HandleScoreUnloadedAsync()
+    {
+        await AbortPracticeAsync(updateStatus: false);
+        await StopScorePlaybackAsync();
+        importedScore = null;
+        loadedScore = null;
+        selectedScore = null;
+        selectedFirstMeasure = 0;
+        selectedLastMeasure = 0;
+        firstVisibleMeasure = 0;
+        TimeSpan currentTime = AudioSession.IsInitialized
+            ? await AudioSession.GetCurrentTimeAsync()
+            : TimeSpan.Zero;
+        RefreshCanvasScene(currentTime);
+        audioStatus = "Score unloaded.";
+    }
+
+    private Task SelectFirstMeasureAsync(ChangeEventArgs eventArgs)
+    {
+        if (loadedScore is not { Measures.Count: > 0 } score)
+        {
+            return Task.CompletedTask;
+        }
+
+        int firstMeasure = ParseClampedInteger(
+            eventArgs,
+            selectedFirstMeasure + 1,
+            1,
+            score.Measures.Count) - 1;
+        return ApplySelectedMeasureRangeAsync(firstMeasure, Math.Max(firstMeasure, selectedLastMeasure));
+    }
+
+    private Task SelectLastMeasureAsync(ChangeEventArgs eventArgs)
+    {
+        if (loadedScore is not { Measures.Count: > 0 } score)
+        {
+            return Task.CompletedTask;
+        }
+
+        int lastMeasure = ParseClampedInteger(
+            eventArgs,
+            selectedLastMeasure + 1,
+            1,
+            score.Measures.Count) - 1;
+        return ApplySelectedMeasureRangeAsync(Math.Min(selectedFirstMeasure, lastMeasure), lastMeasure);
+    }
+
+    private async Task ApplySelectedMeasureRangeAsync(int firstMeasure, int lastMeasure)
+    {
+        if (loadedScore is not { } score ||
+            (firstMeasure == selectedFirstMeasure && lastMeasure == selectedLastMeasure))
+        {
+            return;
+        }
+
+        await AbortPracticeAsync(updateStatus: false);
+        await StopScorePlaybackAsync();
+        selectedFirstMeasure = firstMeasure;
+        selectedLastMeasure = lastMeasure;
+        selectedScore = ScoreMeasureRange.Create(score, firstMeasure, lastMeasure);
+        firstVisibleMeasure = 0;
+        TimeSpan currentTime = AudioSession.IsInitialized
+            ? await AudioSession.GetCurrentTimeAsync()
+            : TimeSpan.Zero;
+        RefreshCanvasScene(currentTime);
+        audioStatus = $"Selected {SelectedMeasureRangeLabel} of {score.Title}.";
+    }
+
     private async Task StartScorePlaybackAsync()
     {
-        if (loadedScore is null || !AudioSession.IsInitialized)
+        if (selectedScore is not { } score || !AudioSession.IsInitialized)
         {
             return;
         }
@@ -453,15 +563,15 @@
         await AbortPracticeAsync(updateStatus: false);
         await CancelVisualizationRefreshAsync();
         await CancelPlaybackRefreshAsync();
-        await ScorePlaybackSession.StartAsync(loadedScore);
-        displayTimeSignature = loadedScore.TimeSignature;
-        displayTempo = loadedScore.Tempo;
+        await ScorePlaybackSession.StartAsync(score);
+        displayTimeSignature = score.TimeSignature;
+        displayTempo = score.Tempo;
         // canvasScene already reflects the current static score view (built at load/measure-nav
         // time); starting playback only needs to hand the cursor animation off to JS.
         scoreCursorState = BuildScoreCursorState();
         playbackRefreshCancellation = new CancellationTokenSource();
         playbackRefreshTask = RefreshScorePlaybackAsync(playbackRefreshCancellation.Token);
-        audioStatus = $"Playing {loadedScore.Title}.";
+        audioStatus = $"Playing {score.Title}, {SelectedMeasureRangeLabel}.";
     }
 
     private async Task PlayRandomMeasureAsync()
@@ -485,7 +595,7 @@
 
     private async Task StartPracticeAsync()
     {
-        if (loadedScore is null || !AudioSession.IsInitialized)
+        if (selectedScore is not { } score || !AudioSession.IsInitialized)
         {
             return;
         }
@@ -502,7 +612,7 @@
         keyboardState.Clear(currentTime);
         await AudioSession.ClearAsync(currentTime);
         await practiceCoordinator.StartAsync(
-            loadedScore,
+            score,
             new GradingOptions { OnTimeTolerance = onTimeTolerance });
         practiceRefreshCancellation = new CancellationTokenSource();
         practiceRefreshTask = RefreshPracticeAsync(practiceRefreshCancellation.Token);
@@ -528,7 +638,7 @@
             await ScorePlaybackSession.StopAsync();
         }
 
-        if (loadedScore is not null)
+        if (selectedScore is not null)
         {
             RefreshCanvasScene(GetAnchorTime());
         }
@@ -536,13 +646,13 @@
 
     private void ShowPreviousMeasures()
     {
-        if (loadedScore is null)
+        if (selectedScore is not { } score)
         {
             return;
         }
 
         firstVisibleMeasure = GrandStaffSceneBuilder.ClampFirstVisibleMeasure(
-            loadedScore,
+            score,
             firstVisibleMeasure - GrandStaffLayout.VisibleMeasureCount);
         UpdateScoreCursorMeasureIfPlaying();
         if (!showPianoRoll)
@@ -553,13 +663,13 @@
 
     private void ShowNextMeasures()
     {
-        if (loadedScore is null)
+        if (selectedScore is not { } score)
         {
             return;
         }
 
         firstVisibleMeasure = GrandStaffSceneBuilder.ClampFirstVisibleMeasure(
-            loadedScore,
+            score,
             firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount);
         UpdateScoreCursorMeasureIfPlaying();
         if (!showPianoRoll)
@@ -585,7 +695,7 @@
     // which never displayed a grand-staff cursor either).
     private ScoreCursorPlaybackState? BuildScoreCursorState()
     {
-        if (showPianoRoll || loadedScore is null || ScorePlaybackSession.GetCursorAnchor() is not { } anchor)
+        if (showPianoRoll || selectedScore is null || ScorePlaybackSession.GetCursorAnchor() is not { } anchor)
         {
             return null;
         }
@@ -594,7 +704,7 @@
         return new ScoreCursorPlaybackState(
             anchor.AnchorSeconds,
             anchor.BeatsPerMinute,
-            loadedScore.TimeSignature.Numerator,
+            selectedScore.TimeSignature.Numerator,
             firstVisibleMeasure,
             anchor.CompletionSeconds,
             cursorY0,
@@ -695,6 +805,9 @@
         if (importedScore is not null)
         {
             loadedScore = ScoreTiming.Apply(importedScore, timeSignature, tempo);
+            selectedScore = loadedScore.Measures.Count == 0
+                ? loadedScore
+                : ScoreMeasureRange.Create(loadedScore, selectedFirstMeasure, selectedLastMeasure);
         }
 
         TimeSpan currentTime = AudioSession.IsInitialized
@@ -890,7 +1003,7 @@
     {
         try
         {
-            while (!cancellationToken.IsCancellationRequested && loadedScore is not null)
+            while (!cancellationToken.IsCancellationRequested && selectedScore is not null)
             {
                 TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync(cancellationToken);
 
@@ -951,7 +1064,7 @@
     {
         try
         {
-            while (!cancellationToken.IsCancellationRequested && loadedScore is not null)
+            while (!cancellationToken.IsCancellationRequested && selectedScore is not null)
             {
                 await practiceCoordinator.UpdateAsync(cancellationToken);
                 double? cursorBeats = practiceCoordinator.State is
@@ -1001,7 +1114,7 @@
             await AudioSession.ClearAsync(releaseTime);
         }
 
-        if (loadedScore is not null)
+        if (selectedScore is not null)
         {
             RefreshCanvasScene(eventTime ?? GetAnchorTime());
         }
@@ -1038,7 +1151,7 @@
         UpdateScoreCursorMeasureIfPlaying();
         if (ShouldContinueVisualizationRefresh(
             showPianoRoll,
-            loadedScore is not null,
+            selectedScore is not null,
             canvasScene,
             keyboardState.ActiveNoteCount))
         {
@@ -1064,14 +1177,30 @@
             return;
         }
 
-        canvasScene = loadedScore is null
-            ? GrandStaffSceneBuilder.Build(
+        if (selectedScore is null)
+        {
+            canvasScene = GrandStaffSceneBuilder.Build(
                 noteTimeline.Snapshot(currentTime),
                 currentTime,
                 displayTimeSignature,
                 displayTempo,
-                keyboardState.CurrentOctave)
-            : grandStaffSceneCache.BuildScore(loadedScore, firstVisibleMeasure, cursorBeats, verdicts);
+                keyboardState.CurrentOctave);
+            return;
+        }
+
+        double? performedNoteBeats = cursorBeats;
+        if (!performedNoteBeats.HasValue && ScorePlaybackSession.IsActive)
+        {
+            performedNoteBeats = ScorePlaybackSession.GetCursorBeats(currentTime);
+        }
+
+        canvasScene = grandStaffSceneCache.BuildScore(
+            selectedScore,
+            firstVisibleMeasure,
+            cursorBeats,
+            verdicts,
+            noteTimeline.Snapshot(currentTime),
+            performedNoteBeats);
     }
 
     internal static bool ShouldContinueVisualizationRefresh(
@@ -1106,7 +1235,7 @@
             visualizationRefreshTask is { IsCompleted: false } ||
             !ShouldContinueVisualizationRefresh(
                 showPianoRoll,
-                loadedScore is not null,
+                selectedScore is not null,
                 canvasScene,
                 keyboardState.ActiveNoteCount))
         {
@@ -1129,7 +1258,7 @@
                 await InvokeAsync(StateHasChanged);
                 if (!ShouldContinueVisualizationRefresh(
                     showPianoRoll,
-                    loadedScore is not null,
+                    selectedScore is not null,
                     canvasScene,
                     keyboardState.ActiveNoteCount))
                 {

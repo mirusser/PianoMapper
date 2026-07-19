@@ -454,6 +454,16 @@ input[type="file"]::file-selector-button {
     font-weight: 700;
 }
 
+.measure-range-controls {
+    margin-bottom: 0.75rem;
+}
+
+.measure-range-label {
+    color: #cbd5e1;
+    font-size: 0.875rem;
+    font-weight: 700;
+}
+
 .measure-window {
     color: #cbd5e1;
     font-size: 0.875rem;

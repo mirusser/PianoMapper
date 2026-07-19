@@ -6,4 +6,5 @@ public sealed record ScoreNote(
     int MeasureIndex,
     double BeatOffset,
     Staff Staff,
-    bool TiesToNext = false);
+    bool TiesToNext = false,
+    BeamState BeamState = BeamState.None);

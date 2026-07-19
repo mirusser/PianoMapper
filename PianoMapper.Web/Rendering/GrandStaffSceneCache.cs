@@ -29,7 +29,9 @@ internal sealed class GrandStaffSceneCache
         Score score,
         int firstVisibleMeasure,
         double? cursorBeats = null,
-        IReadOnlyDictionary<ScoreNote, Verdict>? verdicts = null)
+        IReadOnlyDictionary<ScoreNote, Verdict>? verdicts = null,
+        IReadOnlyList<PerformedNote>? performedNotes = null,
+        double? performedNoteBeats = null)
     {
         ArgumentNullException.ThrowIfNull(score);
 
@@ -45,7 +47,13 @@ internal sealed class GrandStaffSceneCache
             cachedVerdicts = verdicts;
         }
 
-        return GrandStaffSceneBuilder.ComposeScore(staticParts, score, firstVisibleMeasure, cursorBeats);
+        return GrandStaffSceneBuilder.ComposeScore(
+            staticParts,
+            score,
+            firstVisibleMeasure,
+            cursorBeats,
+            performedNotes,
+            performedNoteBeats);
     }
 
     private static bool VerdictsEqual(

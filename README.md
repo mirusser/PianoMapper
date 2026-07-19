@@ -6,7 +6,7 @@ PianoMapper maps a computer keyboard to piano notes and renders performances as 
 
 - Thirteen chromatic note keys with sustained note-on/note-off behavior and octave selection.
 - Live grand staff and scrolling piano roll with clefs, ledger lines, accidentals, and note duration.
-- Strict uncompressed MusicXML import for one part and up to two staves, including chords, ties, rests, and backup/forward timing.
+- Strict MusicXML (`.mxl`, `.musicxml`, or `.xml`) import for one part and up to two staves, including chords, ties, rests, dotted values, beam groups, and backup/forward timing.
 - Scheduled score playback, measure navigation, a tempo cursor, and random-measure playback.
 - Count-in practice with pitch/timing/duration verdicts and an accuracy summary.
 - Optional browser metronome with accented downbeats, on-tempo feedback, and adjustable timing tolerance.
@@ -24,7 +24,7 @@ PianoMapper maps a computer keyboard to piano notes and renders performances as 
 ```bash
 dotnet run --project PianoMapper/PianoMapper.csproj
 
-# Load an uncompressed MusicXML score at startup
+# Load a MusicXML score at startup
 dotnet run --project PianoMapper/PianoMapper.csproj -- --score path/to/piece.musicxml
 ```
 
@@ -34,7 +34,7 @@ dotnet run --project PianoMapper/PianoMapper.csproj -- --score path/to/piece.mus
 dotnet run --project PianoMapper.Web/PianoMapper.Web.csproj
 ```
 
-Open the URL printed by the development server. Select **Enable audio** before playing; browser autoplay policy requires that user action. Choose a `.musicxml` or `.xml` file with the on-page picker. The browser rejects files larger than 10 MiB before parsing.
+Open the URL printed by the development server. Select **Enable audio** before playing; browser autoplay policy requires that user action. Choose a `.mxl`, `.musicxml`, or `.xml` file with the on-page picker. The browser rejects files larger than 10 MiB before parsing.
 
 To open the app from a laptop on the same local network, run this command on the server:
 
@@ -85,7 +85,7 @@ The manual browser checklist and current evidence are in [docs/browser-test-matr
 
 ## Current limits
 
-- Compressed `.mxl`, multipart scores, tuplets, grace notes, tempo/time-signature changes, and unsupported MusicXML semantics fail with a readable error.
+- Multipart scores, tuplets, grace notes, tempo/time-signature changes, and unsupported MusicXML semantics fail with a readable error. Repeat barlines are accepted, but playback remains linear.
 - Web MIDI, a touch piano, accounts, backend synchronization, and mobile-specific layout are outside the current browser release.
 - The desktop app uses OpenAL PCM synthesis. The browser uses Web Audio synthesis with equivalent note lifecycle, not matching PCM output byte for byte.
 - Desktop note-off stops its source immediately and can produce a small click. The browser applies a short release envelope.

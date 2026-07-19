@@ -4,4 +4,6 @@ public enum GrandStaffGlyphKind
 {
     Clef,
     Accidental,
+    KeySignature,
+    TimeSignature,
 }

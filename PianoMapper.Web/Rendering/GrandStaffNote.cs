@@ -15,4 +15,5 @@ public sealed record GrandStaffNote(
     bool HasDot = false,
     int FlagCount = 0,
     Verdict? Verdict = null,
-    double? DurationEndX = null);
+    double? DurationEndX = null,
+    double? StemEndY = null);

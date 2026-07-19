@@ -7,4 +7,6 @@ public sealed record GrandStaffScene(
     bool ShouldClipNotesAtClefs = false) : IPianoCanvasScene
 {
     public PianoCanvasSceneKind Kind => PianoCanvasSceneKind.GrandStaff;
+
+    public IReadOnlyList<GrandStaffBeam> Beams { get; init; } = [];
 }

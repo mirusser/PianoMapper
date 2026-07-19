@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Globalization;
+using System.IO.Compression;
 using System.Xml;
 using System.Xml.Linq;
 
@@ -7,11 +8,15 @@ namespace PianoMapper.Music;
 
 public sealed class MusicXmlScoreReader
 {
+    private const string BeamElementName = "beam";
     private const string ChordElementName = "chord";
+    private const string CompressedMusicXmlExtension = ".mxl";
+    private const string ContainerEntryName = "META-INF/container.xml";
     private const string DotElementName = "dot";
     private const string DurationElementName = "duration";
     private const string NotationsElementName = "notations";
     private const string PitchElementName = "pitch";
+    private const string RepeatElementName = "repeat";
     private const string RestElementName = "rest";
     private const string SoundElementName = "sound";
     private const string StaffElementName = "staff";
@@ -53,6 +58,7 @@ public sealed class MusicXmlScoreReader
         ChordElementName,
         TieElementName,
         NotationsElementName,
+        BeamElementName,
     }.ToFrozenSet(StringComparer.Ordinal);
 
     public Score Read(string path)
@@ -68,15 +74,11 @@ public sealed class MusicXmlScoreReader
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentException.ThrowIfNullOrEmpty(sourceName);
 
-        XDocument document;
-        try
-        {
-            document = XDocument.Load(stream, LoadOptions.SetLineInfo);
-        }
-        catch (XmlException exception)
-        {
-            throw new InvalidDataException($"Could not parse MusicXML: {exception.Message}", exception);
-        }
+        XDocument document = Path.GetExtension(sourceName).Equals(
+            CompressedMusicXmlExtension,
+            StringComparison.OrdinalIgnoreCase)
+            ? LoadCompressedDocument(stream)
+            : LoadDocument(stream);
 
         var root = document.Root ?? throw new InvalidDataException("Could not parse MusicXML: document has no root element.");
         if (root.Name.LocalName != "score-partwise")
@@ -175,6 +177,45 @@ public sealed class MusicXmlScoreReader
         return new Score(Path.GetFileNameWithoutExtension(sourceName), timeSignature, tempo, keyFifths, measures);
     }
 
+    private static XDocument LoadDocument(Stream stream)
+    {
+        try
+        {
+            return XDocument.Load(stream, LoadOptions.SetLineInfo);
+        }
+        catch (XmlException exception)
+        {
+            throw new InvalidDataException($"Could not parse MusicXML: {exception.Message}", exception);
+        }
+    }
+
+    private static XDocument LoadCompressedDocument(Stream stream)
+    {
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
+        var containerEntry = archive.GetEntry(ContainerEntryName) ??
+            throw new InvalidDataException($"Compressed MusicXML does not contain {ContainerEntryName}.");
+        XDocument container;
+        using (var containerStream = containerEntry.Open())
+        {
+            container = LoadDocument(containerStream);
+        }
+        string? scorePath = container
+            .Descendants()
+            .FirstOrDefault(element => element.Name.LocalName == "rootfile")?
+            .Attributes()
+            .FirstOrDefault(attribute => attribute.Name.LocalName == "full-path")?
+            .Value;
+        if (string.IsNullOrWhiteSpace(scorePath))
+        {
+            throw new InvalidDataException("Compressed MusicXML container does not declare a root score file.");
+        }
+
+        var scoreEntry = archive.GetEntry(scorePath) ??
+            throw new InvalidDataException($"Compressed MusicXML does not contain the declared score file '{scorePath}'.");
+        using var scoreStream = scoreEntry.Open();
+        return LoadDocument(scoreStream);
+    }
+
     private static void ValidateRootElements(XElement root)
     {
         foreach (var element in root.Elements())
@@ -242,7 +283,8 @@ public sealed class MusicXmlScoreReader
     {
         foreach (var element in barline.Elements())
         {
-            if (!IgnoredPresentationElements.Contains(element.Name.LocalName))
+            if (element.Name.LocalName != RepeatElementName &&
+                !IgnoredPresentationElements.Contains(element.Name.LocalName))
             {
                 throw Unsupported(element.Name.LocalName);
             }
@@ -333,7 +375,8 @@ public sealed class MusicXmlScoreReader
                 measureIndex,
                 beatOffset,
                 staff,
-                TiesToNext: HasTieStart(noteElement)));
+                TiesToNext: HasTieStart(noteElement),
+                BeamState: ParseBeamState(noteElement)));
         }
 
         if (!isChord)
@@ -422,6 +465,27 @@ public sealed class MusicXmlScoreReader
         }
 
         return hasStart;
+    }
+
+    private static BeamState ParseBeamState(XElement noteElement)
+    {
+        var beam = noteElement
+            .Elements()
+            .FirstOrDefault(element =>
+                element.Name.LocalName == BeamElementName &&
+                (element.Attribute("number")?.Value is null or "1"));
+        if (beam is null)
+        {
+            return BeamState.None;
+        }
+
+        return beam.Value.Trim() switch
+        {
+            "begin" => BeamState.Begin,
+            "continue" => BeamState.Continue,
+            "end" => BeamState.End,
+            var value => throw new InvalidDataException($"Invalid MusicXML beam value '{value}'."),
+        };
     }
 
     private static Pitch ParsePitch(XElement pitchElement)

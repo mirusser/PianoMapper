@@ -10,11 +10,13 @@ const beatLineKind = 4;
 // constants, so the score-playback cursor can be positioned here every animation frame from the
 // Web Audio clock, instead of C# rebuilding the whole grand-staff scene every tick just to move
 // the cursor line.
-const scoreCursorX0 = -0.78;
+const scoreCursorX0 = -0.56;
 const scoreCursorX1 = 0.96;
-const scoreCursorVisibleMeasureCount = 4;
+const scoreCursorVisibleMeasureCount = 6;
 const defaultStaffSpace = 11;
-const noteHeadWidthInStaffSpaces = 1.4;
+const noteHeadWidthInStaffSpaces = 1.2;
+const noteHeadHeightInStaffSpaces = 0.8;
+const noteHeadRotationRadians = -Math.PI / 8;
 const stemLengthInStaffSpaces = 3;
 const flagControlWidthInStaffSpaces = 1.2;
 const flagControlHeightInStaffSpaces = 0.5;
@@ -44,7 +46,7 @@ export function initialize(canvas, waveformCanvas, spectrumCanvas, analysisLayou
         canvas,
         waveformCanvas,
         spectrumCanvas,
-        scene: { kind: 0, lines: [], glyphs: [], notes: [] },
+        scene: { kind: 0, lines: [], glyphs: [], notes: [], beams: [] },
         scoreLayerCanvas: document.createElement("canvas"),
         scoreLayerDirty: true,
         scoreLayerWidth: undefined,
@@ -216,7 +218,17 @@ function drawGrandStaff(context, scene, width, height) {
         ? mapHeight(Math.abs(staffLines[1].y0 - staffLines[0].y0), height)
         : defaultStaffSpace;
     for (const note of scene.notes) {
-        drawNote(context, note, width, height, staffSpace);
+        if (!note.isActive) {
+            drawNote(context, note, width, height, staffSpace);
+        }
+    }
+    for (const beam of scene.beams ?? []) {
+        drawBeam(context, beam, width, height, staffSpace);
+    }
+    for (const note of scene.notes) {
+        if (note.isActive) {
+            drawNote(context, note, width, height, staffSpace);
+        }
     }
 
     if (shouldClipNoteElements) {
@@ -518,7 +530,7 @@ function drawNote(context, note, width, height, staffSpace) {
     const x = mapX(note.x, width);
     const y = mapY(note.y, height);
     const noteHeadRadiusX = staffSpace * noteHeadWidthInStaffSpaces / 2;
-    const noteHeadRadiusY = staffSpace / 2;
+    const noteHeadRadiusY = staffSpace * noteHeadHeightInStaffSpaces / 2;
     const noteColor = Number.isInteger(note.verdict)
         ? verdictColors[note.verdict]
         : note.isActive ? "#22d3ee" : "#fbbf24";
@@ -536,7 +548,7 @@ function drawNote(context, note, width, height, staffSpace) {
     }
 
     context.beginPath();
-    context.ellipse(x, y, noteHeadRadiusX, noteHeadRadiusY, -0.2, 0, Math.PI * 2);
+    context.ellipse(x, y, noteHeadRadiusX, noteHeadRadiusY, noteHeadRotationRadians, 0, Math.PI * 2);
     if (note.isFilled) {
         context.fill();
     } else {
@@ -548,7 +560,9 @@ function drawNote(context, note, width, height, staffSpace) {
     const stemGoesUp = note.stemDirection === 0;
     if (note.hasStem) {
         stemX = x + (stemGoesUp ? noteHeadRadiusX : -noteHeadRadiusX);
-        stemEndY = y + (stemGoesUp ? -1 : 1) * staffSpace * stemLengthInStaffSpaces;
+        stemEndY = Number.isFinite(note.stemEndY)
+            ? mapY(note.stemEndY, height)
+            : y + (stemGoesUp ? -1 : 1) * staffSpace * stemLengthInStaffSpaces;
         context.beginPath();
         context.moveTo(stemX, y);
         context.lineTo(stemX, stemEndY);
@@ -585,6 +599,26 @@ function drawNote(context, note, width, height, staffSpace) {
     context.textAlign = "center";
     context.textBaseline = "top";
     context.fillText(note.label, x, y + noteHeadRadiusY + 6);
+}
+
+function drawBeam(context, beam, width, height, staffSpace) {
+    const stemGoesUp = beam.stemDirection === 0;
+    const stemXOffset = staffSpace * noteHeadWidthInStaffSpaces / 2 * (stemGoesUp ? 1 : -1);
+    const beamSpacingDirection = stemGoesUp ? 1 : -1;
+    const x0 = mapX(beam.x0, width) + stemXOffset;
+    const x1 = mapX(beam.x1, width) + stemXOffset;
+    const y0 = mapY(beam.y0, height);
+    const y1 = mapY(beam.y1, height);
+    context.strokeStyle = "#fbbf24";
+    context.lineWidth = Math.max(3, staffSpace * 0.45);
+    context.lineCap = "butt";
+    for (let beamIndex = 0; beamIndex < beam.count; beamIndex++) {
+        const yOffset = beamIndex * staffSpace * 0.6 * beamSpacingDirection;
+        context.beginPath();
+        context.moveTo(x0, y0 + yOffset);
+        context.lineTo(x1, y1 + yOffset);
+        context.stroke();
+    }
 }
 
 function mapX(value, width) {

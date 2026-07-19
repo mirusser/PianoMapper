@@ -6,9 +6,9 @@ public static class GrandStaffLayout
 {
     public const float DiatonicStep = 0.045f;
     public const float MiddleCY = (PianoRollLayout.BandY0 + PianoRollLayout.BandY1) / 2f;
-    public const float ScoreX0 = -0.78f;
+    public const float ScoreX0 = -0.56f;
     public const float ScoreX1 = 0.96f;
-    public const int VisibleMeasureCount = 4;
+    public const int VisibleMeasureCount = 6;
 
     private const int TrebleBottomDiatonicIndex = 30; // E4
     private const int BassBottomDiatonicIndex = 18; // G2

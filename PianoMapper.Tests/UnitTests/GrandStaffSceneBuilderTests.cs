@@ -51,6 +51,53 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
+    public void BuildScore_KeyAndTimeSignature_ReturnsGlyphsOnBothStaves()
+    {
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.F, 1, 4), new NoteValue(4), 0, 0, Staff.Treble),
+            new(new Pitch(NoteLetter.C, 1, 3), new NoteValue(4), 0, 1, Staff.Bass),
+        ];
+        var score = new Score(
+            "test",
+            new TimeSignature(6, new NoteValue(8)),
+            new Tempo(120),
+            2,
+            [new ScoreMeasure(notes, [])]);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        Assert.Equal(4, scene.Glyphs.Count(glyph => glyph.Kind == GrandStaffGlyphKind.KeySignature));
+        Assert.Equal(4, scene.Glyphs.Count(glyph => glyph.Kind == GrandStaffGlyphKind.TimeSignature));
+        Assert.DoesNotContain(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Accidental);
+    }
+
+    [Fact]
+    public void BuildScore_PrimaryBeamGroup_ReturnsConnectedBeamWithoutIndividualFlags()
+    {
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.D, 0, 4), new NoteValue(8), 0, 0, Staff.Treble, BeamState: BeamState.Begin),
+            new(new Pitch(NoteLetter.F, 1, 4), new NoteValue(8), 0, 1, Staff.Treble, BeamState: BeamState.Continue),
+            new(new Pitch(NoteLetter.A, 0, 4), new NoteValue(8), 0, 2, Staff.Treble, BeamState: BeamState.End),
+        ];
+        var score = new Score(
+            "test",
+            new TimeSignature(6, new NoteValue(8)),
+            new Tempo(120),
+            2,
+            [new ScoreMeasure(notes, [])]);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        var beam = Assert.Single(scene.Beams);
+        Assert.Equal(1, beam.Count);
+        Assert.True(beam.X1 > beam.X0);
+        Assert.All(scene.Notes, note => Assert.Equal(0, note.FlagCount));
+        Assert.All(scene.Notes, note => Assert.NotNull(note.StemEndY));
+    }
+
+    [Fact]
     public void BuildScore_CursorInWindow_ReturnsMappedCursorLine()
     {
         var score = CreateScore(measureCount: 6);
@@ -89,6 +136,41 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
+    public void BuildScore_PerformedInput_OverlaysOnlyHeldNoteAtCursor()
+    {
+        var score = new Score(
+            "test",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure([], [])]);
+        var timeline = new NoteTimeline();
+        var heldNote = timeline.Start(new Pitch(NoteLetter.C, 0, 4), TimeSpan.FromSeconds(1));
+        var releasedNote = timeline.Start(new Pitch(NoteLetter.D, 0, 4), TimeSpan.FromSeconds(1));
+        timeline.Complete(releasedNote, TimeSpan.FromSeconds(1.5));
+
+        var scene = GrandStaffSceneBuilder.BuildScore(
+            score,
+            firstVisibleMeasure: 0,
+            performedNotes: [heldNote, releasedNote],
+            performedNoteBeats: 1);
+
+        var indicator = Assert.Single(scene.Notes);
+        Assert.DoesNotContain(scene.Lines, line => line.Kind == GrandStaffLineKind.Cursor);
+        Assert.Equal("C4", indicator.Label);
+        Assert.True(indicator.IsActive);
+        Assert.False(indicator.IsFilled);
+        Assert.Equal(
+            GrandStaffLayout.MapAbsoluteBeatToScoreX(1, score.TimeSignature, firstVisibleMeasure: 0),
+            indicator.X,
+            6);
+        Assert.Equal(
+            GrandStaffLayout.GetLivePosition(heldNote.Pitch).Y + GrandStaffLayout.DiatonicStep,
+            indicator.Y,
+            6);
+    }
+
+    [Fact]
     public void Build_EmptyTimeline_ReturnsGrandStaffWithoutNotes()
     {
         var scene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero);
@@ -107,8 +189,8 @@ public sealed class GrandStaffSceneBuilderTests
             new TimeSignature(4, new NoteValue(4)),
             new Tempo(120));
 
-        Assert.Equal(7, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Barline));
-        Assert.Equal(12, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Beat));
+        Assert.Equal(9, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Barline));
+        Assert.Equal(18, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Beat));
         var cursor = Assert.Single(scene.Lines, line => line.Kind == GrandStaffLineKind.Cursor);
         Assert.Equal(GrandStaffLayout.ScoreX0, cursor.X0, 6);
     }

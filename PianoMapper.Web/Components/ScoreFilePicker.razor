@@ -1,8 +1,13 @@
 <div class="score-file-picker">
     <label for="score-file">MusicXML score (maximum 10 MiB)</label>
-    <InputFile id="score-file"
+    <InputFile @key="inputGeneration"
+               id="score-file"
                OnChange="SelectFileAsync"
-               accept=".musicxml,.xml,application/vnd.recordare.musicxml+xml,application/xml,text/xml" />
+               accept=".mxl,.musicxml,.xml,application/vnd.recordare.musicxml,application/vnd.recordare.musicxml+xml,application/xml,text/xml" />
+    @if (HasLoadedScore)
+    {
+        <button class="button-quiet" type="button" @onclick="UnloadScoreAsync">Unload score</button>
+    }
     <details class="learning-disclosure score-file-help">
         <summary>What is MusicXML?</summary>
         <p>
@@ -19,10 +24,17 @@
     internal const long MaximumFileSizeBytes = 10L * 1024 * 1024;
 
     private readonly MusicXmlScoreReader reader = new();
+    private int inputGeneration;
     private string? status;
 
     [Parameter]
     public EventCallback<Score> ScoreLoaded { get; set; }
+
+    [Parameter]
+    public EventCallback ScoreUnloaded { get; set; }
+
+    [Parameter]
+    public bool HasLoadedScore { get; set; }
 
     private async Task SelectFileAsync(InputFileChangeEventArgs eventArgs)
     {
@@ -49,5 +61,12 @@
         {
             status = $"Could not load score: {exception.Message}";
         }
+    }
+
+    private async Task UnloadScoreAsync()
+    {
+        await ScoreUnloaded.InvokeAsync();
+        inputGeneration++;
+        status = "Score unloaded.";
     }
 }

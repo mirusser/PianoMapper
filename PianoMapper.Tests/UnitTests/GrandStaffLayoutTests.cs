@@ -212,11 +212,11 @@ public sealed class GrandStaffLayoutTests
     }
 
     [Fact]
-    public void GetScoreBarlineXs_FourMeasureWindow_ReturnsMeasureBoundaries()
+    public void GetScoreBarlineXs_SixMeasureWindow_ReturnsMeasureBoundaries()
     {
         var barlines = GrandStaffLayout.GetScoreBarlineXs(firstVisibleMeasure: 0, measureCount: 6);
 
-        Assert.Equal(5, barlines.Count);
+        Assert.Equal(7, barlines.Count);
         Assert.Equal(GrandStaffLayout.ScoreX0, barlines[0]);
         Assert.Equal(GrandStaffLayout.ScoreX1, barlines[^1]);
     }
@@ -237,11 +237,11 @@ public sealed class GrandStaffLayoutTests
     {
         var signature = new TimeSignature(4, new NoteValue(4));
         var tempo = new Tempo(120);
-        var currentTime = TimeSpan.FromSeconds(9);
+        var currentTime = TimeSpan.FromSeconds(13);
 
         int firstVisibleMeasure = GrandStaffLayout.GetLiveFirstVisibleMeasure(currentTime, signature, tempo);
 
-        Assert.Equal(4, firstVisibleMeasure);
+        Assert.Equal(6, firstVisibleMeasure);
     }
 
     [Fact]
@@ -309,8 +309,8 @@ public sealed class GrandStaffLayoutTests
     }
 
     [Theory]
-    [InlineData(4, 12)]
-    [InlineData(3, 8)]
+    [InlineData(4, 18)]
+    [InlineData(3, 12)]
     public void GetLiveMeasureGridLines_TimeSignature_ReturnsBeatTicksExcludingDownbeats(
         int numerator,
         int expectedBeatTickCount)

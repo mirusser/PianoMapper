@@ -1,3 +1,5 @@
+using System.IO.Compression;
+using System.Text;
 using PianoMapper.Music;
 
 namespace PianoMapper.Tests.UnitTests;
@@ -82,7 +84,6 @@ public sealed class MusicXmlScoreReaderTests
     [InlineData("unsupported-timewise.musicxml", "<score-timewise>")]
     [InlineData("unsupported-tempo-change.musicxml", "<sound>")]
     [InlineData("unsupported-time-change.musicxml", "<time>")]
-    [InlineData("unsupported-repeat.musicxml", "<repeat>")]
     [InlineData("unsupported-direction-offset.musicxml", "<offset>")]
     [InlineData("unsupported-sound-navigation.musicxml", "<sound@dacapo>")]
     public void Read_UnsupportedScoreSemantics_ThrowsMessageNamingElement(string fixture, string expectedElement)
@@ -104,6 +105,51 @@ public sealed class MusicXmlScoreReaderTests
         Assert.Equal(new Pitch(NoteLetter.C, 2, 4), note.Pitch);
         Assert.Equal(new NoteValue(4, 1), note.NoteValue);
         Assert.Equal(new NoteValue(4, 1), Assert.Single(measure.Rests).NoteValue);
+    }
+
+    [Fact]
+    public void Read_CompressedMusicXml_LoadsDeclaredScoreAndPreservesPrimaryBeams()
+    {
+        const string containerXml = """
+            <container>
+              <rootfiles>
+                <rootfile full-path="scores/humpty.xml" media-type="application/vnd.recordare.musicxml+xml" />
+              </rootfiles>
+            </container>
+            """;
+        const string scoreXml = """
+            <score-partwise>
+              <part-list><score-part id="P1"><part-name /></score-part></part-list>
+              <part id="P1">
+                <measure number="1">
+                  <attributes>
+                    <divisions>2</divisions>
+                    <key><fifths>2</fifths><mode>major</mode></key>
+                    <time><beats>6</beats><beat-type>8</beat-type></time>
+                  </attributes>
+                  <barline location="left"><bar-style>heavy-light</bar-style><repeat direction="forward" /></barline>
+                  <note>
+                    <pitch><step>D</step><octave>4</octave></pitch>
+                    <duration>1</duration><voice>1</voice><type>eighth</type><beam number="1">begin</beam>
+                  </note>
+                </measure>
+              </part>
+            </score-partwise>
+            """;
+        using var stream = new MemoryStream();
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            WriteEntry(archive, "META-INF/container.xml", containerXml);
+            WriteEntry(archive, "scores/humpty.xml", scoreXml);
+        }
+
+        stream.Position = 0;
+        var score = new MusicXmlScoreReader().Read(stream, "Humpty-Dumpty.mxl");
+
+        Assert.Equal("Humpty-Dumpty", score.Title);
+        Assert.Equal(2, score.KeyFifths);
+        Assert.Equal(new TimeSignature(6, new NoteValue(8)), score.TimeSignature);
+        Assert.Equal(BeamState.Begin, Assert.Single(Assert.Single(score.Measures).Notes).BeamState);
     }
 
     [Fact]
@@ -145,5 +191,12 @@ public sealed class MusicXmlScoreReaderTests
         Assert.Equal(3, tiedD.OnsetBeats);
         Assert.Equal(2, tiedD.DurationBeats);
         Assert.Equal(2, events.Count(scoreEvent => scoreEvent.OnsetBeats == 0 && scoreEvent.Staff == Staff.Treble));
+    }
+
+    private static void WriteEntry(ZipArchive archive, string name, string contents)
+    {
+        var entry = archive.CreateEntry(name);
+        using var writer = new StreamWriter(entry.Open(), Encoding.UTF8);
+        writer.Write(contents);
     }
 }

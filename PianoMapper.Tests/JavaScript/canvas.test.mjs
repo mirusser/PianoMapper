@@ -10,6 +10,7 @@ import {
 class FakeCanvasContext {
     strokeCalls = 0;
     drawImageCalls = 0;
+    ellipseCalls = [];
 
     setTransform() { }
     clearRect() { }
@@ -25,6 +26,13 @@ class FakeCanvasContext {
     lineTo() { }
     rect() { }
     clip() { }
+    arc() { }
+    quadraticCurveTo() { }
+    fill() { }
+
+    ellipse(...args) {
+        this.ellipseCalls.push(args);
+    }
 
     stroke() {
         this.strokeCalls++;
@@ -122,6 +130,110 @@ test("grand staff drawing caches its static layer until the scene or size change
         });
 
         assert.equal(scoreLayer.context.strokeCalls, scoreLayerStrokesAfterSceneRender + 3);
+    } finally {
+        dispose(canvas);
+        globalThis.window = originalWindow;
+        globalThis.document = originalDocument;
+        globalThis.ResizeObserver = originalResizeObserver;
+        globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+        globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
+    }
+});
+
+test("grand staff draws score beams", () => {
+    const originalWindow = globalThis.window;
+    const originalDocument = globalThis.document;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+    const createdCanvases = [];
+
+    globalThis.window = { devicePixelRatio: 1 };
+    globalThis.document = {
+        createElement() {
+            const createdCanvas = new FakeCanvas();
+            createdCanvases.push(createdCanvas);
+            return createdCanvas;
+        },
+    };
+    globalThis.ResizeObserver = class {
+        observe() { }
+        disconnect() { }
+    };
+    globalThis.requestAnimationFrame = () => 1;
+    globalThis.cancelAnimationFrame = () => { };
+
+    const canvas = new FakeCanvas();
+    try {
+        initialize(canvas, new FakeCanvas(), new FakeCanvas(), { spectrumVisibleBinCount: 32 });
+        render(canvas, {
+            kind: 0,
+            lines: [],
+            glyphs: [],
+            notes: [],
+            beams: [{ x0: -0.5, y0: 0.2, x1: 0.5, y1: 0.3, count: 1, stemDirection: 0 }],
+            shouldClipNotesAtClefs: false,
+        });
+
+        assert.equal(createdCanvases[0].context.strokeCalls, 1);
+    } finally {
+        dispose(canvas);
+        globalThis.window = originalWindow;
+        globalThis.document = originalDocument;
+        globalThis.ResizeObserver = originalResizeObserver;
+        globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+        globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
+    }
+});
+
+test("grand staff draws compact angled noteheads", () => {
+    const originalWindow = globalThis.window;
+    const originalDocument = globalThis.document;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+    const createdCanvases = [];
+
+    globalThis.window = { devicePixelRatio: 1 };
+    globalThis.document = {
+        createElement() {
+            const createdCanvas = new FakeCanvas();
+            createdCanvases.push(createdCanvas);
+            return createdCanvas;
+        },
+    };
+    globalThis.ResizeObserver = class {
+        observe() { }
+        disconnect() { }
+    };
+    globalThis.requestAnimationFrame = () => 1;
+    globalThis.cancelAnimationFrame = () => { };
+
+    const canvas = new FakeCanvas();
+    try {
+        initialize(canvas, new FakeCanvas(), new FakeCanvas(), { spectrumVisibleBinCount: 32 });
+        render(canvas, {
+            kind: 0,
+            lines: [],
+            glyphs: [],
+            notes: [{
+                x: 0,
+                y: 0,
+                isActive: false,
+                isFilled: true,
+                hasStem: false,
+                hasDot: false,
+                flagCount: 0,
+                label: "C4",
+            }],
+            beams: [],
+            shouldClipNotesAtClefs: false,
+        });
+
+        const ellipse = createdCanvases[0].context.ellipseCalls[0];
+        assert.equal(ellipse[2], 6.6);
+        assert.equal(ellipse[3], 4.4);
+        assert.equal(ellipse[4], -Math.PI / 8);
     } finally {
         dispose(canvas);
         globalThis.window = originalWindow;
