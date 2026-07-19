@@ -45,6 +45,11 @@ export function initialize(canvas, waveformCanvas, spectrumCanvas, analysisLayou
         waveformCanvas,
         spectrumCanvas,
         scene: { kind: 0, lines: [], glyphs: [], notes: [] },
+        scoreLayerCanvas: document.createElement("canvas"),
+        scoreLayerDirty: true,
+        scoreLayerWidth: undefined,
+        scoreLayerHeight: undefined,
+        scoreLayerPixelRatio: undefined,
         scoreCursor: undefined,
         animationFrame: undefined,
         lastAudioActiveTimeMilliseconds: undefined,
@@ -68,6 +73,7 @@ export function render(canvas, scene) {
     }
 
     state.scene = scene;
+    state.scoreLayerDirty = true;
     draw(state);
 }
 
@@ -114,73 +120,100 @@ function draw(state) {
         return;
     }
 
-    const { context, width, height } = surface;
+    const { context, width, height, pixelRatio } = surface;
 
     if (scene.kind === 1) {
         drawPianoRoll(context, scene, width, height);
     } else {
-        for (const line of scene.lines) {
-            if (scene.shouldClipNotesAtClefs && line.kind === ledgerLineKind) {
-                continue;
-            }
-
-            drawLine(context, line, width, height);
-        }
-
+        const scoreLayer = prepareScoreLayer(state, width, height, pixelRatio);
+        context.drawImage(scoreLayer, 0, 0, width, height);
         drawScoreCursor(context, state, width, height);
-
-        let clefRight;
-        for (const glyph of scene.glyphs) {
-            if (glyph.kind !== 0) {
-                continue;
-            }
-
-            const glyphRight = drawGlyph(context, glyph, width, height);
-            if (Number.isFinite(glyphRight)) {
-                clefRight = Math.max(clefRight ?? glyphRight, glyphRight);
-            }
-        }
-
-        const shouldClipNoteElements = scene.shouldClipNotesAtClefs && Number.isFinite(clefRight);
-        if (shouldClipNoteElements) {
-            const clefGap = 8;
-            const noteAreaX0 = clefRight + clefGap;
-            context.save();
-            context.beginPath();
-            context.rect(noteAreaX0, 0, Math.max(0, width - noteAreaX0), height);
-            context.clip();
-        }
-
-        if (scene.shouldClipNotesAtClefs) {
-            for (const line of scene.lines) {
-                if (line.kind === ledgerLineKind) {
-                    drawLine(context, line, width, height);
-                }
-            }
-        }
-
-        for (const glyph of scene.glyphs) {
-            if (glyph.kind !== 0) {
-                drawGlyph(context, glyph, width, height);
-            }
-        }
-
-        const staffLines = scene.lines.filter(line => line.kind === staffLineKind);
-        const staffSpace = staffLines.length >= 2
-            ? mapHeight(Math.abs(staffLines[1].y0 - staffLines[0].y0), height)
-            : defaultStaffSpace;
-        for (const note of scene.notes) {
-            drawNote(context, note, width, height, staffSpace);
-        }
-
-        if (shouldClipNoteElements) {
-            context.restore();
-        }
     }
 
     drawOscilloscope(state);
     drawSpectrum(state);
     ensureAnimation(state);
+}
+
+function prepareScoreLayer(state, width, height, pixelRatio) {
+    const layer = state.scoreLayerCanvas;
+    if (!state.scoreLayerDirty
+        && state.scoreLayerWidth === width
+        && state.scoreLayerHeight === height
+        && state.scoreLayerPixelRatio === pixelRatio) {
+        return layer;
+    }
+
+    layer.width = Math.round(width * pixelRatio);
+    layer.height = Math.round(height * pixelRatio);
+    const context = layer.getContext("2d");
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    context.clearRect(0, 0, width, height);
+    drawGrandStaff(context, state.scene, width, height);
+
+    state.scoreLayerDirty = false;
+    state.scoreLayerWidth = width;
+    state.scoreLayerHeight = height;
+    state.scoreLayerPixelRatio = pixelRatio;
+    return layer;
+}
+
+function drawGrandStaff(context, scene, width, height) {
+    for (const line of scene.lines) {
+        if (scene.shouldClipNotesAtClefs && line.kind === ledgerLineKind) {
+            continue;
+        }
+
+        drawLine(context, line, width, height);
+    }
+
+    let clefRight;
+    for (const glyph of scene.glyphs) {
+        if (glyph.kind !== 0) {
+            continue;
+        }
+
+        const glyphRight = drawGlyph(context, glyph, width, height);
+        if (Number.isFinite(glyphRight)) {
+            clefRight = Math.max(clefRight ?? glyphRight, glyphRight);
+        }
+    }
+
+    const shouldClipNoteElements = scene.shouldClipNotesAtClefs && Number.isFinite(clefRight);
+    if (shouldClipNoteElements) {
+        const clefGap = 8;
+        const noteAreaX0 = clefRight + clefGap;
+        context.save();
+        context.beginPath();
+        context.rect(noteAreaX0, 0, Math.max(0, width - noteAreaX0), height);
+        context.clip();
+    }
+
+    if (scene.shouldClipNotesAtClefs) {
+        for (const line of scene.lines) {
+            if (line.kind === ledgerLineKind) {
+                drawLine(context, line, width, height);
+            }
+        }
+    }
+
+    for (const glyph of scene.glyphs) {
+        if (glyph.kind !== 0) {
+            drawGlyph(context, glyph, width, height);
+        }
+    }
+
+    const staffLines = scene.lines.filter(line => line.kind === staffLineKind);
+    const staffSpace = staffLines.length >= 2
+        ? mapHeight(Math.abs(staffLines[1].y0 - staffLines[0].y0), height)
+        : defaultStaffSpace;
+    for (const note of scene.notes) {
+        drawNote(context, note, width, height, staffSpace);
+    }
+
+    if (shouldClipNoteElements) {
+        context.restore();
+    }
 }
 
 function prepareCanvas(canvas) {
@@ -202,7 +235,7 @@ function prepareCanvas(canvas) {
     context.clearRect(0, 0, bounds.width, bounds.height);
     context.fillStyle = "#030712";
     context.fillRect(0, 0, bounds.width, bounds.height);
-    return { context, width: bounds.width, height: bounds.height };
+    return { context, width: bounds.width, height: bounds.height, pixelRatio };
 }
 
 function drawPlotFrame(context, x0, x1, y0, y1) {
