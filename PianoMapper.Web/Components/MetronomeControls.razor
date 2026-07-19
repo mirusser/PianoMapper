@@ -1,0 +1,76 @@
+<section class="control-card control-card-wide metronome-card" aria-labelledby="metronome-controls-heading">
+    <div class="control-card-heading">
+        <h2 id="metronome-controls-heading">Metronome</h2>
+    </div>
+    <div class="metronome-controls">
+        <button class="metronome-toggle"
+                type="button"
+                @onclick="Toggle"
+                disabled="@(!CanToggle)"
+                aria-pressed="@IsRunning">
+            @(IsRunning ? "Stop metronome" : "Start metronome")
+        </button>
+        @if (IsRunning)
+        {
+            <div class="tempo-feedback" aria-live="polite">
+                <span class="metronome-pulse" data-metronome-pulse aria-hidden="true"></span>
+                @if (Feedback.LastAlignment is { } alignment &&
+                    Feedback.MedianDeviation is { } medianDeviation)
+                {
+                    <span class="tempo-feedback-chip @GetVerdictCssClass(alignment.Verdict)">
+                        @FormatAlignment(alignment)
+                    </span>
+                    <span class="tempo-feedback-stats">
+                        @Feedback.OnTimeCount/@Feedback.TotalCount on time · median
+                        @FormatSignedMilliseconds(medianDeviation)
+                    </span>
+                }
+                else
+                {
+                    <span class="tempo-feedback-stats">Play a note to check your timing.</span>
+                }
+            </div>
+        }
+    </div>
+</section>
+
+@code {
+    private static string GetVerdictCssClass(Verdict verdict) => verdict switch
+    {
+        Verdict.Correct => "verdict-correct",
+        Verdict.Early => "verdict-early",
+        Verdict.Late => "verdict-late",
+        _ => string.Empty,
+    };
+
+    private static string FormatAlignment(BeatAlignment alignment) => alignment.Verdict switch
+    {
+        Verdict.Correct => "On time",
+        Verdict.Early => $"{FormatSignedMilliseconds(alignment.Deviation)} early",
+        Verdict.Late => $"{FormatSignedMilliseconds(alignment.Deviation)} late",
+        _ => string.Empty,
+    };
+
+    private static string FormatSignedMilliseconds(TimeSpan deviation)
+    {
+        long milliseconds = (long)Math.Round(deviation.TotalMilliseconds, MidpointRounding.AwayFromZero);
+        return milliseconds switch
+        {
+            > 0 => $"+{milliseconds} ms",
+            < 0 => $"−{Math.Abs(milliseconds)} ms",
+            _ => "0 ms",
+        };
+    }
+
+    [Parameter]
+    public bool IsRunning { get; set; }
+
+    [Parameter]
+    public bool CanToggle { get; set; }
+
+    [Parameter]
+    public TempoFeedbackTracker Feedback { get; set; } = null!;
+
+    [Parameter]
+    public EventCallback Toggle { get; set; }
+}

@@ -18,6 +18,7 @@ body {
 }
 
 main {
+    max-width: 100rem;
     margin: 0 auto;
     padding: clamp(1rem, 3vw, 2.5rem);
 }
@@ -86,9 +87,10 @@ p {
 
 .control-dashboard {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.85rem;
-    margin-bottom: 0.85rem;
+    grid-template-columns: minmax(18rem, 0.8fr) minmax(32rem, 1.2fr);
+    gap: 1rem;
+    align-items: stretch;
+    margin-bottom: 1rem;
 }
 
 .control-card,
@@ -161,14 +163,22 @@ p {
     align-items: center;
 }
 
-.sound-source-control {
+.audio-controls {
+    display: grid;
+    gap: 0.75rem;
+    align-items: start;
+}
+
+.audio-primary-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
     align-items: center;
-    min-height: 2.55rem;
-    color: #cbd5e1;
-    font-size: 0.78rem;
-    font-weight: 700;
+}
+
+.audio-secondary-actions {
+    padding-top: 0.75rem;
+    border-top: 1px solid #334155;
 }
 
 .sound-source-picker {
@@ -303,7 +313,7 @@ select {
 
 .timing-controls {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
     gap: 0.6rem;
 }
 
@@ -326,12 +336,34 @@ select {
     color: #fff;
 }
 
+.metronome-card {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.85rem 1rem;
+    align-items: center;
+}
+
+.metronome-card .control-card-heading {
+    margin-bottom: 0;
+}
+
+.metronome-controls {
+    display: flex;
+    flex: 1 1 28rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.metronome-toggle {
+    flex: 0 0 auto;
+}
+
 .tempo-feedback {
     display: flex;
     flex-wrap: wrap;
     gap: 0.55rem;
     align-items: center;
-    margin-top: 0.75rem;
 }
 
 .metronome-pulse {
@@ -377,7 +409,6 @@ select {
 }
 
 .score-card {
-    margin-bottom: 0.85rem;
     padding: 1rem;
 }
 
@@ -515,6 +546,24 @@ input[type="file"]::file-selector-button {
     gap: 0.85rem;
 }
 
+.analysis-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: center;
+}
+
+.analysis-controls > span {
+    margin-right: 0.25rem;
+    color: #93a4b8;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.analysis-grid-single {
+    grid-template-columns: minmax(0, 1fr);
+}
+
 .analysis-canvas {
     height: clamp(13rem, 24vw, 16rem);
 }
@@ -589,16 +638,14 @@ input[type="file"]::file-selector-button {
 
 .music-term-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
-    gap: 0.65rem;
+    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+    gap: 0 1.5rem;
     margin: 0.8rem 0 0;
 }
 
 .music-term-grid div {
-    padding: 0.7rem 0.75rem;
-    border: 1px solid rgb(71 85 105 / 70%);
-    border-radius: 0.55rem;
-    background: rgb(15 23 42 / 70%);
+    padding: 0.75rem 0;
+    border-top: 1px solid rgb(71 85 105 / 70%);
 }
 
 .music-term-grid dt {
@@ -611,8 +658,21 @@ input[type="file"]::file-selector-button {
     color: #9fb0c4;
 }
 
+.learning-links {
+    color: #93a4b8;
+}
+
+.learning-links a {
+    color: #93c5fd;
+    text-underline-offset: 0.18em;
+}
+
+.learning-links a:hover {
+    color: #dbeafe;
+}
+
 .practice-term-grid {
-    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
 }
 
 .practice-panel {
@@ -639,6 +699,16 @@ input[type="file"]::file-selector-button {
     background: #7f1d1d;
 }
 
+@media (max-width: 64rem) {
+    .control-dashboard {
+        grid-template-columns: 1fr;
+    }
+
+    .control-card-wide {
+        grid-column: auto;
+    }
+}
+
 @media (max-width: 48rem) {
     .page-header {
         display: block;
@@ -649,7 +719,6 @@ input[type="file"]::file-selector-button {
         margin-top: 1rem;
     }
 
-    .control-dashboard,
     .analysis-grid {
         grid-template-columns: 1fr;
     }

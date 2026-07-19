@@ -57,6 +57,8 @@ export function initialize(canvas, waveformCanvas, spectrumCanvas, analysisLayou
         timeDomainData: undefined,
         frequencyData: undefined,
         analysisLayout,
+        isWaveformVisible: false,
+        isFrequencySpectrumVisible: false,
     };
     state.resizeObserver = new ResizeObserver(() => draw(state));
     state.resizeObserver.observe(canvas);
@@ -66,13 +68,15 @@ export function initialize(canvas, waveformCanvas, spectrumCanvas, analysisLayou
     draw(state);
 }
 
-export function render(canvas, scene) {
+export function render(canvas, scene, isWaveformVisible, isFrequencySpectrumVisible) {
     const state = canvases.get(canvas);
     if (!state) {
         throw new Error("Canvas is not initialized.");
     }
 
     state.scene = scene;
+    state.isWaveformVisible = isWaveformVisible;
+    state.isFrequencySpectrumVisible = isFrequencySpectrumVisible;
     state.scoreLayerDirty = true;
     draw(state);
 }
@@ -130,8 +134,12 @@ function draw(state) {
         drawScoreCursor(context, state, width, height);
     }
 
-    drawOscilloscope(state);
-    drawSpectrum(state);
+    if (state.isWaveformVisible) {
+        drawOscilloscope(state);
+    }
+    if (state.isFrequencySpectrumVisible) {
+        drawSpectrum(state);
+    }
     ensureAnimation(state);
 }
 
@@ -288,17 +296,12 @@ function drawOscilloscope(state) {
     context.lineTo(x1, centerY);
     context.stroke();
 
-    const analyser = getAnalyserNode();
+    const analyser = prepareAnalyser(state);
     if (!analyser) {
         return;
     }
 
-    if (state.analyser !== analyser) {
-        state.analyser = analyser;
-        state.timeDomainData = new Uint8Array(analyser.fftSize);
-        state.frequencyData = new Uint8Array(analyser.frequencyBinCount);
-    }
-
+    state.timeDomainData ??= new Uint8Array(analyser.fftSize);
     analyser.getByteTimeDomainData(state.timeDomainData);
     context.strokeStyle = "#38bdf8";
     context.lineWidth = 2;
@@ -337,12 +340,14 @@ function drawSpectrum(state) {
     drawPlotText(context, "max", panelX0 - 14, panelY1, "center");
     drawPlotText(context, "0", panelX0 - 14, panelY0, "center");
 
-    if (!state.analyser || !state.frequencyData) {
+    const analyser = prepareAnalyser(state);
+    if (!analyser) {
         return;
     }
 
+    state.frequencyData ??= new Uint8Array(analyser.frequencyBinCount);
     if (isAudioActive()) {
-        state.analyser.getByteFrequencyData(state.frequencyData);
+        analyser.getByteFrequencyData(state.frequencyData);
     } else {
         state.frequencyData.fill(0);
     }
@@ -370,6 +375,21 @@ function drawSpectrum(state) {
     }
 }
 
+function prepareAnalyser(state) {
+    const analyser = getAnalyserNode();
+    if (!analyser) {
+        return undefined;
+    }
+
+    if (state.analyser !== analyser) {
+        state.analyser = analyser;
+        state.timeDomainData = undefined;
+        state.frequencyData = undefined;
+    }
+
+    return analyser;
+}
+
 function ensureAnimation(state) {
     const audioActive = isAudioActive();
     const now = performance.now();
@@ -377,9 +397,11 @@ function ensureAnimation(state) {
         state.lastAudioActiveTimeMilliseconds = now;
     }
 
-    const shouldAnimate = audioActive
-        || (state.lastAudioActiveTimeMilliseconds !== undefined
-            && now - state.lastAudioActiveTimeMilliseconds < spectrumReleaseClearMilliseconds);
+    const isAnalysisVisible = state.isWaveformVisible || state.isFrequencySpectrumVisible;
+    const shouldAnimate = isAnalysisVisible
+        && (audioActive
+            || (state.lastAudioActiveTimeMilliseconds !== undefined
+                && now - state.lastAudioActiveTimeMilliseconds < spectrumReleaseClearMilliseconds));
 
     if (!shouldAnimate || state.animationFrame !== undefined) {
         return;

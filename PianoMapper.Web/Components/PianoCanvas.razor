@@ -20,8 +20,26 @@
         </canvas>
     </section>
 
-    <div class="analysis-grid">
-        <figure class="analysis-panel">
+    <div class="analysis-controls" role="group" aria-label="Audio visualizers">
+        <span>Audio visualizers</span>
+        <button class="button-quiet"
+                type="button"
+                aria-controls="waveform-analysis-panel"
+                aria-pressed="@(isWaveformVisible ? "true" : "false")"
+                @onclick="ToggleWaveform">
+            @(isWaveformVisible ? "Hide waveform" : "Show waveform")
+        </button>
+        <button class="button-quiet"
+                type="button"
+                aria-controls="spectrum-analysis-panel"
+                aria-pressed="@(isFrequencySpectrumVisible ? "true" : "false")"
+                @onclick="ToggleFrequencySpectrum">
+            @(isFrequencySpectrumVisible ? "Hide frequency spectrum" : "Show frequency spectrum")
+        </button>
+    </div>
+
+    <div class="analysis-grid @(isWaveformVisible != isFrequencySpectrumVisible ? "analysis-grid-single" : null)">
+        <figure id="waveform-analysis-panel" class="analysis-panel" hidden="@(!isWaveformVisible)">
             <div class="visualization-panel-header">
                 <div>
                     <p class="panel-kicker">Sound shape</p>
@@ -30,8 +48,8 @@
                 <span class="legend-line legend-line-waveform">Signal</span>
             </div>
             <p class="panel-description">
-                A tiny slice of the audio signal. Taller movement away from the center means a stronger vibration;
-                it does not directly mean a higher note.
+                Time runs left to right across the latest audio window. Distance from the center line shows signal
+                amplitude, not pitch.
             </p>
             <canvas @ref="waveformCanvas"
                     class="analysis-canvas"
@@ -46,7 +64,7 @@
             </div>
         </figure>
 
-        <figure class="analysis-panel">
+        <figure id="spectrum-analysis-panel" class="analysis-panel" hidden="@(!isFrequencySpectrumVisible)">
             <div class="visualization-panel-header">
                 <div>
                     <p class="panel-kicker">Sound ingredients</p>
@@ -55,8 +73,8 @@
                 <span class="legend-line legend-line-spectrum">Relative strength</span>
             </div>
             <p class="panel-description">
-                Each bar is a frequency present in the sound. Higher bars are stronger right now; groups of bars
-                help give a piano note its character.
+                Bars run from lower to higher frequencies. The fundamental sets the note's pitch; the pattern of
+                higher overtones shapes its piano-like tone.
             </p>
             <canvas @ref="spectrumCanvas"
                     class="analysis-canvas"
@@ -73,72 +91,73 @@
     </div>
 
     <details class="learning-disclosure visualization-help">
-        <summary>Learn the notation and sound views</summary>
+        <summary>Read the notation and sound views</summary>
         <p>
-            The staff shows which notes you played and when. The waveform shows the signal moving through time,
-            while the spectrum separates that same sound into low-to-high frequency ingredients. You do not need
-            to read either analysis panel to play; they are there to connect what you hear with what sound looks like.
+            Use the grand staff to read written pitch and duration. Switch to the piano roll to compare pitch and
+            time directly. The waveform and spectrum show two views of the audio behind the note.
         </p>
         <dl class="music-term-grid">
             <div>
                 <dt>Grand staff</dt>
                 <dd>
-                    A grand staff pairs two five-line staves: treble for the higher range and bass for the lower range.
-                    You read a note's pitch from its vertical position.
+                    The treble and bass staves meet around middle C. Notes rise through their lines and spaces as pitch
+                    rises.
                 </dd>
             </div>
             <div>
                 <dt>Clef</dt>
                 <dd>
-                    Musicians use the symbol at the start of a staff to name its lines and spaces. This view uses a
-                    treble clef above and a bass clef below.
+                    A clef assigns note names to staff positions. The treble clef curls around G on the second line;
+                    the bass-clef dots surround F on the fourth line.
                 </dd>
             </div>
             <div>
                 <dt>Ledger line</dt>
-                <dd>A short extra line for a note that sits above or below the staff's usual five lines.</dd>
-            </div>
-            <div>
-                <dt>Note symbol</dt>
                 <dd>
-                    Its height shows pitch. You see a horizontal trail grow while you hold a live note. After you
-                    release it, you see the nearest whole, half, quarter, eighth, or sixteenth symbol.
+                    A short line extends the staff for a note outside its five lines. Count ledger lines and spaces the
+                    same way you count positions inside the staff.
                 </dd>
             </div>
             <div>
-                <dt>Pitch name, such as C#4</dt>
+                <dt>Live and written notes</dt>
                 <dd>
-                    The letter names the note, # raises it by one piano key, and the number identifies its octave.
-                    A flat (♭) lowers a note by one piano key.
+                    Vertical position gives the pitch. While you hold a key, a trail grows to show elapsed time. On
+                    release, PianoMapper chooses the nearest whole, half, quarter, eighth, or sixteenth-note symbol.
+                </dd>
+            </div>
+            <div>
+                <dt>Pitch name, such as C♯4</dt>
+                <dd>
+                    C♯4 means C sharp in octave 4. A sharp raises a pitch by one piano key, a flat lowers it by one,
+                    and the octave number changes when the letter name reaches C.
                 </dd>
             </div>
             <div>
                 <dt>Barline and measure</dt>
-                <dd>A barline is a vertical divider; the music between two barlines is one measure (or bar).</dd>
+                <dd>
+                    Vertical barlines divide the score into measures. Each measure contains the number of beats set by
+                    the time signature's top number.
+                </dd>
             </div>
             <div>
                 <dt>Playback cursor</dt>
-                <dd>The moving vertical line that shows the current beat while a score or practice run plays.</dd>
+                <dd>The vertical cursor crosses each beat at its scheduled time during score playback or practice.</dd>
             </div>
             <div>
                 <dt>Piano roll</dt>
                 <dd>
-                    A piano roll uses bars for notes: time moves left to right, pitch moves low to high, and bar width
-                    shows duration.
-                </dd>
-            </div>
-            <div>
-                <dt>Waveform</dt>
-                <dd>The audio signal's shape through a tiny slice of time. Taller movement means a stronger signal.</dd>
-            </div>
-            <div>
-                <dt>Frequency spectrum</dt>
-                <dd>
-                    The panel arranges the sound's frequencies from low to high pitch. Their mixture helps give a piano
-                    note its tone character.
+                    Each bar maps one note across two axes: left to right shows time, low to high shows pitch, and bar
+                    length shows how long the note sounded.
                 </dd>
             </div>
         </dl>
+        <p class="learning-links">
+            For illustrated notation lessons, see
+            <a href="https://www.musictheory.net/lessons/10" target="_blank" rel="noopener noreferrer">The Staff, Clefs, and Ledger Lines</a>
+            and
+            <a href="https://www.musictheory.net/lessons/11" target="_blank" rel="noopener noreferrer">Note Duration</a>
+            on MusicTheory.net.
+        </p>
     </details>
 </div>
 
@@ -149,6 +168,8 @@
     private ElementReference waveformCanvas;
     private ElementReference spectrumCanvas;
     private IJSObjectReference? module;
+    private bool isWaveformVisible;
+    private bool isFrequencySpectrumVisible;
 
     [Parameter, EditorRequired]
     public IPianoCanvasScene Scene { get; set; } = new GrandStaffScene([], [], []);
@@ -214,8 +235,17 @@
             }
         }
 
-        await module!.InvokeVoidAsync("render", canvas, Scene);
+        await module!.InvokeVoidAsync(
+            "render",
+            canvas,
+            Scene,
+            isWaveformVisible,
+            isFrequencySpectrumVisible);
     }
+
+    private void ToggleWaveform() => isWaveformVisible = !isWaveformVisible;
+
+    private void ToggleFrequencySpectrum() => isFrequencySpectrumVisible = !isFrequencySpectrumVisible;
 
     public async ValueTask DisposeAsync()
     {

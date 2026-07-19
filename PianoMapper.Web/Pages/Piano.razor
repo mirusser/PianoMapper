@@ -21,14 +21,12 @@
             <section class="control-card" aria-labelledby="audio-controls-heading">
                 <div class="control-card-heading">
                     <h2 id="audio-controls-heading">Audio</h2>
-                    <span>Start here</span>
                 </div>
-                <div class="controls">
-                    <button class="button-primary" type="button" @onclick="EnableAudioAsync" disabled="@AudioSession.IsInitialized">
-                        Enable audio
-                    </button>
-                    <div class="sound-source-control">
-                        <span>Sound</span>
+                <div class="audio-controls">
+                    <div class="audio-primary-actions">
+                        <button class="button-primary" type="button" @onclick="EnableAudioAsync" disabled="@AudioSession.IsInitialized">
+                            Enable audio
+                        </button>
                         <div class="sound-source-picker" role="group" aria-label="Sound source">
                             <button class="@GetSoundSourceClass(BrowserSoundSource.Synth)"
                                     type="button"
@@ -46,13 +44,15 @@
                             </button>
                         </div>
                     </div>
-                    <button type="button" @onclick="PlayTestNoteAsync" disabled="@(!AudioSession.IsInitialized || testNoteIsActive)">
-                        Play test note
-                    </button>
-                    <button type="button" @onclick="StopTestNoteAsync" disabled="@(!testNoteIsActive)">Stop test note</button>
-                    <button class="button-quiet" type="button" @onclick="ShowTimingAsync" disabled="@(!AudioSession.IsInitialized)">
-                        Input timing
-                    </button>
+                    <div class="controls audio-secondary-actions">
+                        <button type="button" @onclick="PlayTestNoteAsync" disabled="@(!AudioSession.IsInitialized || testNoteIsActive)">
+                            Play test note
+                        </button>
+                        <button type="button" @onclick="StopTestNoteAsync" disabled="@(!testNoteIsActive)">Stop test note</button>
+                        <button class="button-quiet" type="button" @onclick="ShowTimingAsync" disabled="@(!AudioSession.IsInitialized)">
+                            Show input latency
+                        </button>
+                    </div>
                 </div>
             </section>
 
@@ -100,76 +100,101 @@
                             <option value="@RelaxedToleranceMilliseconds">Relaxed (100 ms)</option>
                         </select>
                     </label>
-                    <button type="button"
-                            @onclick="ToggleMetronomeAsync"
-                            disabled="@(!AudioSession.IsInitialized)"
-                            aria-pressed="@Metronome.IsRunning">
-                        @(Metronome.IsRunning ? "Stop metronome" : "Start metronome")
-                    </button>
                 </div>
-                @if (Metronome.IsRunning)
-                {
-                    <div class="tempo-feedback" aria-live="polite">
-                        <span class="metronome-pulse" data-metronome-pulse aria-hidden="true"></span>
-                        @if (tempoFeedbackTracker.LastAlignment is { } alignment &&
-                            tempoFeedbackTracker.MedianDeviation is { } medianDeviation)
-                        {
-                            <span class="tempo-feedback-chip @GetVerdictCssClass(alignment.Verdict)">
-                                @FormatAlignment(alignment)
-                            </span>
-                            <span class="tempo-feedback-stats">
-                                @tempoFeedbackTracker.OnTimeCount/@tempoFeedbackTracker.TotalCount on time · median
-                                @FormatSignedMilliseconds(medianDeviation)
-                            </span>
-                        }
-                        else
-                        {
-                            <span class="tempo-feedback-stats">Play a note to check your timing.</span>
-                        }
-                    </div>
-                }
                 <p class="control-note">
-                    Meter groups beats; tempo controls their speed. A change stops scheduled playback so the next
-                    start can use the new timing. Note pitch and sound character stay the same.
+                    Timing changes stop score or practice playback. A running metronome restarts on the new beat grid.
                 </p>
                 <details class="learning-disclosure">
-                    <summary>Learn the timing terms</summary>
+                    <summary>Understand the timing controls</summary>
                     <dl class="music-term-grid">
                         <div>
                             <dt>Beat</dt>
-                            <dd>The steady pulse you can count along with: “one, two, three, four.”</dd>
-                        </div>
-                        <div>
-                            <dt>Measure (or bar)</dt>
-                            <dd>A repeating group of beats. Barlines separate one measure from the next.</dd>
-                        </div>
-                        <div>
-                            <dt>Meter / time signature</dt>
                             <dd>
-                                The top number says how many beats are in each measure; the bottom number says which
-                                note value counts as one beat. For example, 4/4 has four quarter-note beats.
+                                The pulse you tap or count. The “One beat is a” control chooses the note value assigned
+                                to each metronome click in PianoMapper.
                             </dd>
                         </div>
                         <div>
-                            <dt>Tempo / BPM</dt>
+                            <dt>Measure (or bar)</dt>
                             <dd>
-                                Tempo is the speed of the beat. BPM means beats per minute, so 120 BPM is two beats
-                                every second.
+                                One group of beats between two barlines. With three beats per measure, the count returns
+                                to beat one after every third beat.
+                            </dd>
+                        </div>
+                        <div>
+                            <dt>Time signature</dt>
+                            <dd>
+                                PianoMapper combines the first two controls as the written pair. 3/4 means three beats
+                                per measure and a quarter note receives one beat.
                             </dd>
                         </div>
                         <div>
                             <dt>Note value</dt>
                             <dd>
-                                Whole, half, quarter, eighth, and sixteenth notes describe rhythmic length. Each step
-                                in that list is half as long as the one before it.
+                                Whole, half, quarter, eighth, and sixteenth notes describe relative duration. A half
+                                note lasts twice as long as a quarter note; an eighth lasts half as long.
                             </dd>
                         </div>
                         <div>
-                            <dt>Metronome</dt>
-                            <dd>A metronome clicks on each beat to help you feel and keep the tempo.</dd>
+                            <dt>Tempo (BPM)</dt>
+                            <dd>
+                                Beats per minute converts the selected beat into clock time. At 120 BPM, each beat lasts
+                                half a second.
+                            </dd>
+                        </div>
+                        <div>
+                            <dt>On-time tolerance</dt>
+                            <dd>
+                                With Normal selected, PianoMapper marks onsets within 60 ms of their expected time as on
+                                time. Larger deviations are early or late.
+                            </dd>
                         </div>
                     </dl>
+                    <p class="learning-links">
+                        For illustrated walkthroughs, see
+                        <a href="https://www.musictheory.net/lessons/11" target="_blank" rel="noopener noreferrer">Note Duration</a>
+                        and
+                        <a href="https://www.musictheory.net/lessons/12" target="_blank" rel="noopener noreferrer">Measures and Time Signature</a>
+                        on MusicTheory.net.
+                    </p>
                 </details>
+            </section>
+
+            <section class="score-card control-card-wide" aria-label="MusicXML score">
+                <ScoreFilePicker ScoreLoaded="HandleScoreLoadedAsync" />
+                @if (loadedScore is not null)
+                {
+                    <p class="score-title">@loadedScore.Title — @loadedScore.Measures.Count measure(s)</p>
+                    <div class="controls" aria-label="Score navigation">
+                        <button class="button-primary"
+                                type="button"
+                                @onclick="StartScorePlaybackAsync"
+                                disabled="@(!AudioSession.IsInitialized)">
+                            Play / restart <kbd>P</kbd>
+                        </button>
+                        <button type="button" @onclick="ShowPreviousMeasures" disabled="@(firstVisibleMeasure == 0)">
+                            Previous <kbd>[</kbd>
+                        </button>
+                        <span class="measure-window">
+                            Measures @(firstVisibleMeasure + 1)–@Math.Min(
+                                firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount,
+                                loadedScore.Measures.Count)
+                        </span>
+                        <button type="button"
+                                @onclick="ShowNextMeasures"
+                                disabled="@(firstVisibleMeasure >= loadedScore.Measures.Count - 1)">
+                            Next <kbd>]</kbd>
+                        </button>
+                    </div>
+                    <PracticePanel State="@practiceCoordinator.State"
+                                   Result="@practiceCoordinator.Result"
+                                   CountInTicksDue="@practiceCoordinator.CountInTicksDue"
+                                   TotalCountInTicks="@loadedScore.TimeSignature.Numerator"
+                                   CanStart="@AudioSession.IsInitialized"
+                                   IsActive="@practiceCoordinator.IsActive"
+                                   Start="StartPracticeAsync"
+                                   Abort="AbortPracticeFromControlAsync" />
+                }
             </section>
 
             <section class="control-card control-card-wide" aria-labelledby="play-controls-heading">
@@ -224,42 +249,10 @@
             </section>
         </div>
 
-        <section class="score-card" aria-label="MusicXML score">
-            <ScoreFilePicker ScoreLoaded="HandleScoreLoadedAsync" />
-            @if (loadedScore is not null)
-            {
-                <p class="score-title">@loadedScore.Title — @loadedScore.Measures.Count measure(s)</p>
-                <div class="controls" aria-label="Score navigation">
-                    <button class="button-primary"
-                            type="button"
-                            @onclick="StartScorePlaybackAsync"
-                            disabled="@(!AudioSession.IsInitialized)">
-                        Play / restart <kbd>P</kbd>
-                    </button>
-                    <button type="button" @onclick="ShowPreviousMeasures" disabled="@(firstVisibleMeasure == 0)">
-                        Previous <kbd>[</kbd>
-                    </button>
-                    <span class="measure-window">
-                        Measures @(firstVisibleMeasure + 1)–@Math.Min(
-                            firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount,
-                            loadedScore.Measures.Count)
-                    </span>
-                    <button type="button"
-                            @onclick="ShowNextMeasures"
-                            disabled="@(firstVisibleMeasure >= loadedScore.Measures.Count - 1)">
-                        Next <kbd>]</kbd>
-                    </button>
-                </div>
-                <PracticePanel State="@practiceCoordinator.State"
-                               Result="@practiceCoordinator.Result"
-                               CountInTicksDue="@practiceCoordinator.CountInTicksDue"
-                               TotalCountInTicks="@loadedScore.TimeSignature.Numerator"
-                               CanStart="@AudioSession.IsInitialized"
-                               IsActive="@practiceCoordinator.IsActive"
-                               Start="StartPracticeAsync"
-                               Abort="AbortPracticeFromControlAsync" />
-            }
-        </section>
+        <MetronomeControls IsRunning="@Metronome.IsRunning"
+                            CanToggle="@AudioSession.IsInitialized"
+                            Feedback="@tempoFeedbackTracker"
+                            Toggle="ToggleMetronomeAsync" />
 
         <div class="session-summary" aria-label="Current piano settings">
             <span>Meter <strong>@displayTimeSignature.Numerator/@displayTimeSignature.BeatNoteValue.Denominator</strong></span>
@@ -732,33 +725,6 @@
             CultureInfo.InvariantCulture,
             out int value);
         return Math.Clamp(parsed ? value : fallback, minimum, maximum);
-    }
-
-    private static string GetVerdictCssClass(Verdict verdict) => verdict switch
-    {
-        Verdict.Correct => "verdict-correct",
-        Verdict.Early => "verdict-early",
-        Verdict.Late => "verdict-late",
-        _ => string.Empty,
-    };
-
-    private static string FormatAlignment(BeatAlignment alignment) => alignment.Verdict switch
-    {
-        Verdict.Correct => "On time",
-        Verdict.Early => $"{FormatSignedMilliseconds(alignment.Deviation)} early",
-        Verdict.Late => $"{FormatSignedMilliseconds(alignment.Deviation)} late",
-        _ => string.Empty,
-    };
-
-    private static string FormatSignedMilliseconds(TimeSpan deviation)
-    {
-        long milliseconds = (long)Math.Round(deviation.TotalMilliseconds, MidpointRounding.AwayFromZero);
-        return milliseconds switch
-        {
-            > 0 => $"+{milliseconds} ms",
-            < 0 => $"−{Math.Abs(milliseconds)} ms",
-            _ => "0 ms",
-        };
     }
 
     private async Task ToggleViewAsync()
