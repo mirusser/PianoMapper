@@ -1,4 +1,4 @@
-import { getAnalyserNode, isAudioActive } from "./audio.js";
+import { getAnalyserNode, getCurrentTime, isAudioActive } from "./audio.js";
 
 const canvases = new Map();
 const staffLineKind = 0;
@@ -6,6 +6,13 @@ const ledgerLineKind = 1;
 const barlineKind = 2;
 const cursorLineKind = 3;
 const beatLineKind = 4;
+// Mirrors PianoMapper.Core/Rendering/GrandStaffLayout.cs's ScoreX0/ScoreX1/VisibleMeasureCount
+// constants, so the score-playback cursor can be positioned here every animation frame from the
+// Web Audio clock, instead of C# rebuilding the whole grand-staff scene every tick just to move
+// the cursor line.
+const scoreCursorX0 = -0.78;
+const scoreCursorX1 = 0.96;
+const scoreCursorVisibleMeasureCount = 4;
 const defaultStaffSpace = 11;
 const noteHeadWidthInStaffSpaces = 1.4;
 const stemLengthInStaffSpaces = 3;
@@ -38,6 +45,7 @@ export function initialize(canvas, waveformCanvas, spectrumCanvas, analysisLayou
         waveformCanvas,
         spectrumCanvas,
         scene: { kind: 0, lines: [], glyphs: [], notes: [] },
+        scoreCursor: undefined,
         animationFrame: undefined,
         lastAudioActiveTimeMilliseconds: undefined,
         analyser: undefined,
@@ -61,6 +69,28 @@ export function render(canvas, scene) {
 
     state.scene = scene;
     draw(state);
+}
+
+// `cursor` is a ScoreCursorPlaybackState pushed from Piano.razor whenever score playback starts,
+// stops, completes, or the visible measure window changes. Its X position is then recomputed
+// from the Web Audio clock on every animation frame in drawScoreCursor(), fully independently of
+// any further C#/interop calls.
+export function startScoreCursor(canvas, cursor) {
+    const state = canvases.get(canvas);
+    if (!state) {
+        throw new Error("Canvas is not initialized.");
+    }
+
+    state.scoreCursor = cursor;
+}
+
+export function stopScoreCursor(canvas) {
+    const state = canvases.get(canvas);
+    if (!state) {
+        return;
+    }
+
+    state.scoreCursor = undefined;
 }
 
 export function dispose(canvas) {
@@ -96,6 +126,8 @@ function draw(state) {
 
             drawLine(context, line, width, height);
         }
+
+        drawScoreCursor(context, state, width, height);
 
         let clefRight;
         for (const glyph of scene.glyphs) {
@@ -341,6 +373,45 @@ function drawPianoRoll(context, scene, width, height) {
         context.font = "11px system-ui, sans-serif";
         context.fillText(bar.label, Math.max(x0, x1) + 4, (y0 + y1) / 2 + 4);
     }
+}
+
+function drawScoreCursor(context, state, width, height) {
+    const cursor = state.scoreCursor;
+    if (!cursor) {
+        return;
+    }
+
+    let currentTime;
+    try {
+        currentTime = getCurrentTime();
+    } catch {
+        // Audio isn't initialized (yet, or anymore). Nothing to animate from.
+        return;
+    }
+
+    if (currentTime > cursor.completionSeconds) {
+        return;
+    }
+
+    const beats = Math.max(0, (currentTime - cursor.anchorSeconds) / 60 * cursor.beatsPerMinute);
+    const x = mapAbsoluteBeatToScoreX(beats, cursor.beatsPerMeasure, cursor.firstVisibleMeasure);
+    if (x < scoreCursorX0 || x > scoreCursorX1) {
+        return;
+    }
+
+    drawLine(
+        context,
+        { x0: x, y0: cursor.cursorY0, x1: x, y1: cursor.cursorY1, kind: cursorLineKind },
+        width,
+        height);
+}
+
+// Mirrors GrandStaffLayout.MapAbsoluteBeatToScoreX / MapScoreOnsetToX.
+function mapAbsoluteBeatToScoreX(absoluteBeat, beatsPerMeasure, firstVisibleMeasure) {
+    const measureIndex = Math.floor(absoluteBeat / beatsPerMeasure);
+    const beatOffset = absoluteBeat - (measureIndex * beatsPerMeasure);
+    const relativeMeasure = measureIndex - firstVisibleMeasure + (beatOffset / beatsPerMeasure);
+    return scoreCursorX0 + (relativeMeasure / scoreCursorVisibleMeasureCount) * (scoreCursorX1 - scoreCursorX0);
 }
 
 function drawLine(context, line, width, height) {

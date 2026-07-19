@@ -35,6 +35,24 @@ internal static class GrandStaffSceneBuilder
         Score score,
         int firstVisibleMeasure,
         double? cursorBeats = null,
+        IReadOnlyDictionary<ScoreNote, Verdict>? verdicts = null) =>
+        ComposeScore(
+            BuildStaticScoreParts(score, firstVisibleMeasure, verdicts),
+            score,
+            firstVisibleMeasure,
+            cursorBeats);
+
+    /// <summary>
+    /// Builds everything about a score's grand-staff rendering that does NOT depend on the
+    /// playback cursor position: staff/barlines, ledger lines, clef and accidental glyphs, and
+    /// note markers (including verdict coloring). Callers that re-render every tick only because
+    /// the cursor moved (e.g. practice mode) can cache this result and skip straight to
+    /// <see cref="ComposeScore"/> when the score, visible measure window, and verdicts are
+    /// unchanged from the previous call — see <c>GrandStaffSceneCache</c>.
+    /// </summary>
+    internal static GrandStaffStaticScoreParts BuildStaticScoreParts(
+        Score score,
+        int firstVisibleMeasure,
         IReadOnlyDictionary<ScoreNote, Verdict>? verdicts = null)
     {
         int clampedMeasure = ClampFirstVisibleMeasure(score, firstVisibleMeasure);
@@ -42,27 +60,10 @@ internal static class GrandStaffSceneBuilder
         var glyphs = CreateClefGlyphs();
         var renderedNotes = new List<GrandStaffNote>();
 
-        double barlineY0 = SeparateStaffY(GrandStaffLayout.BassLineYs[0], Staff.Bass);
-        double barlineY1 = SeparateStaffY(GrandStaffLayout.TrebleLineYs[^1], Staff.Treble);
+        var (barlineY0, barlineY1) = GetCursorLineYBounds();
         lines.AddRange(GrandStaffLayout.GetScoreBarlineXs(clampedMeasure, score.Measures.Count)
             .Where(x => x < GrandStaffLayout.ScoreX1)
             .Select(x => new GrandStaffLine(x, barlineY0, x, barlineY1, GrandStaffLineKind.Barline)));
-        if (cursorBeats.HasValue)
-        {
-            float cursorX = GrandStaffLayout.MapAbsoluteBeatToScoreX(
-                cursorBeats.Value,
-                score.TimeSignature,
-                clampedMeasure);
-            if (cursorX >= GrandStaffLayout.ScoreX0 && cursorX <= GrandStaffLayout.ScoreX1)
-            {
-                lines.Add(new GrandStaffLine(
-                    cursorX,
-                    barlineY0,
-                    cursorX,
-                    barlineY1,
-                    GrandStaffLineKind.Cursor));
-            }
-        }
 
         foreach (var note in score.Measures.SelectMany(measure => measure.Notes))
         {
@@ -105,8 +106,48 @@ internal static class GrandStaffSceneBuilder
             }
         }
 
-        return new GrandStaffScene(lines, glyphs, renderedNotes);
+        return new GrandStaffStaticScoreParts(lines, glyphs, renderedNotes);
     }
+
+    /// <summary>
+    /// Appends (or omits) the playback cursor line onto a previously built
+    /// <see cref="GrandStaffStaticScoreParts"/>, without touching the rest of the geometry.
+    /// </summary>
+    internal static GrandStaffScene ComposeScore(
+        GrandStaffStaticScoreParts staticParts,
+        Score score,
+        int firstVisibleMeasure,
+        double? cursorBeats)
+    {
+        if (!cursorBeats.HasValue)
+        {
+            return new GrandStaffScene(staticParts.Lines, staticParts.Glyphs, staticParts.Notes);
+        }
+
+        int clampedMeasure = ClampFirstVisibleMeasure(score, firstVisibleMeasure);
+        float cursorX = GrandStaffLayout.MapAbsoluteBeatToScoreX(
+            cursorBeats.Value,
+            score.TimeSignature,
+            clampedMeasure);
+        if (cursorX < GrandStaffLayout.ScoreX0 || cursorX > GrandStaffLayout.ScoreX1)
+        {
+            return new GrandStaffScene(staticParts.Lines, staticParts.Glyphs, staticParts.Notes);
+        }
+
+        var (cursorY0, cursorY1) = GetCursorLineYBounds();
+        var lines = new List<GrandStaffLine>(staticParts.Lines.Count + 1);
+        lines.AddRange(staticParts.Lines);
+        lines.Add(new GrandStaffLine(cursorX, cursorY0, cursorX, cursorY1, GrandStaffLineKind.Cursor));
+        return new GrandStaffScene(lines, staticParts.Glyphs, staticParts.Notes);
+    }
+
+    /// <summary>
+    /// The Y span (in scene coordinates) that barlines and the playback cursor line run through.
+    /// Also used by JS to draw the score-playback cursor on its own, off the C# tick loop.
+    /// </summary>
+    internal static (double Y0, double Y1) GetCursorLineYBounds() =>
+        (SeparateStaffY(GrandStaffLayout.BassLineYs[0], Staff.Bass),
+            SeparateStaffY(GrandStaffLayout.TrebleLineYs[^1], Staff.Treble));
 
     internal static GrandStaffScene Build(
         IReadOnlyList<PerformedNote> notes,
@@ -196,15 +237,27 @@ internal static class GrandStaffSceneBuilder
             : scene;
     }
 
-    private static List<GrandStaffLine> CreateStaffLines()
+    // These two templates depend on no per-call inputs at all (no score, no notes, no time) —
+    // they are the same on every single call, forever. Computing them once and handing out a
+    // shallow List copy (mutated further by callers via AddRange/Add) avoids repeating the same
+    // LINQ/allocation work on every 16ms tick of the practice and live-keyboard refresh loops.
+    // This is a memoized constant, not caller-visible mutable state: nothing ever assigns into
+    // it based on a per-call input, and nothing outside this class can observe or mutate it.
+    private static readonly IReadOnlyList<GrandStaffLine> baseStaffLines = BuildBaseStaffLines();
+    private static readonly IReadOnlyList<GrandStaffGlyph> baseClefGlyphs = BuildBaseClefGlyphs();
+
+    private static List<GrandStaffLine> CreateStaffLines() => new(baseStaffLines);
+
+    private static List<GrandStaffGlyph> CreateClefGlyphs() => new(baseClefGlyphs);
+
+    private static List<GrandStaffLine> BuildBaseStaffLines()
     {
         var lines = GrandStaffLayout.TrebleLineYs
             .Select(y => SeparateStaffY(y, Staff.Treble))
             .Concat(GrandStaffLayout.BassLineYs.Select(y => SeparateStaffY(y, Staff.Bass)))
             .Select(y => new GrandStaffLine(StaffX0, y, StaffX1, y, GrandStaffLineKind.Staff))
             .ToList();
-        double barlineY0 = SeparateStaffY(GrandStaffLayout.BassLineYs[0], Staff.Bass);
-        double barlineY1 = SeparateStaffY(GrandStaffLayout.TrebleLineYs[^1], Staff.Treble);
+        var (barlineY0, barlineY1) = GetCursorLineYBounds();
         lines.Add(new GrandStaffLine(StaffX0, barlineY0, StaffX0, barlineY1, GrandStaffLineKind.Barline));
         lines.Add(new GrandStaffLine(
             StaffX1 - EndingBarlineGap,
@@ -222,8 +275,7 @@ internal static class GrandStaffSceneBuilder
         TimeSignature timeSignature,
         Tempo tempo)
     {
-        double barlineY0 = SeparateStaffY(GrandStaffLayout.BassLineYs[0], Staff.Bass);
-        double barlineY1 = SeparateStaffY(GrandStaffLayout.TrebleLineYs[^1], Staff.Treble);
+        var (barlineY0, barlineY1) = GetCursorLineYBounds();
         foreach (var gridLine in GrandStaffLayout.GetLiveMeasureGridLines(currentTime, timeSignature, tempo))
         {
             if (gridLine.Kind == GridLineKind.Barline && gridLine.X >= GrandStaffLayout.ScoreX1)
@@ -243,7 +295,7 @@ internal static class GrandStaffSceneBuilder
         }
     }
 
-    private static List<GrandStaffGlyph> CreateClefGlyphs() =>
+    private static List<GrandStaffGlyph> BuildBaseClefGlyphs() =>
     [
         new(
             "𝄞",

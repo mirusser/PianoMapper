@@ -268,7 +268,8 @@
         </div>
         <PianoCanvas Scene="@canvasScene"
                      SelectedOctave="@keyboardState.CurrentOctave"
-                     IsScoreView="@(loadedScore is not null && !showPianoRoll)" />
+                     IsScoreView="@(loadedScore is not null && !showPianoRoll)"
+                     ScoreCursor="@scoreCursorState" />
     </section>
 </main>
 
@@ -285,14 +286,21 @@
     private static readonly TimeSpan BrowserSchedulingLead = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan CanvasRefreshInterval = TimeSpan.FromMilliseconds(16);
 
+    // How often RefreshScorePlaybackAsync polls purely to notice that playback has finished.
+    // The cursor itself no longer depends on this cadence at all — it is animated client-side
+    // (canvas.js) from the Web Audio clock, so this can be coarse.
+    private static readonly TimeSpan PlaybackCompletionPollInterval = TimeSpan.FromMilliseconds(250);
+
     private readonly NoteTimeline noteTimeline = new();
     private readonly TempoFeedbackTracker tempoFeedbackTracker = new();
     private readonly BrowserKeyboardState keyboardState;
+    private readonly GrandStaffSceneCache grandStaffSceneCache = new();
     private ElementReference playSurface;
     private AudioClockAnchor? audioClockAnchor;
     private IJSObjectReference? keyboardModule;
     private DotNetObjectReference<Piano>? keyboardReference;
     private IPianoCanvasScene canvasScene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero, selectedOctave: 4);
+    private ScoreCursorPlaybackState? scoreCursorState;
     private Score? importedScore;
     private Score? loadedScore;
     private int firstVisibleMeasure;
@@ -455,6 +463,9 @@
         await ScorePlaybackSession.StartAsync(loadedScore);
         displayTimeSignature = loadedScore.TimeSignature;
         displayTempo = loadedScore.Tempo;
+        // canvasScene already reflects the current static score view (built at load/measure-nav
+        // time); starting playback only needs to hand the cursor animation off to JS.
+        scoreCursorState = BuildScoreCursorState();
         playbackRefreshCancellation = new CancellationTokenSource();
         playbackRefreshTask = RefreshScorePlaybackAsync(playbackRefreshCancellation.Token);
         audioStatus = $"Playing {loadedScore.Title}.";
@@ -518,6 +529,7 @@
     private async Task StopScorePlaybackAsync()
     {
         await CancelPlaybackRefreshAsync();
+        scoreCursorState = null;
         if (AudioSession.IsInitialized)
         {
             await ScorePlaybackSession.StopAsync();
@@ -539,6 +551,7 @@
         firstVisibleMeasure = GrandStaffSceneBuilder.ClampFirstVisibleMeasure(
             loadedScore,
             firstVisibleMeasure - GrandStaffLayout.VisibleMeasureCount);
+        UpdateScoreCursorMeasureIfPlaying();
         if (!showPianoRoll)
         {
             RefreshCanvasScene(GetAnchorTime());
@@ -555,10 +568,44 @@
         firstVisibleMeasure = GrandStaffSceneBuilder.ClampFirstVisibleMeasure(
             loadedScore,
             firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount);
+        UpdateScoreCursorMeasureIfPlaying();
         if (!showPianoRoll)
         {
             RefreshCanvasScene(GetAnchorTime());
         }
+    }
+
+    // Measure navigation during active score playback needs the JS-side cursor to reposition
+    // against the new visible window on the next render, without restarting the audio-clock
+    // anchor it was given at StartScorePlaybackAsync.
+    private void UpdateScoreCursorMeasureIfPlaying()
+    {
+        if (ScorePlaybackSession.IsActive)
+        {
+            scoreCursorState = BuildScoreCursorState();
+        }
+    }
+
+    // The small set of numbers JS needs to animate the score-playback cursor itself, every
+    // animation frame, from audioContext.currentTime — see canvas.js's drawScoreCursor(). Null
+    // while nothing should be drawn (no active score playback, or the piano-roll view is showing,
+    // which never displayed a grand-staff cursor either).
+    private ScoreCursorPlaybackState? BuildScoreCursorState()
+    {
+        if (showPianoRoll || loadedScore is null || ScorePlaybackSession.GetCursorAnchor() is not { } anchor)
+        {
+            return null;
+        }
+
+        var (cursorY0, cursorY1) = GrandStaffSceneBuilder.GetCursorLineYBounds();
+        return new ScoreCursorPlaybackState(
+            anchor.AnchorSeconds,
+            anchor.BeatsPerMinute,
+            loadedScore.TimeSignature.Numerator,
+            firstVisibleMeasure,
+            anchor.CompletionSeconds,
+            cursorY0,
+            cursorY1);
     }
 
     private Task OctaveDownAsync() =>
@@ -880,18 +927,35 @@
             while (!cancellationToken.IsCancellationRequested && loadedScore is not null)
             {
                 TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync(cancellationToken);
-                double? cursorBeats = ScorePlaybackSession.GetCursorBeats(currentTime);
-                RefreshCanvasScene(currentTime, cursorBeats);
-                await InvokeAsync(StateHasChanged);
+
+                // The grand-staff cursor now animates entirely in JS (see BuildScoreCursorState
+                // and canvas.js's drawScoreCursor), so this loop no longer needs to rebuild and
+                // push a fresh GrandStaffScene every tick just to move it. The piano-roll view
+                // has no such client-side animation, so it still needs a per-tick rebuild while
+                // score playback is what's driving it forward.
+                if (showPianoRoll)
+                {
+                    RefreshCanvasScene(currentTime);
+                    await InvokeAsync(StateHasChanged);
+                }
+
+                // Discarded: called only for its side effect of flipping IsActive once
+                // currentTime reaches the schedule's completion time.
+                ScorePlaybackSession.GetCursorBeats(currentTime);
 
                 if (!ScorePlaybackSession.IsActive)
                 {
+                    scoreCursorState = null;
+                    RefreshCanvasScene(currentTime);
                     audioStatus = "Audio is ready.";
                     EnsureVisualizationRefresh();
+                    await InvokeAsync(StateHasChanged);
                     break;
                 }
 
-                await Task.Delay(CanvasRefreshInterval, cancellationToken);
+                await Task.Delay(
+                    showPianoRoll ? CanvasRefreshInterval : PlaybackCompletionPollInterval,
+                    cancellationToken);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1005,6 +1069,7 @@
     {
         showPianoRoll = !showPianoRoll;
         RefreshCanvasScene(currentTime);
+        UpdateScoreCursorMeasureIfPlaying();
         if (ShouldContinueVisualizationRefresh(
             showPianoRoll,
             loadedScore is not null,
@@ -1040,7 +1105,7 @@
                 displayTimeSignature,
                 displayTempo,
                 keyboardState.CurrentOctave)
-            : GrandStaffSceneBuilder.BuildScore(loadedScore, firstVisibleMeasure, cursorBeats, verdicts);
+            : grandStaffSceneCache.BuildScore(loadedScore, firstVisibleMeasure, cursorBeats, verdicts);
     }
 
     internal static bool ShouldContinueVisualizationRefresh(

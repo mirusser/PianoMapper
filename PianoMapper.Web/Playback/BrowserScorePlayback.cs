@@ -57,6 +57,16 @@ internal sealed class BrowserScorePlayback(IBrowserScoreAudio audio)
     internal IReadOnlyList<PerformedNote> GetStartedNotes(TimeSpan currentAudioTime) =>
         scheduledNotes.Where(note => note.StartTime <= currentAudioTime).ToArray();
 
+    /// <summary>
+    /// Exposes the audio-clock anchor, tempo, and completion time needed to animate the
+    /// playback cursor entirely client-side (JS), instead of recomputing its position in C#
+    /// on every tick.
+    /// </summary>
+    internal ScoreCursorAnchor? GetCursorAnchor() =>
+        anchor.HasValue && tempo.HasValue
+            ? new ScoreCursorAnchor(anchor.Value.TotalSeconds, tempo.Value.BeatsPerMinute, completionTime.TotalSeconds)
+            : null;
+
     internal async ValueTask StopAsync(CancellationToken cancellationToken = default)
     {
         await audio.StopScoreAsync(cancellationToken);

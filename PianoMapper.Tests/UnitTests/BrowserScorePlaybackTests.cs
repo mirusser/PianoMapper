@@ -37,6 +37,41 @@ public sealed class BrowserScorePlaybackTests
     }
 
     [Fact]
+    public async Task GetCursorAnchor_AfterStart_ReturnsAudioClockAnchorTempoAndCompletion()
+    {
+        var audio = new FakeScoreAudio(TimeSpan.FromSeconds(10));
+        var playback = new BrowserScorePlayback(audio);
+
+        await playback.StartAsync(CreateScore(beatOffset: 2));
+        var anchor = playback.GetCursorAnchor();
+
+        Assert.NotNull(anchor);
+        Assert.Equal(10.05, anchor.Value.AnchorSeconds, 6);
+        Assert.Equal(120, anchor.Value.BeatsPerMinute);
+        Assert.Equal(11.55, anchor.Value.CompletionSeconds, 6);
+    }
+
+    [Fact]
+    public void GetCursorAnchor_BeforeStart_ReturnsNull()
+    {
+        var playback = new BrowserScorePlayback(new FakeScoreAudio(TimeSpan.FromSeconds(10)));
+
+        Assert.Null(playback.GetCursorAnchor());
+    }
+
+    [Fact]
+    public async Task GetCursorAnchor_AfterStop_ReturnsNull()
+    {
+        var audio = new FakeScoreAudio(TimeSpan.FromSeconds(10));
+        var playback = new BrowserScorePlayback(audio);
+        await playback.StartAsync(CreateScore(beatOffset: 0));
+
+        await playback.StopAsync();
+
+        Assert.Null(playback.GetCursorAnchor());
+    }
+
+    [Fact]
     public async Task StartAndStopAsync_Restart_ReplacesScheduleAndClearsPlaybackState()
     {
         var audio = new FakeScoreAudio(TimeSpan.FromSeconds(10));

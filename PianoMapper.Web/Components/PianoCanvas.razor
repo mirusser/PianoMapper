@@ -159,6 +159,11 @@
     [Parameter]
     public bool IsScoreView { get; set; }
 
+    [Parameter]
+    public ScoreCursorPlaybackState? ScoreCursor { get; set; }
+
+    private ScoreCursorPlaybackState? lastPushedScoreCursor;
+
     private string SceneTitle => Scene.Kind == PianoCanvasSceneKind.PianoRoll
         ? "Piano roll"
         : "Grand staff";
@@ -192,6 +197,21 @@
                 waveformCanvas,
                 spectrumCanvas,
                 AnalysisLayout);
+        }
+
+        // Update the JS-side cursor state before render() so its draw() call already reflects
+        // the current cursor, instead of drawing one stale frame first.
+        if (ScoreCursor != lastPushedScoreCursor)
+        {
+            lastPushedScoreCursor = ScoreCursor;
+            if (ScoreCursor is null)
+            {
+                await module!.InvokeVoidAsync("stopScoreCursor", canvas);
+            }
+            else
+            {
+                await module!.InvokeVoidAsync("startScoreCursor", canvas, ScoreCursor);
+            }
         }
 
         await module!.InvokeVoidAsync("render", canvas, Scene);
