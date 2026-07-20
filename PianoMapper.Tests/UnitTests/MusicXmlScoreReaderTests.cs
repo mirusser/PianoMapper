@@ -108,7 +108,7 @@ public sealed class MusicXmlScoreReaderTests
     }
 
     [Fact]
-    public void Read_CompressedMusicXml_IgnoresStemAndPreservesPrimaryBeams()
+    public void Read_CompressedMusicXml_PreservesStemAndPrimaryBeams()
     {
         const string containerXml = """
             <container>
@@ -149,7 +149,112 @@ public sealed class MusicXmlScoreReaderTests
         Assert.Equal("Humpty-Dumpty", score.Title);
         Assert.Equal(2, score.KeyFifths);
         Assert.Equal(new TimeSignature(6, new NoteValue(8)), score.TimeSignature);
-        Assert.Equal(BeamState.Begin, Assert.Single(Assert.Single(score.Measures).Notes).BeamState);
+        var note = Assert.Single(Assert.Single(score.Measures).Notes);
+        Assert.Equal(BeamState.Begin, note.BeamState);
+        Assert.Equal(ScoreStemDirection.Up, note.StemDirection);
+    }
+
+    [Theory]
+    [InlineData("<stem>down</stem>", ScoreStemDirection.Down)]
+    [InlineData("", null)]
+    public void Read_StemDirectionDownOrMissing_PreservesValue(string stemXml, ScoreStemDirection? expectedDirection)
+    {
+        var score = ReadNotes($$"""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>{{stemXml}}
+            </note>
+            """);
+
+        var note = Assert.Single(Assert.Single(score.Measures).Notes);
+
+        Assert.Equal(expectedDirection, note.StemDirection);
+    }
+
+    [Theory]
+    [InlineData("none", false)]
+    [InlineData("double", false)]
+    [InlineData("none", true)]
+    [InlineData("double", true)]
+    public void Read_UnsupportedStemValue_ThrowsReadableError(string stemValue, bool isRest)
+    {
+        string noteKind = isRest
+            ? "<rest />"
+            : "<pitch><step>C</step><octave>4</octave></pitch>";
+        var exception = Assert.Throws<NotSupportedException>(() => ReadNotes($$"""
+            <note>
+              {{noteKind}}
+              <duration>1</duration><type>eighth</type><stem>{{stemValue}}</stem>
+            </note>
+            """));
+
+        Assert.Contains("<stem>", exception.Message);
+        Assert.Contains(stemValue, exception.Message);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Read_InvalidStemValue_ThrowsReadableError(bool isRest)
+    {
+        string noteKind = isRest
+            ? "<rest />"
+            : "<pitch><step>C</step><octave>4</octave></pitch>";
+        var exception = Assert.Throws<InvalidDataException>(() => ReadNotes($$"""
+            <note>
+              {{noteKind}}
+              <duration>1</duration><type>eighth</type><stem>sideways</stem>
+            </note>
+            """));
+
+        Assert.Contains("<stem>", exception.Message);
+        Assert.Contains("sideways", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("<stem>up</stem>", ScoreStemDirection.Up)]
+    [InlineData("", null)]
+    public void Read_BeamGroupWithCompatibleStemDirections_PreservesValues(
+        string endStemXml,
+        ScoreStemDirection? expectedEndDirection)
+    {
+        var score = ReadNotes($$"""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type><stem>up</stem><beam number="1">begin</beam>
+            </note>
+            <note>
+              <pitch><step>D</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>{{endStemXml}}<beam number="1">end</beam>
+            </note>
+            """);
+
+        var notes = Assert.Single(score.Measures).Notes;
+
+        Assert.Equal(2, notes.Count);
+        Assert.Equal(BeamState.Begin, notes[0].BeamState);
+        Assert.Equal(ScoreStemDirection.Up, notes[0].StemDirection);
+        Assert.Equal(BeamState.End, notes[1].BeamState);
+        Assert.Equal(expectedEndDirection, notes[1].StemDirection);
+    }
+
+    [Fact]
+    public void Read_BeamGroupWithConflictingStemDirections_ThrowsReadableError()
+    {
+        var exception = Assert.Throws<NotSupportedException>(() => ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type><stem>up</stem><beam number="1">begin</beam>
+            </note>
+            <note>
+              <pitch><step>D</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type><stem>down</stem><beam number="1">end</beam>
+            </note>
+            """));
+
+        Assert.Contains("<stem>", exception.Message);
+        Assert.Contains("up", exception.Message);
+        Assert.Contains("down", exception.Message);
     }
 
     [Fact]
@@ -198,5 +303,22 @@ public sealed class MusicXmlScoreReaderTests
         var entry = archive.CreateEntry(name);
         using var writer = new StreamWriter(entry.Open(), Encoding.UTF8);
         writer.Write(contents);
+    }
+
+    private static Score ReadNotes(string notesXml)
+    {
+        string scoreXml = $$"""
+            <score-partwise>
+              <part-list><score-part id="P1"><part-name /></score-part></part-list>
+              <part id="P1">
+                <measure number="1">
+                  <attributes><divisions>2</divisions></attributes>
+                  {{notesXml}}
+                </measure>
+              </part>
+            </score-partwise>
+            """;
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(scoreXml));
+        return new MusicXmlScoreReader().Read(stream, "test.musicxml");
     }
 }

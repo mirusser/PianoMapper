@@ -92,9 +92,84 @@ public sealed class GrandStaffSceneBuilderTests
 
         var beam = Assert.Single(scene.Beams);
         Assert.Equal(1, beam.Count);
+        Assert.Equal(StemDirection.Up, beam.StemDirection);
         Assert.True(beam.X1 > beam.X0);
         Assert.All(scene.Notes, note => Assert.Equal(0, note.FlagCount));
         Assert.All(scene.Notes, note => Assert.NotNull(note.StemEndY));
+        Assert.All(scene.Notes, note => Assert.Equal(StemDirection.Up, note.StemDirection));
+    }
+
+    [Fact]
+    public void BuildScore_BeamGroupWithExplicitDirection_UsesDirectionForBeamAndStems()
+    {
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.D, 0, 4), new NoteValue(8), 0, 0, Staff.Treble, BeamState: BeamState.Begin),
+            new(
+                new Pitch(NoteLetter.F, 0, 4),
+                new NoteValue(8),
+                0,
+                1,
+                Staff.Treble,
+                BeamState: BeamState.Continue,
+                StemDirection: ScoreStemDirection.Down),
+            new(new Pitch(NoteLetter.A, 0, 4), new NoteValue(8), 0, 2, Staff.Treble, BeamState: BeamState.End),
+        ];
+        var score = new Score(
+            "test",
+            new TimeSignature(6, new NoteValue(8)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure(notes, [])]);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        var beam = Assert.Single(scene.Beams);
+        Assert.Equal(StemDirection.Down, beam.StemDirection);
+        Assert.True(beam.Y0 < scene.Notes[0].Y);
+        Assert.True(beam.Y1 < scene.Notes[^1].Y);
+        Assert.All(scene.Notes, note =>
+        {
+            Assert.Equal(StemDirection.Down, note.StemDirection);
+            Assert.NotNull(note.StemEndY);
+            Assert.True(note.StemEndY.Value < note.Y);
+        });
+        Assert.All(scene.Notes, note => Assert.Equal(0, note.FlagCount));
+    }
+
+    [Fact]
+    public void BuildScore_BeamGroupWithConflictingDirections_UsesAutomaticDirection()
+    {
+        ScoreNote[] notes =
+        [
+            new(
+                new Pitch(NoteLetter.D, 0, 4),
+                new NoteValue(8),
+                0,
+                0,
+                Staff.Treble,
+                BeamState: BeamState.Begin,
+                StemDirection: ScoreStemDirection.Up),
+            new(
+                new Pitch(NoteLetter.F, 0, 4),
+                new NoteValue(8),
+                0,
+                1,
+                Staff.Treble,
+                BeamState: BeamState.End,
+                StemDirection: ScoreStemDirection.Down),
+        ];
+        var score = new Score(
+            "test",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure(notes, [])]);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        Assert.Equal(StemDirection.Up, Assert.Single(scene.Beams).StemDirection);
+        Assert.All(scene.Notes, note => Assert.Equal(StemDirection.Up, note.StemDirection));
     }
 
     [Fact]

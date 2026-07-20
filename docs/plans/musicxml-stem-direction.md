@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-19
 
-**Status:** Awaiting approval
+**Status:** Complete
 
 ## Goal
 
@@ -46,13 +46,13 @@ Replace the accept-and-discard handling of MusicXML `<stem>` with bounded, test-
 
 **Acceptance criteria:**
 
-- [ ] `ScoreStemDirection` contains only `Up` and `Down`.
-- [ ] `ScoreNote.StemDirection` is nullable and defaults to `null` as the final positional parameter.
-- [ ] Existing `ScoreNote` construction and `with` expressions compile unchanged and preserve the new value naturally.
+- [x] `ScoreStemDirection` contains only `Up` and `Down`.
+- [x] `ScoreNote.StemDirection` is nullable and defaults to `null` as the final positional parameter.
+- [x] Existing `ScoreNote` construction and `with` expressions compile unchanged and preserve the new value naturally.
 
 **Verification:**
 
-- [ ] Build succeeds: `rtk dotnet build PianoMapper.Core/PianoMapper.Core.csproj`
+- [x] Build succeeds: `rtk dotnet build PianoMapper.Core/PianoMapper.Core.csproj`
 
 **Dependencies:** None
 
@@ -69,13 +69,13 @@ Replace the accept-and-discard handling of MusicXML `<stem>` with bounded, test-
 
 **Acceptance criteria:**
 
-- [ ] The existing compressed MusicXML regression is renamed from “ignores stem” to “preserves stem” and asserts the imported `ScoreStemDirection.Up` value.
-- [ ] Tests cover `down`, missing `<stem>`, `none`, `double`, an invalid value, and a beam group containing conflicting explicit directions.
-- [ ] `stem` is removed from `IgnoredPresentationElements`; all failures include the element and offending value in a readable message.
+- [x] The existing compressed MusicXML regression is renamed from “ignores stem” to “preserves stem” and asserts the imported `ScoreStemDirection.Up` value.
+- [x] Tests cover `down`, missing `<stem>`, `none`, `double`, an invalid value, and a beam group containing conflicting explicit directions.
+- [x] `stem` is removed from `IgnoredPresentationElements`; all failures include the element and offending value in a readable message.
 
 **Verification:**
 
-- [ ] Focused tests pass: `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~MusicXmlScoreReaderTests"`
+- [x] Focused tests pass: `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~MusicXmlScoreReaderTests"`
 
 **Dependencies:** Task 1
 
@@ -88,10 +88,10 @@ Replace the accept-and-discard handling of MusicXML `<stem>` with bounded, test-
 
 ## Checkpoint: Imported Contract
 
-- [ ] The score model distinguishes explicit direction from automatic direction.
-- [ ] Supported values survive `.mxl` decompression and parsing.
-- [ ] Unsupported stem semantics fail during loading, before either renderer receives the score.
-- [ ] Core build and all MusicXML reader tests pass.
+- [x] The score model distinguishes explicit direction from automatic direction.
+- [x] Supported values survive `.mxl` decompression and parsing.
+- [x] Unsupported stem semantics fail during loading, before either renderer receives the score.
+- [x] Core build and all MusicXML reader tests pass.
 
 ## Phase 2: Shared and Beamed Rendering
 
@@ -101,13 +101,13 @@ Replace the accept-and-discard handling of MusicXML `<stem>` with bounded, test-
 
 **Acceptance criteria:**
 
-- [ ] An explicit `Up` overrides the automatic down direction for a note above the middle line.
-- [ ] An explicit `Down` overrides the automatic up direction for a note below the middle line.
-- [ ] Existing no-override tests continue to prove the current automatic heuristic.
+- [x] An explicit `Up` overrides the automatic down direction for a note above the middle line.
+- [x] An explicit `Down` overrides the automatic up direction for a note below the middle line.
+- [x] Existing no-override tests continue to prove the current automatic heuristic.
 
 **Verification:**
 
-- [ ] Focused tests pass: `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~GrandStaffLayoutTests"`
+- [x] Focused tests pass: `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~GrandStaffLayoutTests"`
 
 **Dependencies:** Tasks 1-2
 
@@ -124,13 +124,13 @@ Replace the accept-and-discard handling of MusicXML `<stem>` with bounded, test-
 
 **Acceptance criteria:**
 
-- [ ] A beam group forced opposite to its automatic direction uses the imported direction for the beam and every member stem.
-- [ ] A beam group without overrides retains the current average-position behavior and removes individual flags as before.
-- [ ] A programmatically constructed group with conflicting overrides renders deterministically via the automatic rule rather than throwing during rendering.
+- [x] A beam group forced opposite to its automatic direction uses the imported direction for the beam and every member stem.
+- [x] A beam group without overrides retains the current average-position behavior and removes individual flags as before.
+- [x] A programmatically constructed group with conflicting overrides renders deterministically via the automatic rule rather than throwing during rendering.
 
 **Verification:**
 
-- [ ] Focused tests pass: `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~GrandStaffSceneBuilderTests"`
+- [x] Focused tests pass: `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~GrandStaffSceneBuilderTests"`
 
 **Dependencies:** Task 3
 
@@ -143,10 +143,10 @@ Replace the accept-and-discard handling of MusicXML `<stem>` with bounded, test-
 
 ## Checkpoint: Rendering Behavior
 
-- [ ] Isolated notes honor imported direction in the shared layout used by desktop and web clients.
-- [ ] Web beams do not overwrite a consistent imported direction.
-- [ ] Scores without stem metadata render exactly as before.
-- [ ] MusicXML, layout, and scene-builder focused tests pass together.
+- [x] Isolated notes honor imported direction in the shared layout used by desktop and web clients.
+- [x] Web beams do not overwrite a consistent imported direction.
+- [x] Scores without stem metadata render exactly as before.
+- [x] MusicXML, layout, and scene-builder focused tests pass together.
 
 ## Phase 3: Contract Documentation and End-to-End Verification
 
@@ -156,16 +156,16 @@ Replace the accept-and-discard handling of MusicXML `<stem>` with bounded, test-
 
 **Acceptance criteria:**
 
-- [ ] `CONTEXT.md` describes optional score stem direction and distinguishes it from computed rendering geometry.
-- [ ] `README.md` states that `up`/`down` stem direction is preserved and that `none`/`double` remain outside the supported MusicXML subset.
-- [ ] Loading local `Hot-Cross-Buns.mxl` reports four measures without an import error; the archive remains untracked unless separately requested.
+- [x] `CONTEXT.md` describes optional score stem direction and distinguishes it from computed rendering geometry.
+- [x] `README.md` states that `up`/`down` stem direction is preserved and that `none`/`double` remain outside the supported MusicXML subset.
+- [x] Loading local `Hot-Cross-Buns.mxl` reports four measures without an import error; the archive remains untracked unless separately requested.
 
 **Verification:**
 
-- [ ] Focused suites pass together: `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~MusicXmlScoreReaderTests|FullyQualifiedName~GrandStaffLayoutTests|FullyQualifiedName~GrandStaffSceneBuilderTests"`
-- [ ] Fast suite passes: `rtk dotnet test PianoMapper.slnx --filter "Category!=Integration&Category!=LiveApi"`
-- [ ] Release build succeeds: `rtk dotnet build PianoMapper.slnx --configuration Release`
-- [ ] Manual browser check: select `Hot-Cross-Buns.mxl`, confirm the loaded status reports four measures, and confirm the score renders without a component error.
+- [x] Focused suites pass together: `rtk dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~MusicXmlScoreReaderTests|FullyQualifiedName~GrandStaffLayoutTests|FullyQualifiedName~GrandStaffSceneBuilderTests"`
+- [x] Fast suite passes: `rtk dotnet test PianoMapper.slnx --filter "Category!=Integration&Category!=LiveApi"`
+- [x] Release build succeeds: `rtk dotnet build PianoMapper.slnx --configuration Release`
+- [x] Manual browser check: select `Hot-Cross-Buns.mxl`, confirm the loaded status reports four measures, and confirm the score renders without a component error.
 
 **Dependencies:** Tasks 1-4
 
@@ -178,11 +178,11 @@ Replace the accept-and-discard handling of MusicXML `<stem>` with bounded, test-
 
 ## Final Checkpoint
 
-- [ ] Every acceptance criterion above is satisfied with recorded command output.
-- [ ] `rtk git diff --check` reports no whitespace errors.
-- [ ] The final diff contains only stem-direction model/import/rendering/tests/docs changes.
-- [ ] Existing staged `Piano.razor` and `app.css` changes and unrelated untracked files remain untouched.
-- [ ] The implementation is ready for review.
+- [x] Every acceptance criterion above is satisfied with recorded command output.
+- [x] `rtk git diff --check` reports no whitespace errors.
+- [x] The final diff contains only stem-direction model/import/rendering/tests/docs changes.
+- [x] Existing staged `Piano.razor` and `app.css` changes and unrelated untracked files remain untouched.
+- [x] The implementation is ready for review.
 
 ## Risks and Mitigations
 

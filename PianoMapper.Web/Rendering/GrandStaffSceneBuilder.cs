@@ -454,7 +454,15 @@ internal static class GrandStaffSceneBuilder
         Staff staff = group[0].Note.Staff;
         var staffLines = staff == Staff.Treble ? GrandStaffLayout.TrebleLineYs : GrandStaffLayout.BassLineYs;
         double averageY = group.Average(item => item.Layout.Position.Y);
-        var direction = averageY < staffLines[2] ? StemDirection.Up : StemDirection.Down;
+        var automaticDirection = averageY < staffLines[2] ? StemDirection.Up : StemDirection.Down;
+        var explicitDirections = group
+            .Select(item => item.Note.StemDirection)
+            .OfType<ScoreStemDirection>()
+            .Distinct()
+            .ToArray();
+        var direction = explicitDirections.Length == 1
+            ? group.First(item => item.Note.StemDirection == explicitDirections[0]).Layout.StemDirection
+            : automaticDirection;
         double stemOffset = direction == StemDirection.Up ? StemLength : -StemLength;
         double x0 = group[0].Layout.X;
         double x1 = group[^1].Layout.X;

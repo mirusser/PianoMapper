@@ -6,7 +6,7 @@ PianoMapper maps a computer keyboard to piano notes and renders performances as 
 
 - Thirteen chromatic note keys with sustained note-on/note-off behavior and octave selection.
 - Live grand staff and scrolling piano roll with clefs, ledger lines, accidentals, and note duration.
-- Strict MusicXML (`.mxl`, `.musicxml`, or `.xml`) import for one part and up to two staves, including chords, ties, rests, dotted values, beam groups, and backup/forward timing.
+- Strict MusicXML (`.mxl`, `.musicxml`, or `.xml`) import for one part and up to two staves, including chords, ties, rests, dotted values, beam groups, backup/forward timing, and preserved `up`/`down` stem direction.
 - Scheduled score playback, measure navigation, a tempo cursor, and random-measure playback.
 - Count-in practice with pitch/timing/duration verdicts and an accuracy summary.
 - Optional browser metronome with accented downbeats, on-tempo feedback, and adjustable timing tolerance.
@@ -85,7 +85,7 @@ The manual browser checklist and current evidence are in [docs/browser-test-matr
 
 ## Current limits
 
-- Multipart scores, tuplets, grace notes, tempo/time-signature changes, and unsupported MusicXML semantics fail with a readable error. Repeat barlines are accepted, but playback remains linear.
+- Multipart scores, tuplets, grace notes, tempo/time-signature changes, stem values `none`/`double`, and unsupported MusicXML semantics fail with a readable error. Repeat barlines are accepted, but playback remains linear.
 - Web MIDI, a touch piano, accounts, backend synchronization, and mobile-specific layout are outside the current browser release.
 - The desktop app uses OpenAL PCM synthesis. The browser uses Web Audio synthesis with equivalent note lifecycle, not matching PCM output byte for byte.
 - Desktop note-off stops its source immediately and can produce a small click. The browser applies a short release envelope.

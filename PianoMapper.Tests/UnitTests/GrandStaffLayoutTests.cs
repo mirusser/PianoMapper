@@ -191,6 +191,29 @@ public sealed class GrandStaffLayoutTests
     }
 
     [Theory]
+    [InlineData("D5", ScoreStemDirection.Up, StemDirection.Up)]
+    [InlineData("G4", ScoreStemDirection.Down, StemDirection.Down)]
+    public void GetScoreNoteLayout_ExplicitStemDirection_OverridesPitchHeuristic(
+        string pitchName,
+        ScoreStemDirection scoreDirection,
+        StemDirection expectedDirection)
+    {
+        Assert.True(Pitch.TryParse(pitchName, out var pitch));
+        var note = new ScoreNote(
+            pitch,
+            new NoteValue(4),
+            0,
+            0,
+            Staff.Treble,
+            StemDirection: scoreDirection);
+
+        var layout = GrandStaffLayout.GetScoreNoteLayout(note, new TimeSignature(4, new NoteValue(4)), 0);
+
+        Assert.NotNull(layout);
+        Assert.Equal(expectedDirection, layout.Value.StemDirection);
+    }
+
+    [Theory]
     [InlineData("G4", (int)Staff.Treble, StemDirection.Up)]
     [InlineData("B4", (int)Staff.Treble, StemDirection.Down)]
     [InlineData("D5", (int)Staff.Treble, StemDirection.Down)]

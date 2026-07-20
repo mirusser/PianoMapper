@@ -20,6 +20,7 @@ public sealed class MusicXmlScoreReader
     private const string RestElementName = "rest";
     private const string SoundElementName = "sound";
     private const string StaffElementName = "staff";
+    private const string StemElementName = "stem";
     private const string TieElementName = "tie";
     private const string TypeElementName = "type";
     private const string VoiceElementName = "voice";
@@ -33,7 +34,6 @@ public sealed class MusicXmlScoreReader
         "print",
         "bar-style",
         "clef",
-        "stem",
         "lyric",
         "dynamics",
     }.ToFrozenSet(StringComparer.Ordinal);
@@ -60,6 +60,7 @@ public sealed class MusicXmlScoreReader
         TieElementName,
         NotationsElementName,
         BeamElementName,
+        StemElementName,
     }.ToFrozenSet(StringComparer.Ordinal);
 
     public Score Read(string path)
@@ -171,6 +172,7 @@ public sealed class MusicXmlScoreReader
                 }
             }
 
+            ValidateBeamStemDirections(notes);
             measures.Add(new ScoreMeasure(notes, rests));
             measureIndex++;
         }
@@ -362,6 +364,7 @@ public sealed class MusicXmlScoreReader
         int onsetDivisions = isChord ? lastNoteOnsetDivisions : cursorDivisions;
         double beatOffset = DivisionsToBeats(onsetDivisions, divisions, timeSignature);
         Staff staff = ParseStaff(noteElement);
+        ScoreStemDirection? stemDirection = ParseStemDirection(noteElement);
 
         if (FindChild(noteElement, RestElementName) is not null)
         {
@@ -377,7 +380,8 @@ public sealed class MusicXmlScoreReader
                 beatOffset,
                 staff,
                 TiesToNext: HasTieStart(noteElement),
-                BeamState: ParseBeamState(noteElement)));
+                BeamState: ParseBeamState(noteElement),
+                StemDirection: stemDirection));
         }
 
         if (!isChord)
@@ -487,6 +491,79 @@ public sealed class MusicXmlScoreReader
             "end" => BeamState.End,
             var value => throw new InvalidDataException($"Invalid MusicXML beam value '{value}'."),
         };
+    }
+
+    private static ScoreStemDirection? ParseStemDirection(XElement noteElement)
+    {
+        var stem = FindChild(noteElement, StemElementName);
+        if (stem is null)
+        {
+            return null;
+        }
+
+        string value = stem.Value.Trim();
+        return value switch
+        {
+            "up" => ScoreStemDirection.Up,
+            "down" => ScoreStemDirection.Down,
+            "none" or "double" => throw new NotSupportedException(
+                $"Unsupported MusicXML <{StemElementName}> value '{value}'."),
+            _ => throw new InvalidDataException($"Invalid MusicXML <{StemElementName}> value '{value}'."),
+        };
+    }
+
+    private static void ValidateBeamStemDirections(IEnumerable<ScoreNote> notes)
+    {
+        foreach (var staffNotes in notes.GroupBy(note => note.Staff))
+        {
+            bool isInBeamGroup = false;
+            ScoreStemDirection? groupDirection = null;
+            foreach (var note in staffNotes.OrderBy(note => note.BeatOffset))
+            {
+                switch (note.BeamState)
+                {
+                    case BeamState.Begin:
+                        isInBeamGroup = true;
+                        groupDirection = note.StemDirection;
+                        break;
+                    case BeamState.Continue when isInBeamGroup:
+                    case BeamState.End when isInBeamGroup:
+                        ValidateBeamStemDirection(note.StemDirection, ref groupDirection);
+                        if (note.BeamState == BeamState.End)
+                        {
+                            isInBeamGroup = false;
+                            groupDirection = null;
+                        }
+
+                        break;
+                    default:
+                        isInBeamGroup = false;
+                        groupDirection = null;
+                        break;
+                }
+            }
+        }
+    }
+
+    private static void ValidateBeamStemDirection(
+        ScoreStemDirection? stemDirection,
+        ref ScoreStemDirection? groupDirection)
+    {
+        if (stemDirection is null)
+        {
+            return;
+        }
+
+        if (groupDirection is not null && stemDirection != groupDirection)
+        {
+            string firstValue = groupDirection.Value.ToString().ToLowerInvariant();
+            string secondValue = stemDirection.Value.ToString().ToLowerInvariant();
+            throw new NotSupportedException(
+                $"Conflicting MusicXML <{StemElementName}> values " +
+                $"'{firstValue}' and '{secondValue}' in one beam group.");
+        }
+
+        groupDirection = stemDirection;
     }
 
     private static Pitch ParsePitch(XElement pitchElement)

@@ -122,7 +122,7 @@ public static class GrandStaffLayout
         }
 
         var position = GetPosition(note.Pitch, note.Staff);
-        var stemDirection = GetStemDirection(position);
+        var stemDirection = ResolveStemDirection(note.StemDirection, position);
         return new ScoreNoteLayout(
             MapScoreOnsetToX(note.MeasureIndex, note.BeatOffset, timeSignature, firstVisibleMeasure),
             position,
@@ -181,6 +181,17 @@ public static class GrandStaffLayout
         var staffLines = position.Staff == Staff.Treble ? TrebleLineYs : BassLineYs;
         return position.Y < staffLines[2] ? StemDirection.Up : StemDirection.Down;
     }
+
+    private static StemDirection ResolveStemDirection(
+        ScoreStemDirection? scoreDirection,
+        StaffPlacement position) =>
+        scoreDirection switch
+        {
+            ScoreStemDirection.Up => StemDirection.Up,
+            ScoreStemDirection.Down => StemDirection.Down,
+            null => GetStemDirection(position),
+            _ => throw new ArgumentOutOfRangeException(nameof(scoreDirection), scoreDirection, message: null),
+        };
 
     private static IReadOnlyList<float> BuildLineYs(float bottomY) =>
         Enumerable.Range(0, 5)
