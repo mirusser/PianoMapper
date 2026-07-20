@@ -33,6 +33,7 @@ public sealed class MusicXmlScoreReader
         "print",
         "bar-style",
         "clef",
+        "stem",
         "lyric",
         "dynamics",
     }.ToFrozenSet(StringComparer.Ordinal);

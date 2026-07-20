@@ -108,7 +108,7 @@ public sealed class MusicXmlScoreReaderTests
     }
 
     [Fact]
-    public void Read_CompressedMusicXml_LoadsDeclaredScoreAndPreservesPrimaryBeams()
+    public void Read_CompressedMusicXml_IgnoresStemAndPreservesPrimaryBeams()
     {
         const string containerXml = """
             <container>
@@ -130,7 +130,7 @@ public sealed class MusicXmlScoreReaderTests
                   <barline location="left"><bar-style>heavy-light</bar-style><repeat direction="forward" /></barline>
                   <note>
                     <pitch><step>D</step><octave>4</octave></pitch>
-                    <duration>1</duration><voice>1</voice><type>eighth</type><beam number="1">begin</beam>
+                    <duration>1</duration><voice>1</voice><type>eighth</type><stem>up</stem><beam number="1">begin</beam>
                   </note>
                 </measure>
               </part>

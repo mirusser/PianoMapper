@@ -37,12 +37,6 @@ p {
     margin-bottom: 1.5rem;
 }
 
-.page-header h1 {
-    margin-bottom: 0.35rem;
-    font-size: clamp(2rem, 4vw, 3.25rem);
-    letter-spacing: -0.04em;
-}
-
 .eyebrow,
 .panel-kicker {
     margin-bottom: 0.35rem;
@@ -51,13 +45,6 @@ p {
     font-weight: 800;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-}
-
-.page-intro {
-    max-width: 38rem;
-    margin-bottom: 0;
-    color: #aebdd0;
-    line-height: 1.55;
 }
 
 .status-chip {
