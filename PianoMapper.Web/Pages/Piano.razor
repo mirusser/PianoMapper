@@ -335,8 +335,8 @@
     private Task? practiceRefreshTask;
     private CancellationTokenSource? visualizationRefreshCancellation;
     private Task? visualizationRefreshTask;
-    private string audioStatus = "Audio is not initialized.";
-    private BrowserSoundSource soundSource = BrowserSoundSource.Synth;
+    private string audioStatus = "Starting audio...";
+    private BrowserSoundSource soundSource = BrowserSoundSource.Piano;
     private bool isSoundSourceChanging;
     private bool testNoteIsActive;
     private bool showPianoRoll;
@@ -371,11 +371,23 @@
         practiceCoordinator = new BrowserPracticeCoordinator(AudioSession, noteTimeline);
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        await EnableAudioAsync();
+        StateHasChanged();
+    }
+
     private async Task EnableAudioAsync()
     {
         try
         {
             audioClockAnchor = await AudioSession.InitializeAsync();
+            soundSource = await AudioSession.GetSoundSourceAsync();
             await AttachKeyboardAsync();
             audioStatus = AudioReadyStatus;
             EnsureVisualizationRefresh();

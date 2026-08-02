@@ -8,7 +8,7 @@ public static class GrandStaffLayout
     public const float MiddleCY = (PianoRollLayout.BandY0 + PianoRollLayout.BandY1) / 2f;
     public const float ScoreX0 = -0.56f;
     public const float ScoreX1 = 0.96f;
-    public const int VisibleMeasureCount = 6;
+    public const int VisibleMeasureCount = 5;
 
     private const int TrebleBottomDiatonicIndex = 30; // E4
     private const int BassBottomDiatonicIndex = 18; // G2
@@ -69,8 +69,11 @@ public static class GrandStaffLayout
             return null;
         }
 
+        float visibleStartX = Math.Max(
+            ScoreX0,
+            MapAbsoluteBeatToScoreX(startBeat, timeSignature, firstVisibleMeasure));
         return new LiveNoteLayout(
-            MapAbsoluteBeatToScoreX(startBeat, timeSignature, firstVisibleMeasure),
+            visibleStartX,
             MapAbsoluteBeatToScoreX(endBeat, timeSignature, firstVisibleMeasure),
             GetLivePosition(pitch));
     }

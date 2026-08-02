@@ -3,11 +3,17 @@ import {
     getPianoSamplesForVelocity,
     selectPianoSample,
 } from "./piano-samples.js";
+import {
+    createSoundSourceCookie,
+    defaultSoundSource,
+    isSoundSource,
+    readSoundSourcePreference,
+} from "./audio-preferences.js";
 
 let audioContext;
 let masterGain;
 let analyser;
-let soundSource = "synth";
+let soundSource = defaultSoundSource;
 const activeNotes = new Map();
 const scheduledScoreNotes = new Map();
 const scheduledMetronomeClicks = new Set();
@@ -34,6 +40,7 @@ const harmonics = [
 const pianoSampleBaseUrl = new URL("../audio/piano/salamander/", import.meta.url);
 
 export async function initialize() {
+    soundSource = readSoundSourcePreference(document.cookie);
     const AudioContextType = window.AudioContext ?? window.webkitAudioContext;
     if (!AudioContextType) {
         throw new Error("Web Audio is not supported by this browser.");
@@ -59,6 +66,10 @@ export async function initialize() {
         analyser.smoothingTimeConstant = 0.2;
         masterGain.connect(analyser);
         analyser.connect(audioContext.destination);
+    }
+
+    if (soundSource === "piano") {
+        await ensurePianoSamplesLoaded(defaultPianoVelocity);
     }
 
     return {
@@ -93,7 +104,7 @@ export async function noteOn(
 
 export async function setSoundSource(source) {
     ensureReady();
-    if (source !== "synth" && source !== "piano") {
+    if (!isSoundSource(source)) {
         throw new RangeError(`Unknown sound source: ${source}`);
     }
 
@@ -108,6 +119,11 @@ export async function setSoundSource(source) {
     clear(audioContext.currentTime);
     stopScore();
     soundSource = source;
+    document.cookie = createSoundSourceCookie(source);
+}
+
+export function getSoundSource() {
+    return soundSource;
 }
 
 export function getCurrentTime() {
@@ -366,7 +382,7 @@ export async function dispose() {
     audioContext = undefined;
     masterGain = undefined;
     analyser = undefined;
-    soundSource = "synth";
+    soundSource = readSoundSourcePreference(document.cookie);
     pianoBuffers.clear();
     pianoLayerLoads.clear();
 }

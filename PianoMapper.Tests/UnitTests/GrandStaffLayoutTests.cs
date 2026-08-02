@@ -235,11 +235,11 @@ public sealed class GrandStaffLayoutTests
     }
 
     [Fact]
-    public void GetScoreBarlineXs_SixMeasureWindow_ReturnsMeasureBoundaries()
+    public void GetScoreBarlineXs_FiveMeasureWindow_FillsAvailableScoreWidth()
     {
-        var barlines = GrandStaffLayout.GetScoreBarlineXs(firstVisibleMeasure: 0, measureCount: 6);
+        var barlines = GrandStaffLayout.GetScoreBarlineXs(firstVisibleMeasure: 0, measureCount: 5);
 
-        Assert.Equal(7, barlines.Count);
+        Assert.Equal(6, barlines.Count);
         Assert.Equal(GrandStaffLayout.ScoreX0, barlines[0]);
         Assert.Equal(GrandStaffLayout.ScoreX1, barlines[^1]);
     }
@@ -264,7 +264,7 @@ public sealed class GrandStaffLayoutTests
 
         int firstVisibleMeasure = GrandStaffLayout.GetLiveFirstVisibleMeasure(currentTime, signature, tempo);
 
-        Assert.Equal(6, firstVisibleMeasure);
+        Assert.Equal(5, firstVisibleMeasure);
     }
 
     [Fact]
@@ -290,6 +290,30 @@ public sealed class GrandStaffLayoutTests
         Assert.Equal(
             GrandStaffLayout.MapAbsoluteBeatToScoreX(6, signature, firstVisibleMeasure: 0),
             layout.Value.DurationEndX);
+        Assert.True(layout.Value.DurationEndX > layout.Value.X);
+    }
+
+    [Fact]
+    public void GetLiveNoteLayout_NoteReleasedAcrossMeasureGroupBoundary_ClampsOnsetToScoreArea()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        TimeSpan boundaryTime = MusicalTime.BeatsToDuration(
+            GrandStaffLayout.VisibleMeasureCount * signature.Numerator,
+            tempo);
+        TimeSpan startTime = boundaryTime - TimeSpan.FromMilliseconds(250);
+        TimeSpan releaseTime = boundaryTime + TimeSpan.FromMilliseconds(250);
+
+        var layout = GrandStaffLayout.GetLiveNoteLayout(
+            new Pitch(NoteLetter.C, 0, 4),
+            startTime,
+            releaseTime,
+            releaseTime,
+            signature,
+            tempo);
+
+        Assert.NotNull(layout);
+        Assert.Equal(GrandStaffLayout.ScoreX0, layout.Value.X);
         Assert.True(layout.Value.DurationEndX > layout.Value.X);
     }
 
@@ -332,8 +356,8 @@ public sealed class GrandStaffLayoutTests
     }
 
     [Theory]
-    [InlineData(4, 18)]
-    [InlineData(3, 12)]
+    [InlineData(4, 15)]
+    [InlineData(3, 10)]
     public void GetLiveMeasureGridLines_TimeSignature_ReturnsBeatTicksExcludingDownbeats(
         int numerator,
         int expectedBeatTickCount)

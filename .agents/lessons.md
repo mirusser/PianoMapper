@@ -6,3 +6,7 @@
 [rendering] Don't size key-signature accidentals to only one staff space or pull the time signature tightly against them — use two staff spaces and a modest gap. (cause: visual correction after imported-score review)
 [rendering] Don't leave the score time signature only 0.06 scene units after the last key accidental — use a slightly wider 0.08 gap. (cause: signature still appeared too far left)
 [musicxml] Don't infer incorrect measure assignment from visual overlap — verify parsed beat offsets separately from note and barline geometry. (cause: imported measures were rhythmically valid)
+[layout] Don't cap the grand-staff page at 100rem — let it use nearly the full browser width when the fixed measure count feels cramped. (cause: imported-score spacing correction)
+[rendering] Don't move every internal barline left to clear measure-start notes — keep internal boundaries true and inset only notes near measure edges. (cause: last beamed note crossed the following barline)
+[rendering] Don't scale ledger-line length with canvas width — tie it to staff spacing so wide pages keep compact ledgers. (cause: responsive page exposed stretched middle-C lines)
+[layout] Don't keep six measures visible when dense eighth-note measures remain cramped at full viewport — use five-measure windows for more horizontal spacing. (cause: eight-note measures were still hard to read)

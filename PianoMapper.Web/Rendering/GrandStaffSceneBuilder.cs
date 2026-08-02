@@ -15,7 +15,8 @@ internal static class GrandStaffSceneBuilder
     private const double KeySignatureXSpacing = 0.025;
     private const double TimeSignatureGapAfterKeySignature = 0.08;
     private const double TimeSignatureX = -0.59;
-    private const double MeasureStartBarlineLead = 0.02;
+    private const double MeasureEdgeNoteClearance = 0.02;
+    private const double OpeningBarlineLead = MeasureEdgeNoteClearance;
     private const double LedgerLineHalfWidth = 0.065;
     private const double StemLength = GrandStaffLayout.DiatonicStep * 6;
     private const double StaffSeparationOffset = GrandStaffLayout.DiatonicStep;
@@ -88,8 +89,8 @@ internal static class GrandStaffSceneBuilder
             .Where(x => x < GrandStaffLayout.ScoreX1)
             .Select((x, boundary) =>
             {
-                double barlineX = clampedMeasure + boundary < score.Measures.Count
-                    ? x - MeasureStartBarlineLead
+                double barlineX = boundary == 0 && clampedMeasure < score.Measures.Count
+                    ? x - OpeningBarlineLead
                     : x;
                 return new GrandStaffLine(
                     barlineX,
@@ -107,7 +108,24 @@ internal static class GrandStaffSceneBuilder
                 continue;
             }
 
-            visibleNotes.Add((note, layout));
+            double measureStartX = GrandStaffLayout.MapScoreOnsetToX(
+                note.MeasureIndex,
+                beatOffset: 0,
+                score.TimeSignature,
+                clampedMeasure);
+            double visibleMeasureStartX = note.MeasureIndex == clampedMeasure
+                ? measureStartX - OpeningBarlineLead
+                : measureStartX;
+            double measureEndX = GrandStaffLayout.MapScoreOnsetToX(
+                note.MeasureIndex + 1,
+                beatOffset: 0,
+                score.TimeSignature,
+                clampedMeasure);
+            float renderedX = (float)Math.Clamp(
+                layout.X,
+                visibleMeasureStartX + MeasureEdgeNoteClearance,
+                measureEndX - MeasureEdgeNoteClearance);
+            visibleNotes.Add((note, layout with { X = renderedX }));
         }
 
         var beamOverrides = new Dictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)>();
@@ -498,7 +516,7 @@ internal static class GrandStaffSceneBuilder
         AddKeySignatureGlyphs(glyphs, score.KeyFifths);
         int accidentalCount = Math.Abs(score.KeyFifths);
         double timeSignatureX = accidentalCount == 0
-            ? TimeSignatureX - MeasureStartBarlineLead
+            ? TimeSignatureX - OpeningBarlineLead
             : KeySignatureX0
                 + ((accidentalCount - 1) * KeySignatureXSpacing)
                 + TimeSignatureGapAfterKeySignature;

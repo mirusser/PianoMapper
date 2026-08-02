@@ -129,6 +129,38 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
+    public void BuildScore_BeamEndingNearMeasureBoundary_KeepsNoteAndBeamInsideMeasure()
+    {
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.C, 0, 4), new NoteValue(8), 0, 0, Staff.Treble, BeamState: BeamState.Begin),
+            new(new Pitch(NoteLetter.C, 0, 4), new NoteValue(8), 0, 0.5, Staff.Treble, BeamState: BeamState.Continue),
+            new(new Pitch(NoteLetter.C, 0, 4), new NoteValue(8), 0, 1, Staff.Treble, BeamState: BeamState.Continue),
+            new(new Pitch(NoteLetter.C, 0, 4), new NoteValue(8), 0, 1.5, Staff.Treble, BeamState: BeamState.Continue),
+            new(new Pitch(NoteLetter.D, 0, 4), new NoteValue(8), 0, 2, Staff.Treble, BeamState: BeamState.Continue),
+            new(new Pitch(NoteLetter.D, 0, 4), new NoteValue(8), 0, 2.5, Staff.Treble, BeamState: BeamState.Continue),
+            new(new Pitch(NoteLetter.D, 0, 4), new NoteValue(8), 0, 3, Staff.Treble, BeamState: BeamState.Continue),
+            new(new Pitch(NoteLetter.D, 0, 4), new NoteValue(8), 0, 3.5, Staff.Treble, BeamState: BeamState.End),
+        ];
+        var score = new Score(
+            "test",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure(notes, []), new ScoreMeasure([], [])]);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        var beam = Assert.Single(scene.Beams);
+        double followingBarlineX = scene.Lines
+            .Where(line => line.Kind == GrandStaffLineKind.Barline && line.X0 > beam.X0)
+            .Min(line => line.X0);
+        var lastNote = scene.Notes.MaxBy(note => note.X)!;
+        Assert.True(followingBarlineX - lastNote.X >= 0.02);
+        Assert.True(followingBarlineX - beam.X1 >= 0.02);
+    }
+
+    [Fact]
     public void BuildScore_WithoutKeySignature_PreservesTimeSignatureClearanceBeforeOpeningBarline()
     {
         var score = CreateScore(measureCount: 1);
@@ -336,8 +368,8 @@ public sealed class GrandStaffSceneBuilderTests
             new TimeSignature(4, new NoteValue(4)),
             new Tempo(120));
 
-        Assert.Equal(9, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Barline));
-        Assert.Equal(18, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Beat));
+        Assert.Equal(8, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Barline));
+        Assert.Equal(15, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Beat));
         var cursor = Assert.Single(scene.Lines, line => line.Kind == GrandStaffLineKind.Cursor);
         Assert.Equal(GrandStaffLayout.ScoreX0, cursor.X0, 6);
     }

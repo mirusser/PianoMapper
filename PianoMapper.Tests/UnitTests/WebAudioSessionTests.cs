@@ -75,6 +75,26 @@ public sealed class WebAudioSessionTests
         Assert.Equal(WebAudioSession.DefaultNoteVelocity, velocity);
     }
 
+    [Theory]
+    [InlineData("synth", "Synth")]
+    [InlineData("piano", "Piano")]
+    public async Task GetSoundSourceAsync_SavedSource_ReturnsBrowserSoundSource(
+        string savedSource,
+        string expectedSourceName)
+    {
+        var calls = new List<string>();
+        var module = new RecordingJsModule(calls, new AudioClockAnchor(1000, 2), savedSource);
+        var runtime = new RecordingJsRuntime(calls, module);
+        await using var session = new WebAudioSession(runtime);
+        await session.InitializeAsync();
+        BrowserSoundSource expectedSource = Enum.Parse<BrowserSoundSource>(expectedSourceName);
+
+        BrowserSoundSource source = await session.GetSoundSourceAsync();
+
+        Assert.Equal(expectedSource, source);
+        Assert.Contains("module:getSoundSource", calls);
+    }
+
     [Fact]
     public async Task GetSchedulingLatencyAsync_InitializedSession_RequestsOneSummary()
     {
@@ -150,7 +170,10 @@ public sealed class WebAudioSessionTests
         }
     }
 
-    private sealed class RecordingJsModule(List<string> calls, AudioClockAnchor anchor) : IJSObjectReference
+    private sealed class RecordingJsModule(
+        List<string> calls,
+        AudioClockAnchor anchor,
+        string soundSource = "piano") : IJSObjectReference
     {
         internal Dictionary<string, object?[]?> Arguments { get; } = new(StringComparer.Ordinal);
 
@@ -168,6 +191,7 @@ public sealed class WebAudioSessionTests
             {
                 "initialize" => anchor,
                 "getCurrentTime" => 3.0,
+                "getSoundSource" => soundSource,
                 _ => default(TValue),
             };
             return ValueTask.FromResult((TValue)result!);

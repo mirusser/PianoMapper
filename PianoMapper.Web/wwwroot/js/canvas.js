@@ -12,10 +12,11 @@ const beatLineKind = 4;
 // the cursor line.
 const scoreCursorX0 = -0.56;
 const scoreCursorX1 = 0.96;
-const scoreCursorVisibleMeasureCount = 6;
+const scoreCursorVisibleMeasureCount = 5;
 const defaultStaffSpace = 11;
 const noteHeadWidthInStaffSpaces = 1.2;
 const noteHeadHeightInStaffSpaces = 0.8;
+const ledgerLineWidthInStaffSpaces = 1.6;
 const noteHeadRotationRadians = -Math.PI / 8;
 const stemLengthInStaffSpaces = 3;
 const flagControlWidthInStaffSpaces = 1.2;
@@ -169,12 +170,16 @@ function prepareScoreLayer(state, width, height, pixelRatio) {
 }
 
 function drawGrandStaff(context, scene, width, height) {
+    const staffLines = scene.lines.filter(line => line.kind === staffLineKind);
+    const staffSpace = staffLines.length >= 2
+        ? mapHeight(Math.abs(staffLines[1].y0 - staffLines[0].y0), height)
+        : defaultStaffSpace;
     for (const line of scene.lines) {
         if (scene.shouldClipNotesAtClefs && line.kind === ledgerLineKind) {
             continue;
         }
 
-        drawLine(context, line, width, height);
+        drawLine(context, line, width, height, staffSpace);
     }
 
     let clefRight;
@@ -202,7 +207,7 @@ function drawGrandStaff(context, scene, width, height) {
     if (scene.shouldClipNotesAtClefs) {
         for (const line of scene.lines) {
             if (line.kind === ledgerLineKind) {
-                drawLine(context, line, width, height);
+                drawLine(context, line, width, height, staffSpace);
             }
         }
     }
@@ -213,10 +218,6 @@ function drawGrandStaff(context, scene, width, height) {
         }
     }
 
-    const staffLines = scene.lines.filter(line => line.kind === staffLineKind);
-    const staffSpace = staffLines.length >= 2
-        ? mapHeight(Math.abs(staffLines[1].y0 - staffLines[0].y0), height)
-        : defaultStaffSpace;
     for (const note of scene.notes) {
         if (!note.isActive) {
             drawNote(context, note, width, height, staffSpace);
@@ -474,14 +475,14 @@ function drawScoreCursor(context, state, width, height) {
 }
 
 // Mirrors GrandStaffLayout.MapAbsoluteBeatToScoreX / MapScoreOnsetToX.
-function mapAbsoluteBeatToScoreX(absoluteBeat, beatsPerMeasure, firstVisibleMeasure) {
+export function mapAbsoluteBeatToScoreX(absoluteBeat, beatsPerMeasure, firstVisibleMeasure) {
     const measureIndex = Math.floor(absoluteBeat / beatsPerMeasure);
     const beatOffset = absoluteBeat - (measureIndex * beatsPerMeasure);
     const relativeMeasure = measureIndex - firstVisibleMeasure + (beatOffset / beatsPerMeasure);
     return scoreCursorX0 + (relativeMeasure / scoreCursorVisibleMeasureCount) * (scoreCursorX1 - scoreCursorX0);
 }
 
-function drawLine(context, line, width, height) {
+function drawLine(context, line, width, height, staffSpace) {
     context.strokeStyle = line.kind === cursorLineKind
         ? "#fb7185"
         : line.kind === beatLineKind
@@ -494,9 +495,17 @@ function drawLine(context, line, width, height) {
         : line.kind === cursorLineKind
             ? 2
             : line.kind === beatLineKind ? 1 : 1.5;
+    let x0 = mapX(line.x0, width);
+    let x1 = mapX(line.x1, width);
+    if (line.kind === ledgerLineKind) {
+        const centerX = (x0 + x1) / 2;
+        const halfWidth = staffSpace * ledgerLineWidthInStaffSpaces / 2;
+        x0 = centerX - halfWidth;
+        x1 = centerX + halfWidth;
+    }
     context.beginPath();
-    context.moveTo(mapX(line.x0, width), mapY(line.y0, height));
-    context.lineTo(mapX(line.x1, width), mapY(line.y1, height));
+    context.moveTo(x0, mapY(line.y0, height));
+    context.lineTo(x1, mapY(line.y1, height));
     context.stroke();
 }
 

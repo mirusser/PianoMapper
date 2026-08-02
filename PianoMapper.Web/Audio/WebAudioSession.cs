@@ -64,6 +64,20 @@ internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio
         return GetInitializedModule().InvokeVoidAsync("setSoundSource", cancellationToken, sourceName);
     }
 
+    internal async ValueTask<BrowserSoundSource> GetSoundSourceAsync(
+        CancellationToken cancellationToken = default)
+    {
+        string sourceName = await GetInitializedModule().InvokeAsync<string>(
+            "getSoundSource",
+            cancellationToken);
+        return sourceName switch
+        {
+            "synth" => BrowserSoundSource.Synth,
+            "piano" => BrowserSoundSource.Piano,
+            _ => throw new InvalidOperationException($"Unknown browser sound source: {sourceName}"),
+        };
+    }
+
     internal ValueTask StopNoteAsync(
         string noteId,
         TimeSpan releaseTime,
