@@ -336,6 +336,134 @@ public sealed class GrandStaffLayoutTests
     }
 
     [Fact]
+    public void GetLiveNoteSegmentLayouts_NoteWithinMeasure_ReturnsUntiedFragmentMatchingLegacyLayout()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        TimeSpan startTime = MusicalTime.BeatsToDuration(1, tempo);
+        TimeSpan endTime = MusicalTime.BeatsToDuration(3, tempo);
+        var pitch = new Pitch(NoteLetter.C, 0, 4);
+
+        var segment = Assert.Single(GrandStaffLayout.GetLiveNoteSegmentLayouts(
+            pitch,
+            startTime,
+            endTime,
+            endTime,
+            signature,
+            tempo));
+        var legacyLayout = GrandStaffLayout.GetLiveNoteLayout(
+            pitch,
+            startTime,
+            endTime,
+            endTime,
+            signature,
+            tempo);
+
+        Assert.NotNull(legacyLayout);
+        Assert.Equal(legacyLayout.Value.X, segment.X);
+        Assert.Equal(legacyLayout.Value.DurationEndX, segment.DurationEndX);
+        Assert.Equal(1, segment.StartBeat);
+        Assert.Equal(3, segment.EndBeat);
+        Assert.False(segment.HasIncomingTie);
+        Assert.False(segment.HasOutgoingTie);
+    }
+
+    [Fact]
+    public void GetLiveNoteSegmentLayouts_NoteCrossingInternalBarlines_ReturnsTiedFragmentsPerMeasure()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        TimeSpan startTime = MusicalTime.BeatsToDuration(3, tempo);
+        TimeSpan endTime = MusicalTime.BeatsToDuration(9, tempo);
+
+        var segments = GrandStaffLayout.GetLiveNoteSegmentLayouts(
+            new Pitch(NoteLetter.C, 0, 4),
+            startTime,
+            endTime,
+            endTime,
+            signature,
+            tempo);
+
+        Assert.Equal(3, segments.Count);
+        Assert.Equal([3d, 4d, 8d], segments.Select(segment => segment.StartBeat));
+        Assert.Equal([4d, 8d, 9d], segments.Select(segment => segment.EndBeat));
+        Assert.Equal(
+            GrandStaffLayout.MapAbsoluteBeatToScoreX(4, signature, firstVisibleMeasure: 0),
+            segments[0].DurationEndX);
+        Assert.Equal(segments[0].DurationEndX, segments[1].X);
+        Assert.Equal(segments[1].DurationEndX, segments[2].X);
+        Assert.False(segments[0].HasIncomingTie);
+        Assert.True(segments[0].HasOutgoingTie);
+        Assert.True(segments[1].HasIncomingTie);
+        Assert.True(segments[1].HasOutgoingTie);
+        Assert.True(segments[2].HasIncomingTie);
+        Assert.False(segments[2].HasOutgoingTie);
+    }
+
+    [Fact]
+    public void GetLiveNoteSegmentLayouts_NoteBeginningBeforeWindow_ReturnsVisibleIncomingContinuation()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        TimeSpan currentTime = MusicalTime.BeatsToDuration(21, tempo);
+
+        var segments = GrandStaffLayout.GetLiveNoteSegmentLayouts(
+            new Pitch(NoteLetter.C, 0, 4),
+            MusicalTime.BeatsToDuration(19, tempo),
+            currentTime,
+            currentTime,
+            signature,
+            tempo);
+
+        var segment = Assert.Single(segments);
+        Assert.Equal(20, segment.StartBeat);
+        Assert.Equal(21, segment.EndBeat);
+        Assert.Equal(GrandStaffLayout.ScoreX0, segment.X);
+        Assert.True(segment.HasIncomingTie);
+        Assert.False(segment.HasOutgoingTie);
+        Assert.All(segments, item => Assert.True(item.X >= GrandStaffLayout.ScoreX0));
+    }
+
+    [Fact]
+    public void GetLiveNoteSegmentLayouts_ReleaseExactlyOnBarline_OmitsEmptyContinuationAndOutgoingTie()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        TimeSpan startTime = MusicalTime.BeatsToDuration(3, tempo);
+        TimeSpan endTime = MusicalTime.BeatsToDuration(4, tempo);
+
+        var segment = Assert.Single(GrandStaffLayout.GetLiveNoteSegmentLayouts(
+            new Pitch(NoteLetter.C, 0, 4),
+            startTime,
+            endTime,
+            endTime,
+            signature,
+            tempo));
+
+        Assert.Equal(3, segment.StartBeat);
+        Assert.Equal(4, segment.EndBeat);
+        Assert.False(segment.HasOutgoingTie);
+    }
+
+    [Fact]
+    public void GetLiveNoteSegmentLayouts_NoteOutsideWindow_ReturnsEmptyCollection()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        TimeSpan currentTime = MusicalTime.BeatsToDuration(21, tempo);
+
+        var segments = GrandStaffLayout.GetLiveNoteSegmentLayouts(
+            new Pitch(NoteLetter.C, 0, 4),
+            MusicalTime.BeatsToDuration(1, tempo),
+            MusicalTime.BeatsToDuration(2, tempo),
+            currentTime,
+            signature,
+            tempo);
+
+        Assert.Empty(segments);
+    }
+
+    [Fact]
     public void GetLiveMeasureGridLines_CurrentBeatInSecondGroup_ReturnsBarlinesMatchingVisibleWindow()
     {
         var signature = new TimeSignature(4, new NoteValue(4));

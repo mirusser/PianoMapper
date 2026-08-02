@@ -25,3 +25,19 @@ Use one supported MusicXML fixture and one malformed file.
 7. Close the tab after the online load, go offline, reopen the installed or cached PWA, and confirm the shell starts. MusicXML fixtures must still come from user file selection.
 
 Record console errors, audible glitches, stuck notes, focus loss, and controls without a visible focus ring as failures.
+
+## Free Play measure-boundary ties
+
+Run these checks on the live grand staff. Record the browser, viewport, sound source, time signature, and result for each row.
+
+| Scenario | Action | Expected result | Result |
+|---|---|---|---|
+| Internal barline | In 4/4, press a note on the final beat of a measure and hold it into the next measure. | Two noteheads appear inside their measures with one tie between them. The sound continues without a second attack. | Pending |
+| Five-measure rollover | Hold a note across the boundary after the fifth visible measure. | The next view starts with a continuation head and incoming tie stub inside the score area. No note element enters the clef or signature strip. | Pending |
+| Exact boundary release | Release a note as the cursor reaches a barline. | The finished measure contains one notehead. No empty continuation head or extra tie appears. | Pending |
+| Accidental | Hold a sharp or flat pitch across a barline. | The accidental appears at the attack and does not repeat on continuation heads. | Pending |
+| Chord | Hold two or more pitches across a barline, then release their keys separately. | Each pitch receives its own fragments and ties. Each sound stops once on its key release. | Pending |
+| Time signature | Repeat the internal and rollover checks in 3/4. | Fragment boundaries follow the 3-beat measures, and playback remains continuous. | Pending |
+| Sound source | Repeat an internal crossing with piano, then synth. | Both sources sustain through the barline without a new attack. | Pending |
+| Responsive layout | Repeat an internal crossing in a narrow viewport and a wide viewport. | Ties stay clipped to the score and keep the same staff-relative curve and stroke proportions. | Pending |
+| Piano roll | Switch to the piano roll while holding a note across a grand-staff barline. | The performance still appears as one continuous piano-roll bar. | Pending |

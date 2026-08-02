@@ -23,6 +23,13 @@ const flagControlWidthInStaffSpaces = 1.2;
 const flagControlHeightInStaffSpaces = 0.5;
 const flagHeightInStaffSpaces = 1.15;
 const flagSpacingInStaffSpaces = 0.45;
+const tieEndpointInsetInStaffSpaces = (noteHeadWidthInStaffSpaces / 2) + 0.2;
+const tieTipBiasInStaffSpaces = 0.12;
+const tieMinimumVisibleLengthInStaffSpaces = 0.35;
+const tieMinimumHeightInStaffSpaces = 0.3;
+const tieMaximumHeightInStaffSpaces = 0.45;
+const tieHeightToLengthRatio = 0.04;
+const tieCenterThicknessInStaffSpaces = 0.08;
 const staffLineWidth = 1.5;
 const spectrumReleaseClearMilliseconds = 120;
 const plotLeftMargin = 44;
@@ -47,7 +54,7 @@ export function initialize(canvas, waveformCanvas, spectrumCanvas, analysisLayou
         canvas,
         waveformCanvas,
         spectrumCanvas,
-        scene: { kind: 0, lines: [], glyphs: [], notes: [], beams: [] },
+        scene: { kind: 0, lines: [], glyphs: [], notes: [], beams: [], ties: [] },
         scoreLayerCanvas: document.createElement("canvas"),
         scoreLayerDirty: true,
         scoreLayerWidth: undefined,
@@ -197,7 +204,7 @@ function drawGrandStaff(context, scene, width, height) {
     const shouldClipNoteElements = scene.shouldClipNotesAtClefs && Number.isFinite(clefRight);
     if (shouldClipNoteElements) {
         const clefGap = 8;
-        const noteAreaX0 = clefRight + clefGap;
+        const noteAreaX0 = Math.max(clefRight + clefGap, mapX(scoreCursorX0, width));
         context.save();
         context.beginPath();
         context.rect(noteAreaX0, 0, Math.max(0, width - noteAreaX0), height);
@@ -216,6 +223,10 @@ function drawGrandStaff(context, scene, width, height) {
         if (glyph.kind !== 0) {
             drawGlyph(context, glyph, width, height);
         }
+    }
+
+    for (const tie of scene.ties ?? []) {
+        drawTie(context, tie, width, height, staffSpace);
     }
 
     for (const note of scene.notes) {
@@ -628,6 +639,70 @@ function drawBeam(context, beam, width, height, staffSpace) {
         context.lineTo(x1, y1 + yOffset);
         context.stroke();
     }
+}
+
+function drawTie(context, tie, width, height, staffSpace) {
+    const noteCenterX0 = mapX(tie.x0, width);
+    const noteCenterX1 = mapX(tie.x1, width);
+    const horizontalDirection = noteCenterX1 >= noteCenterX0 ? 1 : -1;
+    const requestedStartInset = isScoreEdgeX(tie.x0)
+        ? 0
+        : staffSpace * tieEndpointInsetInStaffSpaces;
+    const requestedEndInset = isScoreEdgeX(tie.x1)
+        ? 0
+        : staffSpace * tieEndpointInsetInStaffSpaces;
+    const centerSpan = Math.abs(noteCenterX1 - noteCenterX0);
+    const minimumVisibleLength = Math.min(
+        centerSpan,
+        staffSpace * tieMinimumVisibleLengthInStaffSpaces);
+    const availableInset = Math.max(0, centerSpan - minimumVisibleLength);
+    const requestedInset = requestedStartInset + requestedEndInset;
+    const insetScale = requestedInset > 0
+        ? Math.min(1, availableInset / requestedInset)
+        : 0;
+    const x0 = noteCenterX0 + (horizontalDirection * requestedStartInset * insetScale);
+    const x1 = noteCenterX1 - (horizontalDirection * requestedEndInset * insetScale);
+    const curveDirection = tie.curveDirection === 0 ? -1 : 1;
+    const tipBias = curveDirection * staffSpace * tieTipBiasInStaffSpaces;
+    const y0 = mapY(tie.y0, height) + tipBias;
+    const y1 = mapY(tie.y1, height) + tipBias;
+    const lengthInStaffSpaces = Math.hypot(x1 - x0, y1 - y0) / staffSpace;
+    const heightInStaffSpaces = Math.min(
+        tieMaximumHeightInStaffSpaces,
+        Math.max(tieMinimumHeightInStaffSpaces, lengthInStaffSpaces * tieHeightToLengthRatio));
+    const controlHeight = curveDirection * staffSpace * heightInStaffSpaces * 4 / 3;
+    const controlX1 = x0 + ((x1 - x0) / 3);
+    const controlX2 = x0 + ((x1 - x0) * 2 / 3);
+    const centerControlY1 = y0 + ((y1 - y0) / 3) + controlHeight;
+    const centerControlY2 = y0 + ((y1 - y0) * 2 / 3) + controlHeight;
+    const thicknessControlOffset = curveDirection
+        * staffSpace
+        * tieCenterThicknessInStaffSpaces
+        * 2 / 3;
+    context.fillStyle = tie.isActive ? "#22d3ee" : "#fbbf24";
+    context.beginPath();
+    context.moveTo(x0, y0);
+    context.bezierCurveTo(
+        controlX1,
+        centerControlY1 + thicknessControlOffset,
+        controlX2,
+        centerControlY2 + thicknessControlOffset,
+        x1,
+        y1);
+    context.bezierCurveTo(
+        controlX2,
+        centerControlY2 - thicknessControlOffset,
+        controlX1,
+        centerControlY1 - thicknessControlOffset,
+        x0,
+        y0);
+    context.closePath();
+    context.fill();
+}
+
+function isScoreEdgeX(x) {
+    return Math.abs(x - scoreCursorX0) < Number.EPSILON
+        || Math.abs(x - scoreCursorX1) < Number.EPSILON;
 }
 
 function mapX(value, width) {

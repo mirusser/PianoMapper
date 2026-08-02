@@ -394,6 +394,61 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
+    public void GrandStaffScene_WithoutTies_ReturnsEmptyTieCollection()
+    {
+        var scene = new GrandStaffScene([], [], []);
+
+        Assert.Empty(scene.Ties);
+    }
+
+    [Fact]
+    public void GrandStaffScene_WithFullTieAndEdgeStub_PreservesTiePrimitives()
+    {
+        GrandStaffTie[] ties =
+        [
+            new(-0.4, 0.2, -0.1, 0.2, StemDirection.Down, IsActive: false),
+            new(GrandStaffLayout.ScoreX0, 0.2, -0.45, 0.2, StemDirection.Down, IsActive: true),
+        ];
+
+        var scene = new GrandStaffScene([], [], []) { Ties = ties };
+
+        Assert.Equal(ties, scene.Ties);
+        Assert.Empty(scene.Lines);
+    }
+
+    [Fact]
+    public void FitToSelectedOctave_TieCoordinates_TransformsYAndPreservesX()
+    {
+        var tie = new GrandStaffTie(-0.4, 5, 0.4, 5, StemDirection.Down, IsActive: true);
+        var scene = new GrandStaffScene(
+            [new GrandStaffLine(-1, -0.5, 1, 0.5, GrandStaffLineKind.Staff)],
+            [],
+            [])
+        {
+            Ties = [tie],
+        };
+
+        var fittedScene = GrandStaffSceneBuilder.FitToSelectedOctave(scene, selectedOctave: 4);
+
+        var fittedTie = Assert.Single(fittedScene.Ties);
+        Assert.Equal(tie.X0, fittedTie.X0);
+        Assert.Equal(tie.X1, fittedTie.X1);
+        Assert.NotEqual(tie.Y0, fittedTie.Y0);
+        Assert.InRange(fittedTie.Y0, -1, 1);
+        Assert.InRange(fittedTie.Y1, -1, 1);
+    }
+
+    [Fact]
+    public void Build_ScenesWithoutTieInput_ReturnEmptyTieCollections()
+    {
+        var liveScene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero);
+        var scoreScene = GrandStaffSceneBuilder.BuildScore(CreateScore(measureCount: 1), firstVisibleMeasure: 0);
+
+        Assert.Empty(liveScene.Ties);
+        Assert.Empty(scoreScene.Ties);
+    }
+
+    [Fact]
     public void Build_EmptyTimeline_PositionsBassClefForFLineAlignment()
     {
         var scene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero);
@@ -506,6 +561,211 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.True(marker.DurationEndX > marker.X);
     }
 
+    [Fact]
+    public void Build_ReleasedNoteCrossingBarline_ReturnsCompletedHeadsAndFullTie()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        var timeline = new NoteTimeline();
+        var note = timeline.Start(
+            new Pitch(NoteLetter.E, 0, 4),
+            MusicalTime.BeatsToDuration(3, tempo));
+        TimeSpan releaseTime = MusicalTime.BeatsToDuration(5, tempo);
+        timeline.Complete(note, releaseTime);
+
+        var scene = GrandStaffSceneBuilder.Build([note], releaseTime, signature, tempo);
+
+        Assert.Equal(2, scene.Notes.Count);
+        Assert.All(scene.Notes, renderedNote => Assert.False(renderedNote.IsActive));
+        double barlineX = GrandStaffLayout.MapAbsoluteBeatToScoreX(4, signature, firstVisibleMeasure: 0);
+        Assert.True(scene.Notes[0].X < barlineX);
+        Assert.True(scene.Notes[1].X > barlineX);
+        var tie = Assert.Single(scene.Ties);
+        Assert.Equal(scene.Notes[0].X, tie.X0);
+        Assert.Equal(scene.Notes[1].X, tie.X1);
+        Assert.False(tie.IsActive);
+    }
+
+    [Fact]
+    public void Build_ActiveNoteCrossingBarline_ReturnsClosedEarlierHeadAndActiveTail()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        var note = new PerformedNote
+        {
+            Pitch = new Pitch(NoteLetter.E, 0, 4),
+            StartTime = MusicalTime.BeatsToDuration(3, tempo),
+        };
+        TimeSpan currentTime = MusicalTime.BeatsToDuration(5, tempo);
+
+        var scene = GrandStaffSceneBuilder.Build([note], currentTime, signature, tempo);
+
+        Assert.Equal(2, scene.Notes.Count);
+        Assert.False(scene.Notes[0].IsActive);
+        Assert.True(scene.Notes[0].HasStem);
+        Assert.Null(scene.Notes[0].DurationEndX);
+        Assert.True(scene.Notes[1].IsActive);
+        Assert.NotNull(scene.Notes[1].DurationEndX);
+        Assert.True(scene.Notes[1].DurationEndX > scene.Notes[1].X);
+        Assert.True(Assert.Single(scene.Ties).IsActive);
+    }
+
+    [Fact]
+    public void Build_ThreeNoteChordCrossingBarline_DistributesTieDirectionsAwayFromChordCenter()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        TimeSpan startTime = MusicalTime.BeatsToDuration(3, tempo);
+        TimeSpan releaseTime = MusicalTime.BeatsToDuration(5, tempo);
+        var timeline = new NoteTimeline();
+        PerformedNote[] notes =
+        [
+            timeline.Start(new Pitch(NoteLetter.E, 0, 4), startTime),
+            timeline.Start(new Pitch(NoteLetter.D, 0, 4), startTime),
+            timeline.Start(new Pitch(NoteLetter.C, 0, 4), startTime),
+        ];
+        foreach (var note in notes)
+        {
+            timeline.Complete(note, releaseTime);
+        }
+
+        var scene = GrandStaffSceneBuilder.Build(notes, releaseTime, signature, tempo);
+
+        StemDirection[] directions = scene.Ties
+            .OrderByDescending(tie => tie.Y0)
+            .Select(tie => tie.CurveDirection)
+            .ToArray();
+        Assert.Equal(
+            [StemDirection.Up, StemDirection.Down, StemDirection.Down],
+            directions);
+    }
+
+    [Fact]
+    public void Build_ActiveContinuationAfterRollover_ReturnsIncomingStubInsideScoreArea()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        var note = new PerformedNote
+        {
+            Pitch = new Pitch(NoteLetter.F, 1, 4),
+            StartTime = MusicalTime.BeatsToDuration(19, tempo),
+        };
+        TimeSpan currentTime = MusicalTime.BeatsToDuration(21, tempo);
+
+        var scene = GrandStaffSceneBuilder.Build([note], currentTime, signature, tempo);
+
+        var continuation = Assert.Single(scene.Notes);
+        Assert.True(continuation.IsActive);
+        Assert.True(continuation.X > GrandStaffLayout.ScoreX0);
+        Assert.DoesNotContain(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Accidental);
+        var stub = Assert.Single(scene.Ties);
+        Assert.Equal(GrandStaffLayout.ScoreX0, stub.X0);
+        Assert.Equal(continuation.X, stub.X1);
+        Assert.True(stub.X0 >= GrandStaffLayout.ScoreX0);
+    }
+
+    [Fact]
+    public void Build_ReleasedContinuationAfterRollover_ReturnsCompletedHeadAtSamePosition()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        var timeline = new NoteTimeline();
+        var note = timeline.Start(
+            new Pitch(NoteLetter.E, 0, 4),
+            MusicalTime.BeatsToDuration(19, tempo));
+        TimeSpan releaseTime = MusicalTime.BeatsToDuration(21, tempo);
+
+        var activeScene = GrandStaffSceneBuilder.Build([note], releaseTime, signature, tempo);
+        timeline.Complete(note, releaseTime);
+        var releasedScene = GrandStaffSceneBuilder.Build([note], releaseTime, signature, tempo);
+
+        var activeContinuation = Assert.Single(activeScene.Notes);
+        var releasedContinuation = Assert.Single(releasedScene.Notes);
+        Assert.Equal(activeContinuation.X, releasedContinuation.X);
+        Assert.False(releasedContinuation.IsActive);
+        Assert.Null(releasedContinuation.DurationEndX);
+        Assert.False(Assert.Single(releasedScene.Ties).IsActive);
+    }
+
+    [Fact]
+    public void Build_NoteReleasedExactlyOnBarline_ReturnsOneHeadWithoutTie()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        var timeline = new NoteTimeline();
+        var note = timeline.Start(
+            new Pitch(NoteLetter.E, 0, 4),
+            MusicalTime.BeatsToDuration(3, tempo));
+        TimeSpan releaseTime = MusicalTime.BeatsToDuration(4, tempo);
+        timeline.Complete(note, releaseTime);
+
+        var scene = GrandStaffSceneBuilder.Build([note], releaseTime, signature, tempo);
+
+        Assert.Single(scene.Notes);
+        Assert.Empty(scene.Ties);
+    }
+
+    [Fact]
+    public void Build_TiedAccidentalPitch_ReturnsAccidentalOnlyAtAttack()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        var timeline = new NoteTimeline();
+        var note = timeline.Start(
+            new Pitch(NoteLetter.F, 1, 4),
+            MusicalTime.BeatsToDuration(3, tempo));
+        TimeSpan releaseTime = MusicalTime.BeatsToDuration(5, tempo);
+        timeline.Complete(note, releaseTime);
+
+        var scene = GrandStaffSceneBuilder.Build([note], releaseTime, signature, tempo);
+
+        Assert.Equal(2, scene.Notes.Count);
+        var accidental = Assert.Single(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Accidental);
+        Assert.True(accidental.X < scene.Notes[0].X);
+    }
+
+    [Fact]
+    public void Build_ThreeBeatFragment_ReturnsDottedHalfNotation()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        var timeline = new NoteTimeline();
+        var note = timeline.Start(new Pitch(NoteLetter.E, 0, 4), TimeSpan.Zero);
+        TimeSpan releaseTime = MusicalTime.BeatsToDuration(3, tempo);
+        timeline.Complete(note, releaseTime);
+
+        var renderedNote = Assert.Single(
+            GrandStaffSceneBuilder.Build([note], releaseTime, signature, tempo).Notes);
+
+        Assert.True(renderedNote.HasDot);
+        Assert.False(renderedNote.IsFilled);
+        Assert.True(renderedNote.HasStem);
+        Assert.Equal(0, renderedNote.FlagCount);
+    }
+
+    [Fact]
+    public void Build_TiedNoteWithSelectedOctave_FitsTieYAndPreservesTieX()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        var timeline = new NoteTimeline();
+        var note = timeline.Start(
+            new Pitch(NoteLetter.E, 0, 4),
+            MusicalTime.BeatsToDuration(3, tempo));
+        TimeSpan releaseTime = MusicalTime.BeatsToDuration(5, tempo);
+        timeline.Complete(note, releaseTime);
+
+        var originalTie = Assert.Single(
+            GrandStaffSceneBuilder.Build([note], releaseTime, signature, tempo).Ties);
+        var fittedTie = Assert.Single(
+            GrandStaffSceneBuilder.Build([note], releaseTime, signature, tempo, selectedOctave: 4).Ties);
+
+        Assert.Equal(originalTie.X0, fittedTie.X0);
+        Assert.Equal(originalTie.X1, fittedTie.X1);
+        Assert.InRange(fittedTie.Y0, -1, 1);
+        Assert.InRange(fittedTie.Y1, -1, 1);
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(4)]
@@ -562,15 +822,15 @@ public sealed class GrandStaffSceneBuilderTests
     [InlineData(0.46, true, true, 0)]
     [InlineData(0.25, true, true, 1)]
     [InlineData(0.125, true, true, 2)]
-    public void Build_ReleasedRhythmicValue_ReturnsStandardNotation(
+    public void Build_ReleasedRhythmicValueWithinMeasure_ReturnsStandardNotation(
         double durationSeconds,
         bool expectedIsFilled,
         bool expectedHasStem,
         int expectedFlagCount)
     {
         var timeline = new NoteTimeline();
-        var note = timeline.Start(new Pitch(NoteLetter.E, 0, 4), TimeSpan.FromSeconds(1));
-        timeline.Complete(note, TimeSpan.FromSeconds(1 + durationSeconds));
+        var note = timeline.Start(new Pitch(NoteLetter.E, 0, 4), TimeSpan.Zero);
+        timeline.Complete(note, TimeSpan.FromSeconds(durationSeconds));
 
         var scene = GrandStaffSceneBuilder.Build(
             [note],

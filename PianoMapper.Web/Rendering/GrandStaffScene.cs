@@ -9,4 +9,6 @@ public sealed record GrandStaffScene(
     public PianoCanvasSceneKind Kind => PianoCanvasSceneKind.GrandStaff;
 
     public IReadOnlyList<GrandStaffBeam> Beams { get; init; } = [];
+
+    public IReadOnlyList<GrandStaffTie> Ties { get; init; } = [];
 }

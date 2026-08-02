@@ -4,6 +4,8 @@ namespace PianoMapper.Rendering;
 
 public static class GrandStaffLayout
 {
+    private const double BeatComparisonTolerance = 0.000000001;
+
     public const float DiatonicStep = 0.045f;
     public const float MiddleCY = (PianoRollLayout.BandY0 + PianoRollLayout.BandY1) / 2f;
     public const float ScoreX0 = -0.56f;
@@ -59,23 +61,64 @@ public static class GrandStaffLayout
         TimeSignature timeSignature,
         Tempo tempo)
     {
+        var segments = GetLiveNoteSegmentLayouts(
+            pitch,
+            startTime,
+            endTime,
+            currentTime,
+            timeSignature,
+            tempo);
+        if (segments.Count == 0)
+        {
+            return null;
+        }
+
+        return new LiveNoteLayout(
+            segments[0].X,
+            segments[^1].DurationEndX,
+            segments[0].Position);
+    }
+
+    public static IReadOnlyList<LiveNoteSegmentLayout> GetLiveNoteSegmentLayouts(
+        Pitch pitch,
+        TimeSpan startTime,
+        TimeSpan endTime,
+        TimeSpan currentTime,
+        TimeSignature timeSignature,
+        Tempo tempo)
+    {
         int firstVisibleMeasure = GetLiveFirstVisibleMeasure(currentTime, timeSignature, tempo);
         double windowStartBeat = firstVisibleMeasure * timeSignature.Numerator;
         double windowEndBeat = (firstVisibleMeasure + VisibleMeasureCount) * timeSignature.Numerator;
         double startBeat = MusicalTime.DurationToBeats(startTime, tempo);
         double endBeat = Math.Max(startBeat, MusicalTime.DurationToBeats(endTime, tempo));
-        if (endBeat <= windowStartBeat || startBeat >= windowEndBeat)
+        double visibleStartBeat = Math.Max(startBeat, windowStartBeat);
+        double visibleEndBeat = Math.Min(endBeat, windowEndBeat);
+        if (visibleEndBeat - visibleStartBeat <= BeatComparisonTolerance)
         {
-            return null;
+            return [];
         }
 
-        float visibleStartX = Math.Max(
-            ScoreX0,
-            MapAbsoluteBeatToScoreX(startBeat, timeSignature, firstVisibleMeasure));
-        return new LiveNoteLayout(
-            visibleStartX,
-            MapAbsoluteBeatToScoreX(endBeat, timeSignature, firstVisibleMeasure),
-            GetLivePosition(pitch));
+        var position = GetLivePosition(pitch);
+        var segments = new List<LiveNoteSegmentLayout>();
+        double segmentStartBeat = visibleStartBeat;
+        while (visibleEndBeat - segmentStartBeat > BeatComparisonTolerance)
+        {
+            int measureIndex = (int)Math.Floor(segmentStartBeat / timeSignature.Numerator);
+            double measureEndBeat = (measureIndex + 1) * timeSignature.Numerator;
+            double segmentEndBeat = Math.Min(visibleEndBeat, measureEndBeat);
+            segments.Add(new LiveNoteSegmentLayout(
+                MapAbsoluteBeatToScoreX(segmentStartBeat, timeSignature, firstVisibleMeasure),
+                MapAbsoluteBeatToScoreX(segmentEndBeat, timeSignature, firstVisibleMeasure),
+                segmentStartBeat,
+                segmentEndBeat,
+                position,
+                HasIncomingTie: startBeat < segmentStartBeat - BeatComparisonTolerance,
+                HasOutgoingTie: endBeat > segmentEndBeat + BeatComparisonTolerance));
+            segmentStartBeat = segmentEndBeat;
+        }
+
+        return segments;
     }
 
     public static IReadOnlyList<GridLine> GetLiveMeasureGridLines(

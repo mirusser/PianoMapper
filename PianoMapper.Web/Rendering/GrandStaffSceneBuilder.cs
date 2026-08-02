@@ -33,6 +33,11 @@ internal static class GrandStaffSceneBuilder
         new(4),
         new(8),
         new(16),
+        new(1, 1),
+        new(2, 1),
+        new(4, 1),
+        new(8, 1),
+        new(16, 1),
     ];
     private static readonly int[] trebleSharpOffsets = [8, 5, 9, 6, 3, 7, 4];
     private static readonly int[] bassSharpOffsets = [6, 3, 7, 4, 8, 5, 9];
@@ -293,69 +298,157 @@ internal static class GrandStaffSceneBuilder
         AddLiveMeasureGrid(lines, currentTime, timeSignature, tempo);
 
         var renderedNotes = new List<GrandStaffNote>(notes.Count);
+        var ties = new List<GrandStaffTie>();
+        int firstVisibleMeasure = GrandStaffLayout.GetLiveFirstVisibleMeasure(currentTime, timeSignature, tempo);
         foreach (var note in notes)
         {
             TimeSpan endTime = note.ReleaseTime ?? currentTime;
-            var layout = GrandStaffLayout.GetLiveNoteLayout(
+            var segments = GrandStaffLayout.GetLiveNoteSegmentLayouts(
                 note.Pitch,
                 note.StartTime,
                 endTime,
                 currentTime,
                 timeSignature,
                 tempo);
-            if (!layout.HasValue)
+            if (segments.Count == 0)
             {
                 continue;
             }
 
-            var position = layout.Value.Position;
+            var position = segments[0].Position;
             double noteY = SeparateStaffY(position.Y, position.Staff);
-            double durationSeconds = Math.Max(0, endTime.TotalSeconds - note.StartTime.TotalSeconds);
-            bool isActive = note.ReleaseTime is null;
-            NoteValue? noteValue = isActive
-                ? null
-                : GetNearestLiveNoteValue(TimeSpan.FromSeconds(durationSeconds), timeSignature, tempo);
-            bool isFilled = !noteValue.HasValue || noteValue.Value.Denominator >= 4;
-            bool hasStem = noteValue.HasValue && noteValue.Value.Denominator != 1;
-            int flagCount = noteValue?.Denominator switch
-            {
-                8 => 1,
-                16 => 2,
-                _ => 0,
-            };
             var stemDirection = GrandStaffLayout.GetStemDirection(position);
-            renderedNotes.Add(new GrandStaffNote(
-                note.Pitch.ToString(),
-                layout.Value.X,
-                noteY,
-                durationSeconds,
-                IsActive: isActive,
-                IsFilled: isFilled,
-                HasStem: hasStem,
-                StemDirection: stemDirection,
-                FlagCount: flagCount,
-                DurationEndX: isActive ? layout.Value.DurationEndX : null));
-            lines.AddRange(position.LedgerLineYs.Select(
-                y => new GrandStaffLine(
-                    layout.Value.X - LedgerLineHalfWidth,
-                    SeparateStaffY(y, position.Staff),
-                    layout.Value.X + LedgerLineHalfWidth,
-                    SeparateStaffY(y, position.Staff),
-                    GrandStaffLineKind.Ledger)));
-            if (position.NeedsAccidental)
+            var tieCurveDirection = stemDirection == StemDirection.Up
+                ? StemDirection.Down
+                : StemDirection.Up;
+            bool isPerformedNoteActive = note.ReleaseTime is null;
+            double? previousNoteX = null;
+            for (int segmentIndex = 0; segmentIndex < segments.Count; segmentIndex++)
             {
-                glyphs.Add(new GrandStaffGlyph(
-                    GetAccidentalGlyph(note.Pitch.Alter),
-                    layout.Value.X - 0.055,
+                LiveNoteSegmentLayout segment = segments[segmentIndex];
+                int measureIndex = (int)Math.Floor(segment.StartBeat / timeSignature.Numerator);
+                float measureStartX = GrandStaffLayout.MapScoreOnsetToX(
+                    measureIndex,
+                    beatOffset: 0,
+                    timeSignature,
+                    firstVisibleMeasure);
+                float measureEndX = GrandStaffLayout.MapScoreOnsetToX(
+                    measureIndex + 1,
+                    beatOffset: 0,
+                    timeSignature,
+                    firstVisibleMeasure);
+                double renderedX = Math.Clamp(
+                    segment.X,
+                    measureStartX + MeasureEdgeNoteClearance,
+                    measureEndX - MeasureEdgeNoteClearance);
+                TimeSpan segmentDuration = MusicalTime.BeatsToDuration(segment.EndBeat - segment.StartBeat, tempo);
+                bool isActiveSegment = isPerformedNoteActive && segmentIndex == segments.Count - 1;
+                NoteValue? noteValue = isActiveSegment
+                    ? null
+                    : GetNearestLiveNoteValue(segmentDuration, timeSignature, tempo);
+                bool isFilled = !noteValue.HasValue || noteValue.Value.Denominator >= 4;
+                bool hasStem = noteValue.HasValue && noteValue.Value.Denominator != 1;
+                int flagCount = noteValue?.Denominator switch
+                {
+                    8 => 1,
+                    16 => 2,
+                    _ => 0,
+                };
+                renderedNotes.Add(new GrandStaffNote(
+                    note.Pitch.ToString(),
+                    renderedX,
                     noteY,
-                    GrandStaffGlyphKind.Accidental));
+                    segmentDuration.TotalSeconds,
+                    IsActive: isActiveSegment,
+                    IsFilled: isFilled,
+                    HasStem: hasStem,
+                    StemDirection: stemDirection,
+                    HasDot: noteValue?.Dots > 0,
+                    FlagCount: flagCount,
+                    DurationEndX: isActiveSegment ? Math.Max(renderedX, segment.DurationEndX) : null));
+                lines.AddRange(position.LedgerLineYs.Select(
+                    y => new GrandStaffLine(
+                        renderedX - LedgerLineHalfWidth,
+                        SeparateStaffY(y, position.Staff),
+                        renderedX + LedgerLineHalfWidth,
+                        SeparateStaffY(y, position.Staff),
+                        GrandStaffLineKind.Ledger)));
+                if (position.NeedsAccidental && !segment.HasIncomingTie)
+                {
+                    glyphs.Add(new GrandStaffGlyph(
+                        GetAccidentalGlyph(note.Pitch.Alter),
+                        renderedX - 0.055,
+                        noteY,
+                        GrandStaffGlyphKind.Accidental));
+                }
+
+                if (segment.HasIncomingTie)
+                {
+                    ties.Add(new GrandStaffTie(
+                        previousNoteX ?? GrandStaffLayout.ScoreX0,
+                        noteY,
+                        renderedX,
+                        noteY,
+                        tieCurveDirection,
+                        isPerformedNoteActive));
+                }
+
+                if (segmentIndex == segments.Count - 1 && segment.HasOutgoingTie)
+                {
+                    ties.Add(new GrandStaffTie(
+                        renderedX,
+                        noteY,
+                        GrandStaffLayout.ScoreX1,
+                        noteY,
+                        tieCurveDirection,
+                        isPerformedNoteActive));
+                }
+
+                previousNoteX = renderedX;
             }
         }
 
-        var scene = new GrandStaffScene(lines, glyphs, renderedNotes, ShouldClipNotesAtClefs: true);
+        DistributeChordTieDirections(ties);
+
+        var scene = new GrandStaffScene(lines, glyphs, renderedNotes, ShouldClipNotesAtClefs: true)
+        {
+            Ties = ties,
+        };
         return selectedOctave.HasValue
             ? FitToSelectedOctave(scene, selectedOctave.Value)
             : scene;
+    }
+
+    private static void DistributeChordTieDirections(List<GrandStaffTie> ties)
+    {
+        var indexedTies = ties.Select((tie, index) => (Tie: tie, Index: index));
+        foreach (var chord in indexedTies.GroupBy(item => (item.Tie.X0, item.Tie.X1)))
+        {
+            var orderedTies = chord
+                .OrderByDescending(item => item.Tie.Y0)
+                .ToArray();
+            if (orderedTies.Length < 2)
+            {
+                continue;
+            }
+
+            int upTieCount = orderedTies.Length / 2;
+            if (orderedTies.Length % 2 != 0
+                && orderedTies.Count(item => item.Tie.CurveDirection == StemDirection.Up)
+                    > orderedTies.Length / 2)
+            {
+                upTieCount++;
+            }
+
+            for (int tieIndex = 0; tieIndex < orderedTies.Length; tieIndex++)
+            {
+                var indexedTie = orderedTies[tieIndex];
+                StemDirection direction = tieIndex < upTieCount
+                    ? StemDirection.Up
+                    : StemDirection.Down;
+                ties[indexedTie.Index] = indexedTie.Tie with { CurveDirection = direction };
+            }
+        }
     }
 
     // These two templates depend on no per-call inputs at all (no score, no notes, no time) —
@@ -580,7 +673,7 @@ internal static class GrandStaffSceneBuilder
         }
     }
 
-    private static GrandStaffScene FitToSelectedOctave(GrandStaffScene scene, int selectedOctave)
+    internal static GrandStaffScene FitToSelectedOctave(GrandStaffScene scene, int selectedOctave)
     {
         var yValues = new List<double>();
         foreach (var line in scene.Lines)
@@ -591,6 +684,12 @@ internal static class GrandStaffSceneBuilder
 
         yValues.AddRange(scene.Glyphs.Select(glyph => glyph.Y));
         yValues.AddRange(scene.Notes.Select(note => note.Y));
+        foreach (var tie in scene.Ties)
+        {
+            yValues.Add(tie.Y0);
+            yValues.Add(tie.Y1);
+        }
+
         for (int octave = selectedOctave; octave <= selectedOctave + 1; octave++)
         {
             var position = GrandStaffLayout.GetLivePosition(new Pitch(NoteLetter.C, 0, octave));
@@ -620,6 +719,7 @@ internal static class GrandStaffSceneBuilder
             scene.ShouldClipNotesAtClefs)
         {
             Beams = scene.Beams.Select(beam => beam with { Y0 = MapY(beam.Y0), Y1 = MapY(beam.Y1) }).ToArray(),
+            Ties = scene.Ties.Select(tie => tie with { Y0 = MapY(tie.Y0), Y1 = MapY(tie.Y1) }).ToArray(),
         };
     }
 
