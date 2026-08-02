@@ -67,9 +67,81 @@ public sealed class GrandStaffSceneBuilderTests
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
-        Assert.Equal(4, scene.Glyphs.Count(glyph => glyph.Kind == GrandStaffGlyphKind.KeySignature));
-        Assert.Equal(4, scene.Glyphs.Count(glyph => glyph.Kind == GrandStaffGlyphKind.TimeSignature));
+        var keySignatureGlyphs = scene.Glyphs
+            .Where(glyph => glyph.Kind == GrandStaffGlyphKind.KeySignature)
+            .ToArray();
+        var timeSignatureGlyphs = scene.Glyphs
+            .Where(glyph => glyph.Kind == GrandStaffGlyphKind.TimeSignature)
+            .ToArray();
+        double expectedKeySignatureHeight =
+            2 * (GrandStaffLayout.TrebleLineYs[1] - GrandStaffLayout.TrebleLineYs[0]);
+        double expectedTimeSignatureHeight =
+            2 * (GrandStaffLayout.TrebleLineYs[1] - GrandStaffLayout.TrebleLineYs[0]);
+        double expectedTimeSignatureX = keySignatureGlyphs.Max(glyph => glyph.X) + 0.08;
+
+        Assert.Equal(4, keySignatureGlyphs.Length);
+        Assert.All(keySignatureGlyphs, glyph =>
+        {
+            Assert.True(glyph.Height.HasValue);
+            Assert.Equal(expectedKeySignatureHeight, glyph.Height.Value, precision: 6);
+        });
+        Assert.Equal(4, timeSignatureGlyphs.Length);
+        Assert.All(timeSignatureGlyphs, glyph =>
+        {
+            Assert.True(glyph.Height.HasValue);
+            Assert.Equal(expectedTimeSignatureHeight, glyph.Height.Value, precision: 6);
+            Assert.Equal(expectedTimeSignatureX, glyph.X, precision: 6);
+        });
         Assert.DoesNotContain(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Accidental);
+    }
+
+    [Fact]
+    public void BuildScore_NotesAtMeasureStarts_PositionsAfterBarlines()
+    {
+        var score = new Score(
+            "test",
+            new TimeSignature(6, new NoteValue(8)),
+            new Tempo(120),
+            2,
+            [
+                new ScoreMeasure(
+                    [new ScoreNote(new Pitch(NoteLetter.D, 0, 4), new NoteValue(8), 0, 0, Staff.Treble)],
+                    []),
+                new ScoreMeasure(
+                    [new ScoreNote(new Pitch(NoteLetter.C, 1, 5), new NoteValue(8), 1, 0, Staff.Treble)],
+                    []),
+            ]);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        var barlineXs = scene.Lines
+            .Where(line => line.Kind == GrandStaffLineKind.Barline)
+            .Select(line => line.X0)
+            .ToArray();
+        double finalBoundaryX = GrandStaffLayout.GetScoreBarlineXs(0, score.Measures.Count)[^1];
+        Assert.Equal(2, scene.Notes.Count);
+        Assert.All(scene.Notes, note =>
+        {
+            double precedingBarlineX = barlineXs.Where(x => x <= note.X).Max();
+            Assert.Equal(0.02, note.X - precedingBarlineX, precision: 6);
+        });
+        Assert.Contains(barlineXs, x => Math.Abs(x - finalBoundaryX) < 1e-6);
+    }
+
+    [Fact]
+    public void BuildScore_WithoutKeySignature_PreservesTimeSignatureClearanceBeforeOpeningBarline()
+    {
+        var score = CreateScore(measureCount: 1);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        double timeSignatureX = scene.Glyphs
+            .First(glyph => glyph.Kind == GrandStaffGlyphKind.TimeSignature)
+            .X;
+        double openingBarlineX = scene.Lines
+            .Where(line => line.Kind == GrandStaffLineKind.Barline && line.X0 < GrandStaffLayout.ScoreX0)
+            .Max(line => line.X0);
+        Assert.Equal(0.03, openingBarlineX - timeSignatureX, precision: 6);
     }
 
     [Fact]

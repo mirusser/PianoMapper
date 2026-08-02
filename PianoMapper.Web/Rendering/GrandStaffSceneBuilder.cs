@@ -13,7 +13,9 @@ internal static class GrandStaffSceneBuilder
     private const double ClefX = -0.87;
     private const double KeySignatureX0 = -0.78;
     private const double KeySignatureXSpacing = 0.025;
+    private const double TimeSignatureGapAfterKeySignature = 0.08;
     private const double TimeSignatureX = -0.59;
+    private const double MeasureStartBarlineLead = 0.02;
     private const double LedgerLineHalfWidth = 0.065;
     private const double StemLength = GrandStaffLayout.DiatonicStep * 6;
     private const double StaffSeparationOffset = GrandStaffLayout.DiatonicStep;
@@ -21,6 +23,8 @@ internal static class GrandStaffSceneBuilder
     private const double ViewY1 = 0.9;
     private const int TrebleClefHeightInStaffSpaces = 7;
     private const int BassClefHeightInStaffSpaces = 3;
+    private const int KeySignatureHeightInStaffSpaces = 2;
+    private const int TimeSignatureHeightInStaffSpaces = 2;
     private static readonly NoteValue[] supportedLiveNoteValues =
     [
         new(1),
@@ -82,7 +86,18 @@ internal static class GrandStaffSceneBuilder
         var (barlineY0, barlineY1) = GetCursorLineYBounds();
         lines.AddRange(GrandStaffLayout.GetScoreBarlineXs(clampedMeasure, score.Measures.Count)
             .Where(x => x < GrandStaffLayout.ScoreX1)
-            .Select(x => new GrandStaffLine(x, barlineY0, x, barlineY1, GrandStaffLineKind.Barline)));
+            .Select((x, boundary) =>
+            {
+                double barlineX = clampedMeasure + boundary < score.Measures.Count
+                    ? x - MeasureStartBarlineLead
+                    : x;
+                return new GrandStaffLine(
+                    barlineX,
+                    barlineY0,
+                    barlineX,
+                    barlineY1,
+                    GrandStaffLineKind.Barline);
+            }));
 
         var visibleNotes = new List<(ScoreNote Note, ScoreNoteLayout Layout)>();
         foreach (var note in score.Measures.SelectMany(measure => measure.Notes))
@@ -256,7 +271,7 @@ internal static class GrandStaffSceneBuilder
     {
         var lines = CreateStaffLines();
         var glyphs = CreateClefGlyphs();
-        AddTimeSignatureGlyphs(glyphs, timeSignature);
+        AddTimeSignatureGlyphs(glyphs, timeSignature, TimeSignatureX);
         AddLiveMeasureGrid(lines, currentTime, timeSignature, tempo);
 
         var renderedNotes = new List<GrandStaffNote>(notes.Count);
@@ -481,7 +496,13 @@ internal static class GrandStaffSceneBuilder
     private static void AddScoreSignatures(ICollection<GrandStaffGlyph> glyphs, Score score)
     {
         AddKeySignatureGlyphs(glyphs, score.KeyFifths);
-        AddTimeSignatureGlyphs(glyphs, score.TimeSignature);
+        int accidentalCount = Math.Abs(score.KeyFifths);
+        double timeSignatureX = accidentalCount == 0
+            ? TimeSignatureX - MeasureStartBarlineLead
+            : KeySignatureX0
+                + ((accidentalCount - 1) * KeySignatureXSpacing)
+                + TimeSignatureGapAfterKeySignature;
+        AddTimeSignatureGlyphs(glyphs, score.TimeSignature, timeSignatureX);
     }
 
     private static void AddKeySignatureGlyphs(ICollection<GrandStaffGlyph> glyphs, int keyFifths)
@@ -511,28 +532,33 @@ internal static class GrandStaffSceneBuilder
                     isSharp ? "♯" : "♭",
                     KeySignatureX0 + (index * KeySignatureXSpacing),
                     SeparateStaffY(bottomLineY + (offsets[index] * GrandStaffLayout.DiatonicStep), staff),
-                    GrandStaffGlyphKind.KeySignature));
+                    GrandStaffGlyphKind.KeySignature,
+                    KeySignatureHeightInStaffSpaces
+                        * (GrandStaffLayout.TrebleLineYs[1] - GrandStaffLayout.TrebleLineYs[0])));
             }
         }
     }
 
     private static void AddTimeSignatureGlyphs(
         ICollection<GrandStaffGlyph> glyphs,
-        TimeSignature timeSignature)
+        TimeSignature timeSignature,
+        double x)
     {
         foreach (Staff staff in signatureStaves)
         {
             var staffLines = staff == Staff.Treble ? GrandStaffLayout.TrebleLineYs : GrandStaffLayout.BassLineYs;
             glyphs.Add(new GrandStaffGlyph(
                 timeSignature.Numerator.ToString(CultureInfo.InvariantCulture),
-                TimeSignatureX,
+                x,
                 SeparateStaffY(staffLines[3], staff),
-                GrandStaffGlyphKind.TimeSignature));
+                GrandStaffGlyphKind.TimeSignature,
+                TimeSignatureHeightInStaffSpaces * (staffLines[1] - staffLines[0])));
             glyphs.Add(new GrandStaffGlyph(
                 timeSignature.BeatNoteValue.Denominator.ToString(CultureInfo.InvariantCulture),
-                TimeSignatureX,
+                x,
                 SeparateStaffY(staffLines[1], staff),
-                GrandStaffGlyphKind.TimeSignature));
+                GrandStaffGlyphKind.TimeSignature,
+                TimeSignatureHeightInStaffSpaces * (staffLines[1] - staffLines[0])));
         }
     }
 

@@ -505,7 +505,7 @@ function drawGlyph(context, glyph, width, height) {
     context.textAlign = "center";
     const x = mapX(glyph.x, width);
     const y = mapY(glyph.y, height);
-    if (glyph.kind === 0 && glyph.height > 0) {
+    if (glyph.height > 0) {
         const measurementFontSize = 100;
         context.font = `${measurementFontSize}px 'Noto Music', 'Bravura Text', serif`;
         const measurement = context.measureText(glyph.text);

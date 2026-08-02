@@ -2,3 +2,7 @@
 [rendering] Don't clip only noteheads and accidentals at the clef — include note-owned ledger lines in the same clip region. (cause: ledger lines rendered with staff lines)
 [rendering] Don't equate a glyph's bounding-box center with its musical anchor — verify the treble-clef G loop visually before changing scene Y. (cause: glyph center mistaken for G-line anchor)
 [rendering] Don't fix bass-clef F alignment by moving its anchor a full line — widen the inter-staff gap and place its dots around the fourth bass line. (cause: bounding-box correction over-shifted)
+[rendering] Don't validate a resized time signature in isolation — check adjacent key signatures and horizontal spacing with imported scores. (cause: neighboring staff symbols remained undersized and crowded)
+[rendering] Don't size key-signature accidentals to only one staff space or pull the time signature tightly against them — use two staff spaces and a modest gap. (cause: visual correction after imported-score review)
+[rendering] Don't leave the score time signature only 0.06 scene units after the last key accidental — use a slightly wider 0.08 gap. (cause: signature still appeared too far left)
+[musicxml] Don't infer incorrect measure assignment from visual overlap — verify parsed beat offsets separately from note and barline geometry. (cause: imported measures were rhythmically valid)

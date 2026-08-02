@@ -11,12 +11,24 @@ class FakeCanvasContext {
     strokeCalls = 0;
     drawImageCalls = 0;
     ellipseCalls = [];
+    fillTextCalls = [];
+    measureTextCalls = 0;
 
     setTransform() { }
     clearRect() { }
     fillRect() { }
     strokeRect() { }
-    fillText() { }
+    fillText(...args) {
+        this.fillTextCalls.push({ args, font: this.font });
+    }
+    measureText() {
+        this.measureTextCalls++;
+        return {
+            actualBoundingBoxAscent: 80,
+            actualBoundingBoxDescent: 20,
+            actualBoundingBoxRight: 50,
+        };
+    }
     save() { }
     translate() { }
     rotate() { }
@@ -130,6 +142,60 @@ test("grand staff drawing caches its static layer until the scene or size change
         });
 
         assert.equal(scoreLayer.context.strokeCalls, scoreLayerStrokesAfterSceneRender + 3);
+    } finally {
+        dispose(canvas);
+        globalThis.window = originalWindow;
+        globalThis.document = originalDocument;
+        globalThis.ResizeObserver = originalResizeObserver;
+        globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+        globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
+    }
+});
+
+test("grand staff sizes signature glyphs to their requested heights", () => {
+    const originalWindow = globalThis.window;
+    const originalDocument = globalThis.document;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+    const createdCanvases = [];
+
+    globalThis.window = { devicePixelRatio: 1 };
+    globalThis.document = {
+        createElement() {
+            const createdCanvas = new FakeCanvas();
+            createdCanvases.push(createdCanvas);
+            return createdCanvas;
+        },
+    };
+    globalThis.ResizeObserver = class {
+        observe() { }
+        disconnect() { }
+    };
+    globalThis.requestAnimationFrame = () => 1;
+    globalThis.cancelAnimationFrame = () => { };
+
+    const canvas = new FakeCanvas();
+    try {
+        initialize(canvas, new FakeCanvas(), new FakeCanvas(), { spectrumVisibleBinCount: 32 });
+        render(canvas, {
+            kind: 0,
+            lines: [],
+            glyphs: [
+                { text: "♯", x: -0.78, y: 0.3, kind: 2, height: 0.2 },
+                { text: "4", x: -0.59, y: 0.2, kind: 3, height: 0.2 },
+            ],
+            notes: [],
+            beams: [],
+            shouldClipNotesAtClefs: false,
+        });
+
+        const scoreContext = createdCanvases[0].context;
+        assert.equal(scoreContext.measureTextCalls, 4);
+        assert.equal(scoreContext.fillTextCalls[0].args[0], "♯");
+        assert.ok(Math.abs(Number.parseFloat(scoreContext.fillTextCalls[0].font) - 20.4) < 1e-9);
+        assert.equal(scoreContext.fillTextCalls[1].args[0], "4");
+        assert.ok(Math.abs(Number.parseFloat(scoreContext.fillTextCalls[1].font) - 20.4) < 1e-9);
     } finally {
         dispose(canvas);
         globalThis.window = originalWindow;
