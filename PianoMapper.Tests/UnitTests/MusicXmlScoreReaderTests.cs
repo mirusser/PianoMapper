@@ -149,9 +149,38 @@ public sealed class MusicXmlScoreReaderTests
         Assert.Equal("Humpty-Dumpty", score.Title);
         Assert.Equal(2, score.KeyFifths);
         Assert.Equal(new TimeSignature(6, new NoteValue(8)), score.TimeSignature);
+        Assert.Equal(new Tempo(240), score.Tempo);
         var note = Assert.Single(Assert.Single(score.Measures).Notes);
         Assert.Equal(BeamState.Begin, note.BeamState);
         Assert.Equal(ScoreStemDirection.Up, note.StemDirection);
+    }
+
+    [Fact]
+    public void Read_SixEightSoundTempo_ConvertsQuarterNoteRateToEighthNoteBeatRate()
+    {
+        const string scoreXml = """
+            <score-partwise>
+              <part-list><score-part id="P1"><part-name /></score-part></part-list>
+              <part id="P1">
+                <measure number="1">
+                  <attributes>
+                    <divisions>2</divisions>
+                    <time><beats>6</beats><beat-type>8</beat-type></time>
+                  </attributes>
+                  <direction><sound tempo="90" /></direction>
+                  <note>
+                    <pitch><step>C</step><octave>4</octave></pitch>
+                    <duration>1</duration><type>eighth</type>
+                  </note>
+                </measure>
+              </part>
+            </score-partwise>
+            """;
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(scoreXml));
+
+        var score = new MusicXmlScoreReader().Read(stream, "six-eight.musicxml");
+
+        Assert.Equal(new Tempo(180), score.Tempo);
     }
 
     [Theory]

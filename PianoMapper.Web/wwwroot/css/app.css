@@ -524,6 +524,10 @@ input[type="file"]::file-selector-button {
     background: #fbbf24;
 }
 
+.legend-mark-playing {
+    background: #a78bfa;
+}
+
 .piano-canvas,
 .analysis-canvas {
     display: block;
@@ -535,6 +539,41 @@ input[type="file"]::file-selector-button {
 
 .piano-canvas {
     height: clamp(25rem, 46vw, 34rem);
+}
+
+.piano-canvas-stack {
+    display: grid;
+    gap: 0.8rem;
+}
+
+.score-row {
+    display: grid;
+    gap: 0.45rem;
+}
+
+.score-row[hidden] {
+    display: none;
+}
+
+.score-row-label {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+    color: #cbd5e1;
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.score-row-status {
+    color: #7dd3fc;
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.piano-canvas-stack-score .score-row-canvas {
+    height: clamp(15rem, 22vw, 19rem);
 }
 
 .analysis-grid {
@@ -724,6 +763,10 @@ input[type="file"]::file-selector-button {
         height: 24rem;
     }
 
+    .piano-canvas-stack-score .score-row-canvas {
+        height: 16rem;
+    }
+
     .analysis-canvas {
         height: 12rem;
     }
@@ -756,5 +799,13 @@ input[type="file"]::file-selector-button {
 
     .piano-canvas {
         height: 20rem;
+    }
+
+    .piano-canvas-stack-score .score-row-canvas {
+        height: 15rem;
+    }
+
+    .piano-canvas-stack-score {
+        min-width: 40rem;
     }
 }

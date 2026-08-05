@@ -14,10 +14,44 @@
         <div class="legend" aria-label="Note color legend">
             <span><span class="legend-mark legend-mark-active"></span>Pressed by you</span>
             <span><span class="legend-mark legend-mark-finished"></span>Released or expected</span>
+            @if (IsScoreView)
+            {
+                <span><span class="legend-mark legend-mark-playing"></span>Playing now</span>
+            }
         </div>
-        <canvas @ref="canvas" class="piano-canvas" role="img" aria-label="@SceneLabel">
-            Piano visualization.
-        </canvas>
+        <div class="piano-canvas-stack @(IsScoreView ? "piano-canvas-stack-score" : null)">
+            @if (IsScoreView && PrimaryScoreRangeLabel is not null)
+            {
+                <div class="score-row-label">
+                    <span>@PrimaryScoreRangeLabel</span>
+                    @if (PrimaryScoreRowStatus is not null)
+                    {
+                        <span class="score-row-status">@PrimaryScoreRowStatus</span>
+                    }
+                </div>
+            }
+            <canvas @ref="canvas"
+                    class="piano-canvas @(IsScoreView ? "score-row-canvas" : null)"
+                    role="img"
+                    aria-label="@PrimarySceneLabel">
+                Piano visualization.
+            </canvas>
+            <div class="score-row" hidden="@(!HasSecondaryScoreRow)">
+                <div class="score-row-label">
+                    <span>@SecondaryScoreRangeLabel</span>
+                    @if (SecondaryScoreRowStatus is not null)
+                    {
+                        <span class="score-row-status">@SecondaryScoreRowStatus</span>
+                    }
+                </div>
+                <canvas @ref="secondaryCanvas"
+                        class="piano-canvas score-row-canvas"
+                        role="img"
+                        aria-label="@SecondarySceneLabel">
+                    Secondary imported-score grand staff.
+                </canvas>
+            </div>
+        </div>
     </section>
 
     <div class="analysis-controls" role="group" aria-label="Audio visualizers">
@@ -174,6 +208,7 @@
     private static readonly CanvasAnalysisLayout AnalysisLayout = new(SpectrumLayout.VisibleBinCount);
 
     private ElementReference canvas;
+    private ElementReference secondaryCanvas;
     private ElementReference waveformCanvas;
     private ElementReference spectrumCanvas;
     private IJSObjectReference? module;
@@ -192,7 +227,28 @@
     [Parameter]
     public ScoreCursorPlaybackState? ScoreCursor { get; set; }
 
+    [Parameter]
+    public IPianoCanvasScene? SecondaryScene { get; set; }
+
+    [Parameter]
+    public ScoreCursorPlaybackState? SecondaryScoreCursor { get; set; }
+
+    [Parameter]
+    public string? PrimaryScoreRangeLabel { get; set; }
+
+    [Parameter]
+    public string? SecondaryScoreRangeLabel { get; set; }
+
+    [Parameter]
+    public string? PrimaryScoreRowStatus { get; set; }
+
+    [Parameter]
+    public string? SecondaryScoreRowStatus { get; set; }
+
     private ScoreCursorPlaybackState? lastPushedScoreCursor;
+    private ScoreCursorPlaybackState? lastPushedSecondaryScoreCursor;
+
+    private bool HasSecondaryScoreRow => IsScoreView && SecondaryScene is not null;
 
     private string SceneTitle => Scene.Kind == PianoCanvasSceneKind.PianoRoll
         ? "Piano roll"
@@ -216,6 +272,13 @@
             ? "Grand staff for the imported score"
             : $"Live grand staff focused on keyboard octave {SelectedOctave}";
 
+    private string PrimarySceneLabel => IsScoreView && PrimaryScoreRangeLabel is not null
+        ? $"Grand staff for imported score, {PrimaryScoreRangeLabel}, {PrimaryScoreRowStatus}"
+        : SceneLabel;
+
+    private string SecondarySceneLabel =>
+        $"Grand staff for imported score, {SecondaryScoreRangeLabel}, {SecondaryScoreRowStatus}";
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
@@ -227,6 +290,7 @@
                 waveformCanvas,
                 spectrumCanvas,
                 AnalysisLayout);
+            await module.InvokeVoidAsync("initializeScoreCanvas", secondaryCanvas);
         }
 
         // Update the JS-side cursor state before render() so its draw() call already reflects
@@ -250,6 +314,37 @@
             Scene,
             isWaveformVisible,
             isFrequencySpectrumVisible);
+
+        if (!HasSecondaryScoreRow)
+        {
+            if (lastPushedSecondaryScoreCursor is not null)
+            {
+                await module!.InvokeVoidAsync("stopScoreCursor", secondaryCanvas);
+                lastPushedSecondaryScoreCursor = null;
+            }
+
+            return;
+        }
+
+        if (SecondaryScoreCursor != lastPushedSecondaryScoreCursor)
+        {
+            lastPushedSecondaryScoreCursor = SecondaryScoreCursor;
+            if (SecondaryScoreCursor is null)
+            {
+                await module!.InvokeVoidAsync("stopScoreCursor", secondaryCanvas);
+            }
+            else
+            {
+                await module!.InvokeVoidAsync("startScoreCursor", secondaryCanvas, SecondaryScoreCursor);
+            }
+        }
+
+        await module!.InvokeVoidAsync(
+            "render",
+            secondaryCanvas,
+            SecondaryScene!,
+            false,
+            false);
     }
 
     private void ToggleWaveform() => isWaveformVisible = !isWaveformVisible;
@@ -263,6 +358,7 @@
             return;
         }
 
+        await module.InvokeVoidAsync("dispose", secondaryCanvas);
         await module.InvokeVoidAsync("dispose", canvas);
         await module.DisposeAsync();
     }

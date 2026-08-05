@@ -50,19 +50,19 @@ The logical page changes every five selected-score measures. The physical row al
 
 ## Acceptance Criteria
 
-- [ ] Loading a selected score range longer than five measures shows the current five-measure page and the following page in two labeled grand-staff rows.
-- [ ] Loading a range of five or fewer measures shows one row with no duplicate or empty look-ahead row.
-- [ ] Play / restart begins at the selected range's first logical page regardless of prior manual browsing.
-- [ ] The playback cursor animates when waveform and spectrum panels are hidden.
-- [ ] At an exact five-measure boundary, the cursor is owned by the new row only; it never appears on both rows or disappears between them.
-- [ ] After the cursor moves upper → lower, the upper row is replaced with the next page; after lower → upper, the lower row is replaced.
-- [ ] Window state is derived from absolute cursor position, so a delayed/background refresh can jump directly to the correct row pair rather than replaying missed transitions.
-- [ ] Practice uses the same alternating rows, and verdict colors plus held-note indicators appear only in their owning window.
-- [ ] A partial final page remains visible and stable at completion, with the previous page retained in the inactive row.
-- [ ] Score selection changes, unload, timing changes, restart, abort, completion, and piano-roll toggling leave no stale secondary scene or cursor.
-- [ ] Manual Previous/Next and `[`/`]` follow the paired-page model while idle and cannot interfere while playback or Practice is active.
-- [ ] Existing free-play grand staff, piano roll, audio analysis panels, score scheduling, and MusicXML parsing behavior do not change.
-- [ ] Both rows remain readable at wide, tablet, and minimum supported narrow widths; the page retains its current full-width score layout.
+- [x] Loading a selected score range longer than five measures shows the current five-measure page and the following page in two labeled grand-staff rows.
+- [x] Loading a range of five or fewer measures shows one row with no duplicate or empty look-ahead row.
+- [x] Play / restart begins at the selected range's first logical page regardless of prior manual browsing.
+- [x] The playback cursor animates when waveform and spectrum panels are hidden.
+- [x] At an exact five-measure boundary, the cursor is owned by the new row only; it never appears on both rows or disappears between them.
+- [x] After the cursor moves upper → lower, the upper row is replaced with the next page; after lower → upper, the lower row is replaced.
+- [x] Window state is derived from absolute cursor position, so a delayed/background refresh can jump directly to the correct row pair rather than replaying missed transitions.
+- [x] Practice uses the same alternating rows, and verdict colors plus held-note indicators appear only in their owning window.
+- [x] A partial final page remains visible and stable at completion, with the previous page retained in the inactive row.
+- [x] Score selection changes, unload, timing changes, restart, abort, completion, and piano-roll toggling leave no stale secondary scene or cursor.
+- [x] Manual Previous/Next and `[`/`]` follow the paired-page model while idle and cannot interfere while playback or Practice is active.
+- [x] Existing free-play grand staff, piano roll, audio analysis panels, score scheduling, and MusicXML parsing behavior do not change.
+- [x] Both rows remain readable at wide, tablet, and minimum supported narrow widths; the page retains its current full-width score layout.
 
 ## Architecture Decisions
 
@@ -136,14 +136,14 @@ Paired-window calculation and boundary contract
 
 **Acceptance criteria:**
 
-- [ ] Every valid measure index appears in at most one physical row state.
-- [ ] A look-ahead page, when one exists, occupies the inactive row.
-- [ ] No returned row start is outside the selected score.
-- [ ] The calculation has no audio, JavaScript, component, or mutable global dependency.
+- [x] Every valid measure index appears in at most one physical row state.
+- [x] A look-ahead page, when one exists, occupies the inactive row.
+- [x] No returned row start is outside the selected score.
+- [x] The calculation has no audio, JavaScript, component, or mutable global dependency.
 
 **Verification:**
 
-- [ ] `rtk test dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~ScoreGrandStaffWindowPairTests"`
+- [x] `rtk test dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~ScoreGrandStaffWindowPairTests"`
 
 **Dependencies:** None
 
@@ -160,15 +160,15 @@ Paired-window calculation and boundary contract
 
 **Acceptance criteria:**
 
-- [ ] At a shared page boundary, the outgoing window rejects the cursor and the incoming window accepts it.
-- [ ] Practice cursor and held-note overlays obey the same ownership rule as automated playback.
-- [ ] An active score cursor animates with both analysis panels hidden.
-- [ ] Removing/finishing a cursor does not leave a perpetual animation loop.
+- [x] At a shared page boundary, the outgoing window rejects the cursor and the incoming window accepts it.
+- [x] Practice cursor and held-note overlays obey the same ownership rule as automated playback.
+- [x] An active score cursor animates with both analysis panels hidden.
+- [x] Removing/finishing a cursor does not leave a perpetual animation loop.
 
 **Verification:**
 
-- [ ] `rtk test dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~GrandStaffSceneBuilderTests"`
-- [ ] `rtk test node --test PianoMapper.Tests/JavaScript/canvas.test.mjs`
+- [x] `rtk test dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~GrandStaffSceneBuilderTests"`
+- [x] `rtk test node --test PianoMapper.Tests/JavaScript/canvas.test.mjs`
 
 **Dependencies:** Task 1 defines the boundary behavior to match.
 
@@ -183,10 +183,10 @@ Paired-window calculation and boundary contract
 
 ### Checkpoint 1: Paging and cursor foundation
 
-- [ ] Focused C# and JavaScript tests pass.
-- [ ] Exact-boundary tests prove there is one cursor owner.
-- [ ] The window calculation proves delayed-jump recovery and final-page behavior.
-- [ ] No core measure-count, score, audio-scheduling, or MusicXML contract changed.
+- [x] Focused C# and JavaScript tests pass.
+- [x] Exact-boundary tests prove there is one cursor owner.
+- [x] The window calculation proves delayed-jump recovery and final-page behavior.
+- [x] No core measure-count, score, audio-scheduling, or MusicXML contract changed.
 
 ### Phase 2: Two persistent score rows
 
@@ -196,16 +196,16 @@ Paired-window calculation and boundary contract
 
 **Acceptance criteria:**
 
-- [ ] Each physical canvas has independent scene, static-layer cache, cursor, resize, and disposal state in JavaScript.
-- [ ] Showing/hiding the optional row after score load, range change, unload, or view toggle does not use an invalid `ElementReference` or leak a `ResizeObserver`/animation frame.
-- [ ] The waveform and spectrum canvases are initialized and observed only once.
-- [ ] Each row exposes an accurate measure range in visible text and its accessible label.
-- [ ] Live grand staff and piano roll still render a single canvas.
+- [x] Each physical canvas has independent scene, static-layer cache, cursor, resize, and disposal state in JavaScript.
+- [x] Showing/hiding the optional row after score load, range change, unload, or view toggle does not use an invalid `ElementReference` or leak a `ResizeObserver`/animation frame.
+- [x] The waveform and spectrum canvases are initialized and observed only once.
+- [x] Each row exposes an accurate measure range in visible text and its accessible label.
+- [x] Live grand staff and piano roll still render a single canvas.
 
 **Verification:**
 
-- [ ] `rtk test node --test PianoMapper.Tests/JavaScript/canvas.test.mjs`
-- [ ] Manual component lifecycle check: no console errors across load → unload → reload and staff → piano roll → staff.
+- [x] `rtk test node --test PianoMapper.Tests/JavaScript/canvas.test.mjs`
+- [x] Manual component lifecycle check: no console errors across load → unload → reload and staff → piano roll → staff.
 
 **Dependencies:** Tasks 1–2
 
@@ -226,17 +226,17 @@ Manual Previous/Next should move one logical five-measure page while idle, updat
 
 **Acceptance criteria:**
 
-- [ ] Initial load renders pages 0 and 1 when both exist.
-- [ ] Play / restart returns to logical page 0 and supplies the same anchor to both row cursors.
-- [ ] Crossing page 0 → 1 recycles only the upper row to page 2; crossing 1 → 2 recycles only the lower row to page 3.
-- [ ] The existing audio schedule starts once and is uninterrupted by visual row transitions.
-- [ ] Selected-range labels add `selectedFirstMeasure` to the range-relative row indexes.
-- [ ] Load, unload, range selection, timing changes, stop, restart, and completion clear or rebuild both scenes/cursors consistently.
-- [ ] A background/throttled poll derives the correct current pair directly from current cursor beats.
+- [x] Initial load renders pages 0 and 1 when both exist.
+- [x] Play / restart returns to logical page 0 and supplies the same anchor to both row cursors.
+- [x] Crossing page 0 → 1 recycles only the upper row to page 2; crossing 1 → 2 recycles only the lower row to page 3.
+- [x] The existing audio schedule starts once and is uninterrupted by visual row transitions.
+- [x] Selected-range labels add `selectedFirstMeasure` to the range-relative row indexes.
+- [x] Load, unload, range selection, timing changes, stop, restart, and completion clear or rebuild both scenes/cursors consistently.
+- [x] A background/throttled poll derives the correct current pair directly from current cursor beats.
 
 **Verification:**
 
-- [ ] `rtk test dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~PianoTests|FullyQualifiedName~ScoreGrandStaffWindowPairTests|FullyQualifiedName~GrandStaffSceneCacheTests|FullyQualifiedName~BrowserScorePlaybackTests"`
+- [x] `rtk test dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~PianoTests|FullyQualifiedName~ScoreGrandStaffWindowPairTests|FullyQualifiedName~GrandStaffSceneCacheTests|FullyQualifiedName~BrowserScorePlaybackTests"`
 - [ ] Manual Play / restart check with a score longer than 15 measures confirms upper → lower → upper → lower behavior without an audible restart.
 
 **Dependencies:** Tasks 1–3
@@ -251,11 +251,11 @@ Manual Previous/Next should move one logical five-measure page while idle, updat
 
 ### Checkpoint 2: Automated playback slice
 
-- [ ] Two labeled rows are visible for a long imported score.
-- [ ] Cursor handoff is exact and visual row recycling happens only after handoff.
-- [ ] Restart and selected-range changes return to the first logical page.
-- [ ] Audio playback remains one continuous pre-scheduled run.
-- [ ] Free play, piano roll, and analysis controls still work.
+- [x] Two labeled rows are visible for a long imported score.
+- [x] Cursor handoff is exact and visual row recycling happens only after handoff.
+- [x] Restart and selected-range changes return to the first logical page.
+- [x] Audio playback remains one continuous pre-scheduled run.
+- [x] Free play, piano roll, and analysis controls still work.
 
 ### Phase 3: Practice, responsive usability, and handoff
 
@@ -265,17 +265,17 @@ Manual Previous/Next should move one logical five-measure page while idle, updat
 
 **Acceptance criteria:**
 
-- [ ] Practice count-in begins with the initial current/look-ahead pair and no premature cursor.
-- [ ] Running Practice alternates rows at the same boundaries as score playback.
-- [ ] Verdict colors persist when an inactive physical row is recycled and rebuilt.
-- [ ] Held notes and cursor geometry do not appear in both rows at a boundary.
-- [ ] Abort, retry, finish, focus loss, and staff/piano-roll toggles leave consistent paired state.
-- [ ] Free-play rollover remains the existing single-staff behavior.
+- [x] Practice count-in begins with the initial current/look-ahead pair and no premature cursor.
+- [x] Running Practice alternates rows at the same boundaries as score playback.
+- [x] Verdict colors persist when an inactive physical row is recycled and rebuilt.
+- [x] Held notes and cursor geometry do not appear in both rows at a boundary.
+- [x] Abort, retry, finish, focus loss, and staff/piano-roll toggles leave consistent paired state.
+- [x] Free-play rollover remains the existing single-staff behavior.
 
 **Verification:**
 
-- [ ] `rtk test dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~BrowserPracticeCoordinatorTests|FullyQualifiedName~GrandStaffSceneBuilderTests|FullyQualifiedName~PianoTests"`
-- [ ] Manual Practice check covers count-in, two boundary crossings, verdicts, held notes, abort, retry, and finish.
+- [x] `rtk test dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "FullyQualifiedName~BrowserPracticeCoordinatorTests|FullyQualifiedName~GrandStaffSceneBuilderTests|FullyQualifiedName~PianoTests"`
+- [x] Manual Practice check covers count-in, two boundary crossings, verdicts, held notes, abort, retry, and finish.
 
 **Dependencies:** Task 4
 
@@ -293,17 +293,17 @@ Manual Previous/Next should move one logical five-measure page while idle, updat
 
 **Acceptance criteria:**
 
-- [ ] At wide desktop size, both score rows can be read together without an internal scroll container.
-- [ ] At tablet and narrow widths, clefs, signatures, notes, ledger lines, ties, barlines, row labels, and cursor remain legible and do not overlap.
-- [ ] Live grand-staff and piano-roll heights remain unchanged.
-- [ ] The browser test matrix covers initial preload, both handoff directions, final partial page, short selected range, manual navigation, restart, Practice, resize, and view toggling.
-- [ ] README feature text accurately describes the paired imported-score view without implying desktop parity.
+- [x] At wide desktop size, both score rows can be read together without an internal scroll container.
+- [x] At tablet and narrow widths, clefs, signatures, notes, ledger lines, ties, barlines, row labels, and cursor remain legible and do not overlap.
+- [x] Live grand-staff and piano-roll heights remain unchanged.
+- [x] The browser test matrix covers initial preload, both handoff directions, final partial page, short selected range, manual navigation, restart, Practice, resize, and view toggling.
+- [x] README feature text accurately describes the paired imported-score view without implying desktop parity.
 
 **Verification:**
 
-- [ ] Inspect at representative widths: 1440 px, 1024 px, 768 px, and the supported 320 px minimum.
-- [ ] Run the full manual cycle with the local 16-measure `Humpty-Dumpty.mxl` when available; do not modify or commit that untracked user file.
-- [ ] Confirm the browser console has no JS interop, resize, or disposal errors.
+- [x] Inspect at representative widths: 1440 px, 1024 px, 768 px, and the supported 320 px minimum.
+- [x] Run the full manual cycle with the local 16-measure `Humpty-Dumpty.mxl` when available; do not modify or commit that untracked user file.
+- [x] Confirm the browser console has no JS interop, resize, or disposal errors.
 
 **Dependencies:** Tasks 3–5
 
@@ -318,15 +318,15 @@ Manual Previous/Next should move one logical five-measure page while idle, updat
 
 ### Final Checkpoint
 
-- [ ] Focused paired-window, renderer, cursor, playback, and Practice tests pass.
-- [ ] `rtk test node --test PianoMapper.Tests/JavaScript/*.test.mjs`
-- [ ] `rtk test dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj`
-- [ ] `rtk summary dotnet build PianoMapper.slnx --configuration Release`
+- [x] Focused paired-window, renderer, cursor, playback, and Practice tests pass.
+- [x] `rtk test node --test PianoMapper.Tests/JavaScript/*.test.mjs`
+- [x] `rtk test dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj`
+- [x] `rtk summary dotnet build PianoMapper.slnx --configuration Release`
 - [ ] Manual long-score playback completes multiple upper/lower handoffs with continuous audio.
-- [ ] Manual short-score and partial-final-page cases match the documented behavior.
-- [ ] Manual responsive and accessibility checks pass with no console errors.
-- [ ] `rtk git diff --check`
-- [ ] Only files directly required by this feature are changed; untracked screenshots and MusicXML files remain untouched.
+- [x] Manual short-score and partial-final-page cases match the documented behavior.
+- [x] Manual responsive and accessibility checks pass with no console errors.
+- [x] `rtk git diff --check`
+- [x] Only files directly required by this feature are changed; untracked screenshots and MusicXML files remain untouched.
 
 ## Risks and Mitigations
 

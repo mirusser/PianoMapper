@@ -16,4 +16,7 @@ public sealed record GrandStaffNote(
     int FlagCount = 0,
     Verdict? Verdict = null,
     double? DurationEndX = null,
-    double? StemEndY = null);
+    double? StemEndY = null,
+    double? LabelY = null,
+    double? ScoreOnsetBeats = null,
+    double? ScoreEndBeats = null);

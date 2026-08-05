@@ -11,3 +11,5 @@
 [rendering] Don't scale ledger-line length with canvas width — tie it to staff spacing so wide pages keep compact ledgers. (cause: responsive page exposed stretched middle-C lines)
 [layout] Don't keep six measures visible when dense eighth-note measures remain cramped at full viewport — use five-measure windows for more horizontal spacing. (cause: eight-note measures were still hard to read)
 [rendering] Don't draw ties as uniform center-to-center quadratic strokes — use tapered curves with conventional notehead placement, endpoint gaps, and chord-aware directions. (cause: measure-boundary ties looked overlong and too high)
+[rendering] Don't position pitch labels from notehead Y — align them on a fixed row below their owning staff. (cause: varying pitches made labels collide with notation)
+[musicxml] Don't pass MusicXML quarter-note tempo straight into signature-beat BPM — convert it to the time signature's beat unit. (cause: 6/8 playback and cursor ran at half speed)

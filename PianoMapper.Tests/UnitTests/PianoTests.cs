@@ -47,6 +47,31 @@ public sealed class PianoTests
         Assert.False(shouldContinue);
     }
 
+    [Theory]
+    [InlineData(20, 0, 1, false, false, true)]
+    [InlineData(20, 1, -1, false, false, true)]
+    [InlineData(20, 0, -1, false, false, false)]
+    [InlineData(20, 3, 1, false, false, false)]
+    [InlineData(20, 0, 1, true, false, false)]
+    [InlineData(20, 0, 1, false, true, false)]
+    public void CanChangeScorePage_Request_ReturnsExpectedPolicy(
+        int measureCount,
+        int activePageIndex,
+        int pageDelta,
+        bool isScorePlaybackActive,
+        bool isPracticeActive,
+        bool expected)
+    {
+        bool canChange = Piano.CanChangeScorePage(
+            measureCount,
+            activePageIndex,
+            pageDelta,
+            isScorePlaybackActive,
+            isPracticeActive);
+
+        Assert.Equal(expected, canChange);
+    }
+
     private static GrandStaffScene CreateGrandStaffSceneWithVisibleNote() =>
         new([], [], [new GrandStaffNote("C4", 0, 0, 1, IsActive: false)]);
 }

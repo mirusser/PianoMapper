@@ -51,6 +51,62 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
+    public void BuildScore_VisibleNote_ReturnsPlaybackBeatInterval()
+    {
+        var note = new ScoreNote(
+            new Pitch(NoteLetter.C, 0, 4),
+            new NoteValue(8),
+            MeasureIndex: 2,
+            BeatOffset: 1,
+            Staff.Treble);
+        var score = new Score(
+            "test",
+            new TimeSignature(6, new NoteValue(8)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure([], []), new ScoreMeasure([], []), new ScoreMeasure([note], [])]);
+
+        var renderedNote = Assert.Single(
+            GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0).Notes);
+
+        Assert.Equal(13, renderedNote.ScoreOnsetBeats);
+        Assert.Equal(14, renderedNote.ScoreEndBeats);
+    }
+
+    [Fact]
+    public void BuildScore_DifferentPitchesOnEachStaff_AlignsLabelsBelowTheirStaff()
+    {
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.A, 0, 4), new NoteValue(4), 0, 0, Staff.Treble),
+            new(new Pitch(NoteLetter.F, 1, 5), new NoteValue(4), 0, 1, Staff.Treble),
+            new(new Pitch(NoteLetter.C, 0, 3), new NoteValue(4), 0, 2, Staff.Bass),
+            new(new Pitch(NoteLetter.A, 0, 2), new NoteValue(4), 0, 3, Staff.Bass),
+        ];
+        var score = new Score(
+            "test",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure(notes, [])]);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+        var renderedNotes = scene.Notes
+            .ToDictionary(note => note.Label);
+        var staffLines = scene.Lines
+            .Where(line => line.Kind == GrandStaffLineKind.Staff)
+            .ToArray();
+        double trebleBottomLineY = staffLines.Take(5).Min(line => line.Y0);
+        double bassBottomLineY = staffLines.Skip(5).Min(line => line.Y0);
+
+        Assert.Equal(renderedNotes["A4"].LabelY, renderedNotes["F#5"].LabelY);
+        Assert.Equal(renderedNotes["C3"].LabelY, renderedNotes["A2"].LabelY);
+        Assert.NotEqual(renderedNotes["A4"].LabelY, renderedNotes["C3"].LabelY);
+        Assert.True(renderedNotes["A4"].LabelY < trebleBottomLineY);
+        Assert.True(renderedNotes["C3"].LabelY < bassBottomLineY);
+    }
+
+    [Fact]
     public void BuildScore_KeyAndTimeSignature_ReturnsGlyphsOnBothStaves()
     {
         ScoreNote[] notes =
@@ -291,6 +347,28 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
+    public void BuildScore_CursorAtWindowBoundary_BelongsOnlyToIncomingWindow()
+    {
+        var score = CreateScore(measureCount: 12);
+        double boundaryBeats = GrandStaffLayout.VisibleMeasureCount * score.TimeSignature.Numerator;
+
+        var outgoingScene = GrandStaffSceneBuilder.BuildScore(
+            score,
+            firstVisibleMeasure: 0,
+            cursorBeats: boundaryBeats);
+        var incomingScene = GrandStaffSceneBuilder.BuildScore(
+            score,
+            firstVisibleMeasure: GrandStaffLayout.VisibleMeasureCount,
+            cursorBeats: boundaryBeats);
+
+        Assert.DoesNotContain(outgoingScene.Lines, line => line.Kind == GrandStaffLineKind.Cursor);
+        var incomingCursor = Assert.Single(
+            incomingScene.Lines,
+            line => line.Kind == GrandStaffLineKind.Cursor);
+        Assert.Equal(GrandStaffLayout.ScoreX0, incomingCursor.X0, 6);
+    }
+
+    [Fact]
     public void BuildScore_VisibleVerdict_ReturnsVerdictOnSourceNote()
     {
         var sourceNote = new ScoreNote(
@@ -347,6 +425,32 @@ public sealed class GrandStaffSceneBuilderTests
             GrandStaffLayout.GetLivePosition(heldNote.Pitch).Y + GrandStaffLayout.DiatonicStep,
             indicator.Y,
             6);
+    }
+
+    [Fact]
+    public void BuildScore_HeldNoteAtWindowBoundary_BelongsOnlyToIncomingWindow()
+    {
+        var score = CreateScore(measureCount: 12);
+        var heldNote = new PerformedNote
+        {
+            Pitch = new Pitch(NoteLetter.C, 0, 4),
+            StartTime = TimeSpan.Zero,
+        };
+        double boundaryBeats = GrandStaffLayout.VisibleMeasureCount * score.TimeSignature.Numerator;
+
+        var outgoingScene = GrandStaffSceneBuilder.BuildScore(
+            score,
+            firstVisibleMeasure: 0,
+            performedNotes: [heldNote],
+            performedNoteBeats: boundaryBeats);
+        var incomingScene = GrandStaffSceneBuilder.BuildScore(
+            score,
+            firstVisibleMeasure: GrandStaffLayout.VisibleMeasureCount,
+            performedNotes: [heldNote],
+            performedNoteBeats: boundaryBeats);
+
+        Assert.Empty(outgoingScene.Notes);
+        Assert.True(Assert.Single(incomingScene.Notes).IsActive);
     }
 
     [Fact]

@@ -199,18 +199,18 @@
                                 disabled="@(!AudioSession.IsInitialized)">
                             Play / restart <kbd>P</kbd>
                         </button>
-                        <button type="button" @onclick="ShowPreviousMeasures" disabled="@(firstVisibleMeasure == 0)">
+                        <button type="button" @onclick="ShowPreviousMeasures" disabled="@(!CanShowPreviousMeasures)">
                             Previous <kbd>[</kbd>
                         </button>
                         <span class="measure-window">
-                            Measures @(selectedFirstMeasure + firstVisibleMeasure + 1)–@(
+                            Measures @(selectedFirstMeasure + ActiveScoreFirstMeasure + 1)–@(
                                 selectedFirstMeasure + Math.Min(
-                                    firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount,
+                                    ActiveScoreFirstMeasure + GrandStaffLayout.VisibleMeasureCount,
                                     selectedScore.Measures.Count))
                         </span>
                         <button type="button"
                                 @onclick="ShowNextMeasures"
-                                disabled="@(firstVisibleMeasure >= selectedScore.Measures.Count - 1)">
+                                disabled="@(!CanShowNextMeasures)">
                             Next <kbd>]</kbd>
                         </button>
                     </div>
@@ -288,9 +288,15 @@
             <span>Play keys <strong>A W S E D F R J U K I L ;</strong></span>
         </div>
         <PianoCanvas Scene="@canvasScene"
+                     SecondaryScene="@secondaryCanvasScene"
                      SelectedOctave="@keyboardState.CurrentOctave"
                      IsScoreView="@(selectedScore is not null && !showPianoRoll)"
-                     ScoreCursor="@scoreCursorState" />
+                     ScoreCursor="@scoreCursorState"
+                     SecondaryScoreCursor="@secondaryScoreCursorState"
+                     PrimaryScoreRangeLabel="@PrimaryScoreRangeLabel"
+                     SecondaryScoreRangeLabel="@SecondaryScoreRangeLabel"
+                     PrimaryScoreRowStatus="@PrimaryScoreRowStatus"
+                     SecondaryScoreRowStatus="@SecondaryScoreRowStatus" />
     </section>
 </main>
 
@@ -315,19 +321,22 @@
     private readonly NoteTimeline noteTimeline = new();
     private readonly TempoFeedbackTracker tempoFeedbackTracker = new();
     private readonly BrowserKeyboardState keyboardState;
-    private readonly GrandStaffSceneCache grandStaffSceneCache = new();
+    private readonly GrandStaffSceneCache upperGrandStaffSceneCache = new();
+    private readonly GrandStaffSceneCache lowerGrandStaffSceneCache = new();
     private ElementReference playSurface;
     private AudioClockAnchor? audioClockAnchor;
     private IJSObjectReference? keyboardModule;
     private DotNetObjectReference<Piano>? keyboardReference;
     private IPianoCanvasScene canvasScene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero, selectedOctave: 4);
+    private IPianoCanvasScene? secondaryCanvasScene;
     private ScoreCursorPlaybackState? scoreCursorState;
+    private ScoreCursorPlaybackState? secondaryScoreCursorState;
     private Score? importedScore;
     private Score? loadedScore;
     private Score? selectedScore;
     private int selectedFirstMeasure;
     private int selectedLastMeasure;
-    private int firstVisibleMeasure;
+    private ScoreGrandStaffWindowPair.State? scoreWindowPair;
     private CancellationTokenSource? playbackRefreshCancellation;
     private Task? playbackRefreshTask;
     private BrowserPracticeCoordinator practiceCoordinator = null!;
@@ -360,6 +369,77 @@
     private string SelectedMeasureRangeLabel => selectedFirstMeasure == selectedLastMeasure
         ? $"measure {selectedFirstMeasure + 1}"
         : $"measures {selectedFirstMeasure + 1}–{selectedLastMeasure + 1}";
+
+    private int ActiveScoreFirstMeasure => scoreWindowPair is { } pair
+        ? pair.ActivePageIndex * GrandStaffLayout.VisibleMeasureCount
+        : 0;
+
+    private bool CanShowPreviousMeasures => selectedScore is { } score && CanChangeScorePage(
+        score.Measures.Count,
+        scoreWindowPair?.ActivePageIndex ?? 0,
+        pageDelta: -1,
+        ScorePlaybackSession.IsActive,
+        practiceCoordinator.IsActive);
+
+    private bool CanShowNextMeasures => selectedScore is { } score && CanChangeScorePage(
+        score.Measures.Count,
+        scoreWindowPair?.ActivePageIndex ?? 0,
+        pageDelta: 1,
+        ScorePlaybackSession.IsActive,
+        practiceCoordinator.IsActive);
+
+    private string? PrimaryScoreRangeLabel => FormatScoreRowRange(scoreWindowPair?.UpperFirstMeasure);
+
+    private string? SecondaryScoreRangeLabel => FormatScoreRowRange(scoreWindowPair?.LowerFirstMeasure);
+
+    private string? PrimaryScoreRowStatus => GetScoreRowStatus(scoreWindowPair?.UpperFirstMeasure);
+
+    private string? SecondaryScoreRowStatus => GetScoreRowStatus(scoreWindowPair?.LowerFirstMeasure);
+
+    private string? FormatScoreRowRange(int? firstMeasure)
+    {
+        if (selectedScore is not { } score || !firstMeasure.HasValue)
+        {
+            return null;
+        }
+
+        int lastMeasure = Math.Min(
+            firstMeasure.Value + GrandStaffLayout.VisibleMeasureCount,
+            score.Measures.Count);
+        return $"Measures {selectedFirstMeasure + firstMeasure.Value + 1}–{selectedFirstMeasure + lastMeasure}";
+    }
+
+    private string? GetScoreRowStatus(int? firstMeasure)
+    {
+        if (!firstMeasure.HasValue || scoreWindowPair is null)
+        {
+            return null;
+        }
+
+        return firstMeasure.Value == ActiveScoreFirstMeasure
+            ? "Current"
+            : firstMeasure.Value > ActiveScoreFirstMeasure
+                ? "Look ahead"
+                : "Previous";
+    }
+
+    internal static bool CanChangeScorePage(
+        int measureCount,
+        int activePageIndex,
+        int pageDelta,
+        bool isScorePlaybackActive,
+        bool isPracticeActive)
+    {
+        if (measureCount <= 0 || isScorePlaybackActive || isPracticeActive)
+        {
+            return false;
+        }
+
+        int pageCount = (measureCount + GrandStaffLayout.VisibleMeasureCount - 1)
+            / GrandStaffLayout.VisibleMeasureCount;
+        int requestedPageIndex = activePageIndex + pageDelta;
+        return requestedPageIndex >= 0 && requestedPageIndex < pageCount;
+    }
 
     public Piano()
     {
@@ -488,7 +568,7 @@
             audioStatus = $"Metronome on at {TimingLabel}.";
         }
 
-        firstVisibleMeasure = 0;
+        ResetScoreWindowPair();
         TimeSpan currentTime = AudioSession.IsInitialized
             ? await AudioSession.GetCurrentTimeAsync()
             : TimeSpan.Zero;
@@ -504,7 +584,9 @@
         selectedScore = null;
         selectedFirstMeasure = 0;
         selectedLastMeasure = 0;
-        firstVisibleMeasure = 0;
+        scoreWindowPair = null;
+        secondaryCanvasScene = null;
+        secondaryScoreCursorState = null;
         TimeSpan currentTime = AudioSession.IsInitialized
             ? await AudioSession.GetCurrentTimeAsync()
             : TimeSpan.Zero;
@@ -555,7 +637,7 @@
         selectedFirstMeasure = firstMeasure;
         selectedLastMeasure = lastMeasure;
         selectedScore = ScoreMeasureRange.Create(score, firstMeasure, lastMeasure);
-        firstVisibleMeasure = 0;
+        ResetScoreWindowPair();
         TimeSpan currentTime = AudioSession.IsInitialized
             ? await AudioSession.GetCurrentTimeAsync()
             : TimeSpan.Zero;
@@ -573,12 +655,12 @@
         await AbortPracticeAsync(updateStatus: false);
         await CancelVisualizationRefreshAsync();
         await CancelPlaybackRefreshAsync();
+        ResetScoreWindowPair();
         await ScorePlaybackSession.StartAsync(score);
         displayTimeSignature = score.TimeSignature;
         displayTempo = score.Tempo;
-        // canvasScene already reflects the current static score view (built at load/measure-nav
-        // time); starting playback only needs to hand the cursor animation off to JS.
-        scoreCursorState = BuildScoreCursorState();
+        RefreshCanvasScene(await AudioSession.GetCurrentTimeAsync());
+        UpdateScoreCursorStates();
         playbackRefreshCancellation = new CancellationTokenSource();
         playbackRefreshTask = RefreshScorePlaybackAsync(playbackRefreshCancellation.Token);
         audioStatus = $"Playing {score.Title}, {SelectedMeasureRangeLabel}.";
@@ -618,6 +700,7 @@
         await StopScorePlaybackAsync();
         await AbortPracticeAsync(updateStatus: false);
         await CancelVisualizationRefreshAsync();
+        ResetScoreWindowPair();
         TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync();
         keyboardState.Clear(currentTime);
         await AudioSession.ClearAsync(currentTime);
@@ -626,6 +709,7 @@
             new GradingOptions { OnTimeTolerance = onTimeTolerance });
         practiceRefreshCancellation = new CancellationTokenSource();
         practiceRefreshTask = RefreshPracticeAsync(practiceRefreshCancellation.Token);
+        RefreshCanvasScene(currentTime);
         audioStatus = "Practice count-in started.";
     }
 
@@ -643,6 +727,7 @@
     {
         await CancelPlaybackRefreshAsync();
         scoreCursorState = null;
+        secondaryScoreCursorState = null;
         if (AudioSession.IsInitialized)
         {
             await ScorePlaybackSession.StopAsync();
@@ -656,15 +741,14 @@
 
     private void ShowPreviousMeasures()
     {
-        if (selectedScore is not { } score)
+        if (!CanShowPreviousMeasures || selectedScore is null)
         {
             return;
         }
 
-        firstVisibleMeasure = GrandStaffSceneBuilder.ClampFirstVisibleMeasure(
-            score,
-            firstVisibleMeasure - GrandStaffLayout.VisibleMeasureCount);
-        UpdateScoreCursorMeasureIfPlaying();
+        scoreWindowPair = ScoreGrandStaffWindowPair.FromPageIndex(
+            selectedScore.Measures.Count,
+            (scoreWindowPair?.ActivePageIndex ?? 0) - 1);
         if (!showPianoRoll)
         {
             RefreshCanvasScene(GetAnchorTime());
@@ -673,29 +757,17 @@
 
     private void ShowNextMeasures()
     {
-        if (selectedScore is not { } score)
+        if (!CanShowNextMeasures || selectedScore is null)
         {
             return;
         }
 
-        firstVisibleMeasure = GrandStaffSceneBuilder.ClampFirstVisibleMeasure(
-            score,
-            firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount);
-        UpdateScoreCursorMeasureIfPlaying();
+        scoreWindowPair = ScoreGrandStaffWindowPair.FromPageIndex(
+            selectedScore.Measures.Count,
+            (scoreWindowPair?.ActivePageIndex ?? 0) + 1);
         if (!showPianoRoll)
         {
             RefreshCanvasScene(GetAnchorTime());
-        }
-    }
-
-    // Measure navigation during active score playback needs the JS-side cursor to reposition
-    // against the new visible window on the next render, without restarting the audio-clock
-    // anchor it was given at StartScorePlaybackAsync.
-    private void UpdateScoreCursorMeasureIfPlaying()
-    {
-        if (ScorePlaybackSession.IsActive)
-        {
-            scoreCursorState = BuildScoreCursorState();
         }
     }
 
@@ -703,7 +775,7 @@
     // animation frame, from audioContext.currentTime — see canvas.js's drawScoreCursor(). Null
     // while nothing should be drawn (no active score playback, or the piano-roll view is showing,
     // which never displayed a grand-staff cursor either).
-    private ScoreCursorPlaybackState? BuildScoreCursorState()
+    private ScoreCursorPlaybackState? BuildScoreCursorState(int firstVisibleMeasure)
     {
         if (showPianoRoll || selectedScore is null || ScorePlaybackSession.GetCursorAnchor() is not { } anchor)
         {
@@ -719,6 +791,50 @@
             anchor.CompletionSeconds,
             cursorY0,
             cursorY1);
+    }
+
+    private void UpdateScoreCursorStates()
+    {
+        if (scoreWindowPair is not { } pair)
+        {
+            scoreCursorState = null;
+            secondaryScoreCursorState = null;
+            return;
+        }
+
+        scoreCursorState = BuildScoreCursorState(pair.UpperFirstMeasure);
+        secondaryScoreCursorState = pair.LowerFirstMeasure is { } lowerFirstMeasure
+            ? BuildScoreCursorState(lowerFirstMeasure)
+            : null;
+    }
+
+    private void ResetScoreWindowPair()
+    {
+        scoreWindowPair = selectedScore is { Measures.Count: > 0 } score
+            ? ScoreGrandStaffWindowPair.FromPageIndex(score.Measures.Count, activePageIndex: 0)
+            : null;
+        UpdateScoreCursorStates();
+    }
+
+    private bool UpdateScoreWindowPairFromCursor(double cursorBeats)
+    {
+        if (selectedScore is not { Measures.Count: > 0 } score)
+        {
+            return false;
+        }
+
+        var updatedPair = ScoreGrandStaffWindowPair.FromCursorBeats(
+            score.Measures.Count,
+            cursorBeats,
+            score.TimeSignature.Numerator);
+        if (updatedPair == scoreWindowPair)
+        {
+            return false;
+        }
+
+        scoreWindowPair = updatedPair;
+        UpdateScoreCursorStates();
+        return true;
     }
 
     private Task OctaveDownAsync() =>
@@ -1017,24 +1133,25 @@
             {
                 TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync(cancellationToken);
 
-                // The grand-staff cursor now animates entirely in JS (see BuildScoreCursorState
-                // and canvas.js's drawScoreCursor), so this loop no longer needs to rebuild and
-                // push a fresh GrandStaffScene every tick just to move it. The piano-roll view
-                // has no such client-side animation, so it still needs a per-tick rebuild while
-                // score playback is what's driving it forward.
+                double? cursorBeats = ScorePlaybackSession.GetCursorBeats(currentTime);
+                bool scoreWindowChanged = !showPianoRoll && cursorBeats.HasValue
+                    && UpdateScoreWindowPairFromCursor(cursorBeats.Value);
+
                 if (showPianoRoll)
                 {
                     RefreshCanvasScene(currentTime);
                     await InvokeAsync(StateHasChanged);
                 }
-
-                // Discarded: called only for its side effect of flipping IsActive once
-                // currentTime reaches the schedule's completion time.
-                ScorePlaybackSession.GetCursorBeats(currentTime);
+                else if (scoreWindowChanged)
+                {
+                    RefreshCanvasScene(currentTime);
+                    await InvokeAsync(StateHasChanged);
+                }
 
                 if (!ScorePlaybackSession.IsActive)
                 {
                     scoreCursorState = null;
+                    secondaryScoreCursorState = null;
                     RefreshCanvasScene(currentTime);
                     audioStatus = "Audio is ready.";
                     EnsureVisualizationRefresh();
@@ -1158,7 +1275,7 @@
     {
         showPianoRoll = !showPianoRoll;
         RefreshCanvasScene(currentTime);
-        UpdateScoreCursorMeasureIfPlaying();
+        UpdateScoreCursorStates();
         if (ShouldContinueVisualizationRefresh(
             showPianoRoll,
             selectedScore is not null,
@@ -1184,6 +1301,7 @@
                 .Concat(ScorePlaybackSession.GetStartedNotes(currentTime))
                 .ToArray();
             canvasScene = PianoRollSceneBuilder.Build(notes, currentTime);
+            secondaryCanvasScene = null;
             return;
         }
 
@@ -1195,7 +1313,17 @@
                 displayTimeSignature,
                 displayTempo,
                 keyboardState.CurrentOctave);
+            secondaryCanvasScene = null;
             return;
+        }
+
+        if (cursorBeats.HasValue)
+        {
+            UpdateScoreWindowPairFromCursor(cursorBeats.Value);
+        }
+        else if (scoreWindowPair is null)
+        {
+            ResetScoreWindowPair();
         }
 
         double? performedNoteBeats = cursorBeats;
@@ -1204,13 +1332,24 @@
             performedNoteBeats = ScorePlaybackSession.GetCursorBeats(currentTime);
         }
 
-        canvasScene = grandStaffSceneCache.BuildScore(
+        var performedNotes = noteTimeline.Snapshot(currentTime);
+        int upperFirstMeasure = scoreWindowPair?.UpperFirstMeasure ?? 0;
+        canvasScene = upperGrandStaffSceneCache.BuildScore(
             selectedScore,
-            firstVisibleMeasure,
+            upperFirstMeasure,
             cursorBeats,
             verdicts,
-            noteTimeline.Snapshot(currentTime),
+            performedNotes,
             performedNoteBeats);
+        secondaryCanvasScene = scoreWindowPair?.LowerFirstMeasure is { } lowerFirstMeasure
+            ? lowerGrandStaffSceneCache.BuildScore(
+                selectedScore,
+                lowerFirstMeasure,
+                cursorBeats,
+                verdicts,
+                performedNotes,
+                performedNoteBeats)
+            : null;
     }
 
     internal static bool ShouldContinueVisualizationRefresh(

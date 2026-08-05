@@ -7,7 +7,7 @@ PianoMapper maps a computer keyboard to piano notes and renders performances as 
 - Thirteen chromatic note keys with sustained note-on/note-off behavior and octave selection.
 - Live grand staff and scrolling piano roll with clefs, ledger lines, accidentals, and note duration.
 - Strict MusicXML (`.mxl`, `.musicxml`, or `.xml`) import for one part and up to two staves, including chords, ties, rests, dotted values, beam groups, backup/forward timing, and preserved `up`/`down` stem direction.
-- Scheduled score playback, measure navigation, a tempo cursor, and random-measure playback.
+- Scheduled score playback, measure navigation, a tempo cursor, and random-measure playback. In the browser, imported scores keep the current five-measure grand-staff page and the next page visible together; playback and Practice alternate between those rows without replacing the row being played.
 - Count-in practice with pitch/timing/duration verdicts and an accuracy summary.
 - Optional browser metronome with accented downbeats, on-tempo feedback, and adjustable timing tolerance.
 - Piano-style multi-harmonic synthesis, oscilloscope, and spectrum.

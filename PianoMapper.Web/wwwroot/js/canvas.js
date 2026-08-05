@@ -32,6 +32,7 @@ const tieHeightToLengthRatio = 0.04;
 const tieCenterThicknessInStaffSpaces = 0.08;
 const staffLineWidth = 1.5;
 const spectrumReleaseClearMilliseconds = 120;
+const scorePlaybackHighlightColor = "#a78bfa";
 const plotLeftMargin = 44;
 const plotRightMargin = 16;
 const plotTopMargin = 26;
@@ -48,6 +49,14 @@ const verdictColors = [
 ];
 
 export function initialize(canvas, waveformCanvas, spectrumCanvas, analysisLayout) {
+    initializeCanvas(canvas, waveformCanvas, spectrumCanvas, analysisLayout);
+}
+
+export function initializeScoreCanvas(canvas) {
+    initializeCanvas(canvas);
+}
+
+function initializeCanvas(canvas, waveformCanvas, spectrumCanvas, analysisLayout) {
     dispose(canvas);
 
     const state = {
@@ -72,8 +81,12 @@ export function initialize(canvas, waveformCanvas, spectrumCanvas, analysisLayou
     };
     state.resizeObserver = new ResizeObserver(() => draw(state));
     state.resizeObserver.observe(canvas);
-    state.resizeObserver.observe(waveformCanvas);
-    state.resizeObserver.observe(spectrumCanvas);
+    if (waveformCanvas) {
+        state.resizeObserver.observe(waveformCanvas);
+    }
+    if (spectrumCanvas) {
+        state.resizeObserver.observe(spectrumCanvas);
+    }
     canvases.set(canvas, state);
     draw(state);
 }
@@ -102,6 +115,7 @@ export function startScoreCursor(canvas, cursor) {
     }
 
     state.scoreCursor = cursor;
+    draw(state);
 }
 
 export function stopScoreCursor(canvas) {
@@ -111,6 +125,12 @@ export function stopScoreCursor(canvas) {
     }
 
     state.scoreCursor = undefined;
+    if (state.animationFrame !== undefined) {
+        cancelAnimationFrame(state.animationFrame);
+        state.animationFrame = undefined;
+    }
+
+    draw(state);
 }
 
 export function dispose(canvas) {
@@ -141,7 +161,9 @@ function draw(state) {
     } else {
         const scoreLayer = prepareScoreLayer(state, width, height, pixelRatio);
         context.drawImage(scoreLayer, 0, 0, width, height);
-        drawScoreCursor(context, state, width, height);
+        const scorePlaybackBeats = getScorePlaybackBeats(state);
+        drawScorePlaybackHighlights(context, scene, width, height, scorePlaybackBeats);
+        drawScoreCursor(context, state, width, height, scorePlaybackBeats);
     }
 
     if (state.isWaveformVisible) {
@@ -177,10 +199,7 @@ function prepareScoreLayer(state, width, height, pixelRatio) {
 }
 
 function drawGrandStaff(context, scene, width, height) {
-    const staffLines = scene.lines.filter(line => line.kind === staffLineKind);
-    const staffSpace = staffLines.length >= 2
-        ? mapHeight(Math.abs(staffLines[1].y0 - staffLines[0].y0), height)
-        : defaultStaffSpace;
+    const staffSpace = getStaffSpace(scene, height);
     for (const line of scene.lines) {
         if (scene.shouldClipNotesAtClefs && line.kind === ledgerLineKind) {
             continue;
@@ -246,6 +265,13 @@ function drawGrandStaff(context, scene, width, height) {
     if (shouldClipNoteElements) {
         context.restore();
     }
+}
+
+function getStaffSpace(scene, height) {
+    const staffLines = scene.lines.filter(line => line.kind === staffLineKind);
+    return staffLines.length >= 2
+        ? mapHeight(Math.abs(staffLines[1].y0 - staffLines[0].y0), height)
+        : defaultStaffSpace;
 }
 
 function prepareCanvas(canvas) {
@@ -422,10 +448,11 @@ function ensureAnimation(state) {
     }
 
     const isAnalysisVisible = state.isWaveformVisible || state.isFrequencySpectrumVisible;
-    const shouldAnimate = isAnalysisVisible
-        && (audioActive
+    const shouldAnimate = isScoreCursorActive(state)
+        || (isAnalysisVisible
+            && (audioActive
             || (state.lastAudioActiveTimeMilliseconds !== undefined
-                && now - state.lastAudioActiveTimeMilliseconds < spectrumReleaseClearMilliseconds));
+                && now - state.lastAudioActiveTimeMilliseconds < spectrumReleaseClearMilliseconds)));
 
     if (!shouldAnimate || state.animationFrame !== undefined) {
         return;
@@ -435,6 +462,10 @@ function ensureAnimation(state) {
         state.animationFrame = undefined;
         draw(state);
     });
+}
+
+function isScoreCursorActive(state) {
+    return Number.isFinite(getScorePlaybackBeats(state));
 }
 
 function drawPianoRoll(context, scene, width, height) {
@@ -454,30 +485,57 @@ function drawPianoRoll(context, scene, width, height) {
     }
 }
 
-function drawScoreCursor(context, state, width, height) {
+function getScorePlaybackBeats(state) {
     const cursor = state.scoreCursor;
     if (!cursor) {
-        return;
+        return undefined;
     }
 
     let currentTime;
     try {
         currentTime = getCurrentTime();
     } catch {
-        // Audio isn't initialized (yet, or anymore). Nothing to animate from.
-        return;
+        return undefined;
     }
 
     if (currentTime > cursor.completionSeconds) {
+        return undefined;
+    }
+
+    return (currentTime - cursor.anchorSeconds) / 60 * cursor.beatsPerMinute;
+}
+
+function drawScorePlaybackHighlights(context, scene, width, height, scorePlaybackBeats) {
+    if (!Number.isFinite(scorePlaybackBeats)) {
         return;
     }
 
-    const beats = Math.max(0, (currentTime - cursor.anchorSeconds) / 60 * cursor.beatsPerMinute);
+    const staffSpace = getStaffSpace(scene, height);
+    for (const note of scene.notes) {
+        if (Number.isFinite(note.scoreOnsetBeats)
+            && Number.isFinite(note.scoreEndBeats)
+            && scorePlaybackBeats >= note.scoreOnsetBeats
+            && scorePlaybackBeats < note.scoreEndBeats) {
+            drawNote(context, note, width, height, staffSpace, scorePlaybackHighlightColor);
+        }
+    }
+}
+
+function drawScoreCursor(context, state, width, height, scorePlaybackBeats) {
+    const cursor = state.scoreCursor;
+    if (!cursor || !Number.isFinite(scorePlaybackBeats)) {
+        return;
+    }
+
+    const beats = Math.max(0, scorePlaybackBeats);
+    const windowStartBeat = cursor.firstVisibleMeasure * cursor.beatsPerMeasure;
+    const windowEndBeat = (cursor.firstVisibleMeasure + scoreCursorVisibleMeasureCount)
+        * cursor.beatsPerMeasure;
+    if (beats < windowStartBeat || beats >= windowEndBeat) {
+        return;
+    }
+
     const x = mapAbsoluteBeatToScoreX(beats, cursor.beatsPerMeasure, cursor.firstVisibleMeasure);
-    if (x < scoreCursorX0 || x > scoreCursorX1) {
-        return;
-    }
-
     drawLine(
         context,
         { x0: x, y0: cursor.cursorY0, x1: x, y1: cursor.cursorY1, kind: cursorLineKind },
@@ -546,14 +604,14 @@ function drawGlyph(context, glyph, width, height) {
     context.fillText(glyph.text, x, y);
 }
 
-function drawNote(context, note, width, height, staffSpace) {
+function drawNote(context, note, width, height, staffSpace, colorOverride) {
     const x = mapX(note.x, width);
     const y = mapY(note.y, height);
     const noteHeadRadiusX = staffSpace * noteHeadWidthInStaffSpaces / 2;
     const noteHeadRadiusY = staffSpace * noteHeadHeightInStaffSpaces / 2;
-    const noteColor = Number.isInteger(note.verdict)
+    const noteColor = colorOverride ?? (Number.isInteger(note.verdict)
         ? verdictColors[note.verdict]
-        : note.isActive ? "#22d3ee" : "#fbbf24";
+        : note.isActive ? "#22d3ee" : "#fbbf24");
     context.strokeStyle = noteColor;
     context.fillStyle = context.strokeStyle;
     context.lineWidth = 2;
@@ -618,7 +676,10 @@ function drawNote(context, note, width, height, staffSpace) {
     context.font = "16px system-ui, sans-serif";
     context.textAlign = "center";
     context.textBaseline = "top";
-    context.fillText(note.label, x, y + noteHeadRadiusY + 6);
+    const labelY = Number.isFinite(note.labelY)
+        ? mapY(note.labelY, height)
+        : y + noteHeadRadiusY + 6;
+    context.fillText(note.label, x, labelY);
 }
 
 function drawBeam(context, beam, width, height, staffSpace) {

@@ -4,9 +4,16 @@ import test from "node:test";
 import {
     dispose,
     initialize,
+    initializeScoreCanvas,
     mapAbsoluteBeatToScoreX,
     render,
+    startScoreCursor,
+    stopScoreCursor,
 } from "../../PianoMapper.Web/wwwroot/js/canvas.js";
+import {
+    dispose as disposeAudio,
+    initialize as initializeAudio,
+} from "../../PianoMapper.Web/wwwroot/js/audio.js";
 
 test("score cursor mapping fits five measures across the score width", () => {
     const fifthMeasureBoundary = mapAbsoluteBeatToScoreX(20, 4, 0);
@@ -145,6 +152,197 @@ class FakeCanvas {
     }
 }
 
+async function createScoreCursorHarness(currentTime) {
+    const originalWindow = globalThis.window;
+    const originalDocument = globalThis.document;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+    const animationFrames = [];
+    const cancelledFrames = [];
+    let nextAnimationFrame = 1;
+
+    class FakeAudioContext {
+        state = "running";
+        destination = {};
+        currentTime = currentTime;
+
+        constructor() {
+            globalThis.window.AudioContextInstance = this;
+        }
+
+        createGain() {
+            return { gain: { value: 0 }, connect() { } };
+        }
+
+        createAnalyser() {
+            return { connect() { } };
+        }
+
+        async close() {
+            this.state = "closed";
+        }
+    }
+
+    globalThis.window = { devicePixelRatio: 1, AudioContext: FakeAudioContext };
+    globalThis.document = {
+        cookie: "pianomapper-sound-source=synth",
+        createElement() {
+            return new FakeCanvas();
+        },
+        querySelector() {
+            return null;
+        },
+    };
+    globalThis.ResizeObserver = class {
+        observe() { }
+        disconnect() { }
+    };
+    globalThis.requestAnimationFrame = callback => {
+        const id = nextAnimationFrame++;
+        animationFrames.push({ id, callback });
+        return id;
+    };
+    globalThis.cancelAnimationFrame = id => cancelledFrames.push(id);
+
+    await initializeAudio();
+    const audioContext = window.AudioContextInstance;
+    const canvases = [];
+
+    return {
+        animationFrames,
+        cancelledFrames,
+        audioContext,
+        createCanvas() {
+            const canvas = new FakeCanvas();
+            initialize(canvas, new FakeCanvas(), new FakeCanvas(), { spectrumVisibleBinCount: 32 });
+            canvases.push(canvas);
+            return canvas;
+        },
+        async dispose() {
+            for (const canvas of canvases) {
+                dispose(canvas);
+            }
+            await disposeAudio();
+            globalThis.window = originalWindow;
+            globalThis.document = originalDocument;
+            globalThis.ResizeObserver = originalResizeObserver;
+            globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+            globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
+        },
+    };
+}
+
+test("score cursor exact boundary belongs only to incoming canvas", async () => {
+    const harness = await createScoreCursorHarness(20);
+    const outgoingCanvas = harness.createCanvas();
+    const incomingCanvas = harness.createCanvas();
+    const cursor = {
+        anchorSeconds: 0,
+        beatsPerMinute: 60,
+        beatsPerMeasure: 4,
+        completionSeconds: 40,
+        cursorY0: -0.5,
+        cursorY1: 0.5,
+    };
+
+    try {
+        startScoreCursor(outgoingCanvas, { ...cursor, firstVisibleMeasure: 0 });
+        startScoreCursor(incomingCanvas, { ...cursor, firstVisibleMeasure: 5 });
+
+        assert.equal(outgoingCanvas.context.lineSegments.length, 0);
+        assert.equal(incomingCanvas.context.lineSegments.length, 1);
+    } finally {
+        await harness.dispose();
+    }
+});
+
+test("score cursor animates without analysis panels and stops at completion or removal", async () => {
+    const harness = await createScoreCursorHarness(1);
+    const canvas = harness.createCanvas();
+    const cursor = {
+        anchorSeconds: 0,
+        beatsPerMinute: 60,
+        beatsPerMeasure: 4,
+        firstVisibleMeasure: 0,
+        completionSeconds: 2,
+        cursorY0: -0.5,
+        cursorY1: 0.5,
+    };
+
+    try {
+        startScoreCursor(canvas, cursor);
+        assert.equal(harness.animationFrames.length, 1);
+
+        harness.audioContext.currentTime = 3;
+        harness.animationFrames.shift().callback();
+        assert.equal(harness.animationFrames.length, 0);
+
+        harness.audioContext.currentTime = 1;
+        startScoreCursor(canvas, cursor);
+        assert.equal(harness.animationFrames.length, 1);
+        const scheduledFrame = harness.animationFrames[0].id;
+
+        stopScoreCursor(canvas);
+
+        assert.deepEqual(harness.cancelledFrames, [scheduledFrame]);
+    } finally {
+        await harness.dispose();
+    }
+});
+
+test("score playback highlights a chord only inside its half-open beat interval", async () => {
+    const harness = await createScoreCursorHarness(1);
+    const canvas = harness.createCanvas();
+    const noteX = mapAbsoluteBeatToScoreX(1, 4, 0);
+    const note = {
+        y: 0.2,
+        scoreOnsetBeats: 1,
+        scoreEndBeats: 2,
+        isActive: false,
+        isFilled: true,
+        label: "C4",
+    };
+
+    try {
+        render(canvas, {
+            kind: 0,
+            lines: [
+                { x0: -0.8, y0: 0.3, x1: 0.8, y1: 0.3, kind: 0 },
+                { x0: -0.8, y0: 0.2, x1: 0.8, y1: 0.2, kind: 0 },
+            ],
+            glyphs: [],
+            notes: [
+                { ...note, x: noteX },
+                { ...note, x: noteX, y: 0.1, label: "E4" },
+            ],
+            beams: [],
+            shouldClipNotesAtClefs: false,
+        });
+        startScoreCursor(canvas, {
+            anchorSeconds: 0,
+            beatsPerMinute: 60,
+            beatsPerMeasure: 4,
+            firstVisibleMeasure: 0,
+            completionSeconds: 5,
+            cursorY0: -0.5,
+            cursorY1: 0.5,
+        });
+
+        assert.equal(canvas.context.ellipseCalls.length, 2);
+        assert.equal(canvas.context.fillStyle, "#a78bfa");
+        assert.equal(canvas.context.ellipseCalls[0][0], canvas.context.lineSegments.at(-1).x);
+
+        canvas.context.ellipseCalls.length = 0;
+        harness.audioContext.currentTime = 2;
+        harness.animationFrames.shift().callback();
+
+        assert.equal(canvas.context.ellipseCalls.length, 0);
+    } finally {
+        await harness.dispose();
+    }
+});
+
 function renderGrandStaffScene(scene, width = 640, height = 240) {
     const originalWindow = globalThis.window;
     const originalDocument = globalThis.document;
@@ -260,6 +458,85 @@ test("grand staff drawing caches its static layer until the scene or size change
         assert.equal(scoreLayer.context.strokeCalls, scoreLayerStrokesAfterSceneRender + 3);
     } finally {
         dispose(canvas);
+        globalThis.window = originalWindow;
+        globalThis.document = originalDocument;
+        globalThis.ResizeObserver = originalResizeObserver;
+        globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+        globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
+    }
+});
+
+test("score-only canvas owns independent resize, scene cache, and disposal state", () => {
+    const originalWindow = globalThis.window;
+    const originalDocument = globalThis.document;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+    const createdCanvases = [];
+    const observers = [];
+
+    globalThis.window = { devicePixelRatio: 1 };
+    globalThis.document = {
+        createElement() {
+            const createdCanvas = new FakeCanvas();
+            createdCanvases.push(createdCanvas);
+            return createdCanvas;
+        },
+    };
+    globalThis.ResizeObserver = class {
+        observed = [];
+        isDisconnected = false;
+
+        constructor() {
+            observers.push(this);
+        }
+
+        observe(element) {
+            this.observed.push(element);
+        }
+
+        disconnect() {
+            this.isDisconnected = true;
+        }
+    };
+    globalThis.requestAnimationFrame = () => 1;
+    globalThis.cancelAnimationFrame = () => { };
+
+    const primaryCanvas = new FakeCanvas();
+    const waveformCanvas = new FakeCanvas();
+    const spectrumCanvas = new FakeCanvas();
+    const secondaryCanvas = new FakeCanvas();
+
+    try {
+        initialize(primaryCanvas, waveformCanvas, spectrumCanvas, { spectrumVisibleBinCount: 32 });
+        initializeScoreCanvas(secondaryCanvas);
+        render(primaryCanvas, {
+            kind: 0,
+            lines: [{ x0: -0.8, y0: 0.2, x1: 0.8, y1: 0.2, kind: 0 }],
+            glyphs: [],
+            notes: [],
+        });
+        render(secondaryCanvas, {
+            kind: 0,
+            lines: [
+                { x0: -0.8, y0: 0.2, x1: 0.8, y1: 0.2, kind: 0 },
+                { x0: -0.8, y0: 0.1, x1: 0.8, y1: 0.1, kind: 0 },
+            ],
+            glyphs: [],
+            notes: [],
+        });
+
+        assert.deepEqual(observers[0].observed, [primaryCanvas, waveformCanvas, spectrumCanvas]);
+        assert.deepEqual(observers[1].observed, [secondaryCanvas]);
+        assert.equal(createdCanvases[0].context.strokeCalls, 1);
+        assert.equal(createdCanvases[1].context.strokeCalls, 2);
+
+        dispose(secondaryCanvas);
+        assert.equal(observers[1].isDisconnected, true);
+        assert.equal(observers[0].isDisconnected, false);
+    } finally {
+        dispose(secondaryCanvas);
+        dispose(primaryCanvas);
         globalThis.window = originalWindow;
         globalThis.document = originalDocument;
         globalThis.ResizeObserver = originalResizeObserver;
@@ -424,6 +701,27 @@ test("grand staff draws compact angled noteheads", () => {
         globalThis.requestAnimationFrame = originalRequestAnimationFrame;
         globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
     }
+});
+
+test("grand staff draws pitch labels on the supplied shared row", () => {
+    const context = renderGrandStaffScene({
+        kind: 0,
+        lines: [
+            { x0: -0.8, y0: 0.4, x1: 0.8, y1: 0.4, kind: 0 },
+            { x0: -0.8, y0: 0.3, x1: 0.8, y1: 0.3, kind: 0 },
+        ],
+        glyphs: [],
+        notes: [
+            { x: -0.2, y: 0.35, labelY: 0.1, isActive: false, isFilled: true, label: "A4" },
+            { x: 0.2, y: 0.55, labelY: 0.1, isActive: false, isFilled: true, label: "F#5" },
+        ],
+        beams: [],
+        shouldClipNotesAtClefs: false,
+    });
+
+    const labelYs = context.fillTextCalls.map(call => call.args[2]);
+    assert.equal(labelYs.length, 2);
+    assert.equal(labelYs[0], labelYs[1]);
 });
 
 test("grand staff keeps ledger lines compact on wide canvases", () => {

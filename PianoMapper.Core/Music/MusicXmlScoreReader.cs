@@ -24,6 +24,7 @@ public sealed class MusicXmlScoreReader
     private const string TieElementName = "tie";
     private const string TypeElementName = "type";
     private const string VoiceElementName = "voice";
+    private const double DefaultQuarterNotesPerMinute = 120;
 
     private static readonly FrozenSet<string> IgnoredPresentationElements = new[]
     {
@@ -98,7 +99,7 @@ public sealed class MusicXmlScoreReader
         int divisions = 1;
         int keyFifths = 0;
         var timeSignature = new TimeSignature(4, new NoteValue(4));
-        var tempo = new Tempo(120);
+        double quarterNotesPerMinute = DefaultQuarterNotesPerMinute;
         bool timeSpecified = false;
         bool tempoSpecified = false;
         var measures = new List<ScoreMeasure>();
@@ -130,14 +131,14 @@ public sealed class MusicXmlScoreReader
                         ParseAttributes(element, ref divisions, ref keyFifths, ref timeSignature, ref timeSpecified);
                         break;
                     case "direction":
-                        if (ParseTempo(element) is { } parsedTempo)
+                        if (ParseTempo(element) is { } parsedQuarterNotesPerMinute)
                         {
-                            if (tempoSpecified && parsedTempo != tempo)
+                            if (tempoSpecified && parsedQuarterNotesPerMinute != quarterNotesPerMinute)
                             {
                                 throw Unsupported(SoundElementName);
                             }
 
-                            tempo = parsedTempo;
+                            quarterNotesPerMinute = parsedQuarterNotesPerMinute;
                             tempoSpecified = true;
                         }
 
@@ -177,6 +178,8 @@ public sealed class MusicXmlScoreReader
             measureIndex++;
         }
 
+        var tempo = new Tempo(
+            quarterNotesPerMinute * MusicalTime.GetBeats(new NoteValue(4), timeSignature));
         return new Score(Path.GetFileNameWithoutExtension(sourceName), timeSignature, tempo, keyFifths, measures);
     }
 
@@ -294,7 +297,7 @@ public sealed class MusicXmlScoreReader
         }
     }
 
-    private static Tempo? ParseTempo(XElement direction)
+    private static double? ParseTempo(XElement direction)
     {
         XElement? sound = null;
         foreach (var element in direction.Elements())
@@ -338,12 +341,16 @@ public sealed class MusicXmlScoreReader
             return null;
         }
 
-        if (!double.TryParse(tempoAttribute.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double beatsPerMinute))
+        if (!double.TryParse(
+            tempoAttribute.Value,
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out double quarterNotesPerMinute))
         {
             throw new InvalidDataException($"Invalid MusicXML tempo '{tempoAttribute.Value}'.");
         }
 
-        return new Tempo(beatsPerMinute);
+        return quarterNotesPerMinute;
     }
 
     private static void ParseNote(

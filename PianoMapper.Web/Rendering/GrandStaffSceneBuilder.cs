@@ -20,6 +20,7 @@ internal static class GrandStaffSceneBuilder
     private const double LedgerLineHalfWidth = 0.065;
     private const double StemLength = GrandStaffLayout.DiatonicStep * 6;
     private const double StaffSeparationOffset = GrandStaffLayout.DiatonicStep;
+    private const double NoteLabelOffsetBelowStaff = GrandStaffLayout.DiatonicStep * 2;
     private const double ViewY0 = -0.9;
     private const double ViewY1 = 0.9;
     private const int TrebleClefHeightInStaffSpaces = 7;
@@ -142,6 +143,8 @@ internal static class GrandStaffSceneBuilder
                 : null;
             double noteY = SeparateStaffY(layout.Position.Y, layout.Position.Staff);
             bool isBeamed = beamOverrides.TryGetValue(note, out var beamOverride);
+            double scoreOnsetBeats = ScoreDerivation.GetOnsetBeats(note, score.TimeSignature);
+            double scoreEndBeats = scoreOnsetBeats + MusicalTime.GetBeats(note.NoteValue, score.TimeSignature);
 
             renderedNotes.Add(new GrandStaffNote(
                 note.Pitch.ToString(),
@@ -155,7 +158,10 @@ internal static class GrandStaffSceneBuilder
                 layout.HasDot,
                 isBeamed ? layout.FlagCount - beamOverride.BeamCount : layout.FlagCount,
                 verdict,
-                StemEndY: isBeamed ? beamOverride.StemEndY : null));
+                StemEndY: isBeamed ? beamOverride.StemEndY : null,
+                LabelY: GetStaffLabelY(layout.Position.Staff),
+                ScoreOnsetBeats: scoreOnsetBeats,
+                ScoreEndBeats: scoreEndBeats));
             lines.AddRange(layout.Position.LedgerLineYs.Select(
                 y => new GrandStaffLine(
                     layout.X - LedgerLineHalfWidth,
@@ -231,7 +237,8 @@ internal static class GrandStaffSceneBuilder
                     indicatorY,
                     DurationSeconds: 0,
                     IsActive: true,
-                    IsFilled: false));
+                    IsFilled: false,
+                    LabelY: GetStaffLabelY(position.Staff)));
                 lines.AddRange(position.LedgerLineYs.Select(
                     y => new GrandStaffLine(
                         noteX - LedgerLineHalfWidth,
@@ -260,9 +267,11 @@ internal static class GrandStaffSceneBuilder
             return null;
         }
 
-        float x = GrandStaffLayout.MapAbsoluteBeatToScoreX(beats.Value, timeSignature, firstVisibleMeasure);
-        return x >= GrandStaffLayout.ScoreX0 && x <= GrandStaffLayout.ScoreX1
-            ? x
+        double windowStartBeat = firstVisibleMeasure * timeSignature.Numerator;
+        double windowEndBeat = (firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount)
+            * timeSignature.Numerator;
+        return beats.Value >= windowStartBeat && beats.Value < windowEndBeat
+            ? GrandStaffLayout.MapAbsoluteBeatToScoreX(beats.Value, timeSignature, firstVisibleMeasure)
             : null;
     }
 
@@ -365,7 +374,8 @@ internal static class GrandStaffSceneBuilder
                     StemDirection: stemDirection,
                     HasDot: noteValue?.Dots > 0,
                     FlagCount: flagCount,
-                    DurationEndX: isActiveSegment ? Math.Max(renderedX, segment.DurationEndX) : null));
+                    DurationEndX: isActiveSegment ? Math.Max(renderedX, segment.DurationEndX) : null,
+                    LabelY: GetStaffLabelY(position.Staff)));
                 lines.AddRange(position.LedgerLineYs.Select(
                     y => new GrandStaffLine(
                         renderedX - LedgerLineHalfWidth,
@@ -684,6 +694,7 @@ internal static class GrandStaffSceneBuilder
 
         yValues.AddRange(scene.Glyphs.Select(glyph => glyph.Y));
         yValues.AddRange(scene.Notes.Select(note => note.Y));
+        yValues.AddRange(scene.Notes.Select(note => note.LabelY).OfType<double>());
         foreach (var tie in scene.Ties)
         {
             yValues.Add(tie.Y0);
@@ -715,6 +726,7 @@ internal static class GrandStaffSceneBuilder
             {
                 Y = MapY(note.Y),
                 StemEndY = note.StemEndY.HasValue ? MapY(note.StemEndY.Value) : null,
+                LabelY = note.LabelY.HasValue ? MapY(note.LabelY.Value) : null,
             }).ToArray(),
             scene.ShouldClipNotesAtClefs)
         {
@@ -725,6 +737,14 @@ internal static class GrandStaffSceneBuilder
 
     private static double SeparateStaffY(double y, Staff staff) =>
         y + (staff == Staff.Treble ? StaffSeparationOffset : -StaffSeparationOffset);
+
+    private static double GetStaffLabelY(Staff staff)
+    {
+        double bottomLineY = staff == Staff.Treble
+            ? GrandStaffLayout.TrebleLineYs[0]
+            : GrandStaffLayout.BassLineYs[0];
+        return SeparateStaffY(bottomLineY, staff) - NoteLabelOffsetBelowStaff;
+    }
 
     private static NoteValue GetNearestLiveNoteValue(
         TimeSpan duration,
