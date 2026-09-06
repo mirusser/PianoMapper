@@ -1,0 +1,61 @@
+<section class="visualization-panel piano-keyboard-panel" aria-labelledby="full-piano-keyboard-heading">
+    <div class="visualization-panel-header">
+        <div>
+            <p class="panel-kicker">Instrument</p>
+            <h2 id="full-piano-keyboard-heading">88-key piano</h2>
+        </div>
+        <span class="panel-context">A0–C8</span>
+    </div>
+    <p class="panel-description">Keys light up while notes sound from your keyboard or score playback.</p>
+    <div class="full-piano-keyboard-scroll">
+        <div class="full-piano-keyboard"
+             role="img"
+             aria-label="@KeyboardAriaLabel">
+            @foreach (PianoKeyboardKey key in keys.Where(key => !key.IsBlack))
+            {
+                <span class="@GetKeyClass(key)"
+                      style="@GetKeyStyle(key)"
+                      title="@key.Pitch"
+                      aria-hidden="true"></span>
+            }
+            @foreach (PianoKeyboardKey key in keys.Where(key => key.IsBlack))
+            {
+                <span class="@GetKeyClass(key)"
+                      style="@GetKeyStyle(key)"
+                      title="@key.Pitch"
+                      aria-hidden="true"></span>
+            }
+        </div>
+    </div>
+</section>
+
+@code {
+    private IReadOnlyList<PianoKeyboardKey> keys = FullPianoKeyboardLayout.Build(new HashSet<int>());
+
+    [Parameter, EditorRequired]
+    public IReadOnlySet<int> ActiveMidiNumbers { get; set; } = new HashSet<int>();
+
+    private string KeyboardAriaLabel
+    {
+        get
+        {
+            string activeNotes = string.Join(
+                ", ",
+                keys.Where(key => key.IsActive).Select(key => key.Pitch.ToString()));
+            return activeNotes.Length == 0
+                ? "Full 88-key piano keyboard from A0 through C8. No keys are sounding."
+                : $"Full 88-key piano keyboard from A0 through C8. Sounding: {activeNotes}.";
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        keys = FullPianoKeyboardLayout.Build(ActiveMidiNumbers);
+    }
+
+    private static string GetKeyClass(PianoKeyboardKey key) =>
+        $"piano-key piano-key-{(key.IsBlack ? "black" : "white")}{(key.IsActive ? " piano-key-active" : string.Empty)}";
+
+    private static string GetKeyStyle(PianoKeyboardKey key) =>
+        FormattableString.Invariant($"left: {key.LeftPercent:F6}%; width: {key.WidthPercent:F6}%");
+}

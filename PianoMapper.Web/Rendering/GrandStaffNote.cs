@@ -19,4 +19,6 @@ public sealed record GrandStaffNote(
     double? StemEndY = null,
     double? LabelY = null,
     double? ScoreOnsetBeats = null,
-    double? ScoreEndBeats = null);
+    double? ScoreEndBeats = null,
+    string? Fingering = null,
+    double? FingeringY = null);

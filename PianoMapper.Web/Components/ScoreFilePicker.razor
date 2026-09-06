@@ -1,17 +1,20 @@
+@inject ScoreFileImporter Importer
+
 <div class="score-file-picker">
-    <label for="score-file">MusicXML score (maximum 10 MiB)</label>
+    <label for="score-file">MusicXML or score image (maximum 10 MiB)</label>
     <InputFile @key="inputGeneration"
                id="score-file"
                OnChange="SelectFileAsync"
-               accept=".mxl,.musicxml,.xml,application/vnd.recordare.musicxml,application/vnd.recordare.musicxml+xml,application/xml,text/xml" />
+               accept=".mxl,.musicxml,.xml,.jpg,.jpeg,.png,application/vnd.recordare.musicxml,application/vnd.recordare.musicxml+xml,application/xml,text/xml,image/jpeg,image/png" />
     @if (HasLoadedScore)
     {
         <button class="button-quiet" type="button" @onclick="UnloadScoreAsync">Unload score</button>
     }
     <details class="learning-disclosure score-file-help">
-        <summary>What is MusicXML?</summary>
+        <summary>Supported score files</summary>
         <p>
-            MusicXML stores written music such as notes, rhythm, and tempo. Audio files store the recorded sound.
+            MusicXML loads directly. JPEG and PNG sheet-music images are converted with the server's Audiveris
+            optical music recognition engine; recognition may need correction in an external score editor.
         </p>
     </details>
     @if (!string.IsNullOrEmpty(status))
@@ -23,7 +26,6 @@
 @code {
     internal const long MaximumFileSizeBytes = 10L * 1024 * 1024;
 
-    private readonly MusicXmlScoreReader reader = new();
     private int inputGeneration;
     private string? status;
 
@@ -52,12 +54,12 @@
             await source.CopyToAsync(buffer);
             buffer.Position = 0;
 
-            var score = reader.Read(buffer, file.Name);
+            var score = await Importer.ReadAsync(buffer, file.Name);
             await ScoreLoaded.InvokeAsync(score);
             status = $"Loaded {score.Title}: {score.Measures.Count} measure(s).";
         }
         catch (Exception exception) when (
-            exception is IOException or InvalidDataException or NotSupportedException or ArgumentException)
+            exception is IOException or InvalidDataException or NotSupportedException or ArgumentException or HttpRequestException)
         {
             status = $"Could not load score: {exception.Message}";
         }

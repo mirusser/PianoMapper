@@ -201,6 +201,68 @@ public sealed class MusicXmlScoreReaderTests
     }
 
     [Theory]
+    [InlineData("above", ScoreFingeringPlacement.Above)]
+    [InlineData("below", ScoreFingeringPlacement.Below)]
+    [InlineData(null, null)]
+    public void Read_Fingering_PreservesFingerNumberAndPlacement(
+        string? placement,
+        ScoreFingeringPlacement? expectedPlacement)
+    {
+        string placementAttribute = placement is null ? string.Empty : $" placement=\"{placement}\"";
+        var score = ReadNotes($$"""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations>
+                <technical><fingering{{placementAttribute}}>3</fingering></technical>
+              </notations>
+            </note>
+            """);
+
+        var fingering = Assert.Single(Assert.Single(score.Measures).Notes).Fingering;
+
+        Assert.Equal(new ScoreFingering(3, expectedPlacement), fingering);
+    }
+
+    [Fact]
+    public void Read_FingeringAndTie_PreservesBothNotations()
+    {
+        var score = ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type><tie type="start" />
+              <notations>
+                <tied type="start" />
+                <technical><fingering placement="above">1</fingering></technical>
+              </notations>
+            </note>
+            """);
+
+        var note = Assert.Single(Assert.Single(score.Measures).Notes);
+
+        Assert.True(note.TiesToNext);
+        Assert.Equal(new ScoreFingering(1, ScoreFingeringPlacement.Above), note.Fingering);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("6")]
+    [InlineData("thumb")]
+    public void Read_InvalidPianoFingering_ThrowsReadableError(string value)
+    {
+        var exception = Assert.Throws<InvalidDataException>(() => ReadNotes($$"""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><technical><fingering>{{value}}</fingering></technical></notations>
+            </note>
+            """));
+
+        Assert.Contains("<fingering>", exception.Message);
+        Assert.Contains(value, exception.Message);
+    }
+
+    [Theory]
     [InlineData("none", false)]
     [InlineData("double", false)]
     [InlineData("none", true)]

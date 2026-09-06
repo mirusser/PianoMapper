@@ -23,6 +23,8 @@ internal sealed class GrandStaffSceneCache
     private Score? cachedScore;
     private int cachedFirstVisibleMeasure;
     private IReadOnlyDictionary<ScoreNote, Verdict>? cachedVerdicts;
+    private bool cachedShowNoteLabels;
+    private bool cachedShowFingerings;
     private GrandStaffStaticScoreParts? cachedStaticParts;
 
     internal GrandStaffScene BuildScore(
@@ -31,20 +33,31 @@ internal sealed class GrandStaffSceneCache
         double? cursorBeats = null,
         IReadOnlyDictionary<ScoreNote, Verdict>? verdicts = null,
         IReadOnlyList<PerformedNote>? performedNotes = null,
-        double? performedNoteBeats = null)
+        double? performedNoteBeats = null,
+        bool showNoteLabels = true,
+        bool showFingerings = true)
     {
         ArgumentNullException.ThrowIfNull(score);
 
         if (cachedStaticParts is not { } staticParts ||
             !ReferenceEquals(cachedScore, score) ||
             cachedFirstVisibleMeasure != firstVisibleMeasure ||
-            !VerdictsEqual(cachedVerdicts, verdicts))
+            !VerdictsEqual(cachedVerdicts, verdicts) ||
+            cachedShowNoteLabels != showNoteLabels ||
+            cachedShowFingerings != showFingerings)
         {
-            staticParts = GrandStaffSceneBuilder.BuildStaticScoreParts(score, firstVisibleMeasure, verdicts);
+            staticParts = GrandStaffSceneBuilder.BuildStaticScoreParts(
+                score,
+                firstVisibleMeasure,
+                verdicts,
+                showNoteLabels,
+                showFingerings);
             cachedStaticParts = staticParts;
             cachedScore = score;
             cachedFirstVisibleMeasure = firstVisibleMeasure;
             cachedVerdicts = verdicts;
+            cachedShowNoteLabels = showNoteLabels;
+            cachedShowFingerings = showFingerings;
         }
 
         return GrandStaffSceneBuilder.ComposeScore(
@@ -53,7 +66,8 @@ internal sealed class GrandStaffSceneCache
             firstVisibleMeasure,
             cursorBeats,
             performedNotes,
-            performedNoteBeats);
+            performedNoteBeats,
+            showNoteLabels);
     }
 
     private static bool VerdictsEqual(

@@ -14,6 +14,7 @@ public sealed class MusicXmlScoreReader
     private const string ContainerEntryName = "META-INF/container.xml";
     private const string DotElementName = "dot";
     private const string DurationElementName = "duration";
+    private const string FingeringElementName = "fingering";
     private const string NotationsElementName = "notations";
     private const string PitchElementName = "pitch";
     private const string RepeatElementName = "repeat";
@@ -21,6 +22,7 @@ public sealed class MusicXmlScoreReader
     private const string SoundElementName = "sound";
     private const string StaffElementName = "staff";
     private const string StemElementName = "stem";
+    private const string TechnicalElementName = "technical";
     private const string TieElementName = "tie";
     private const string TypeElementName = "type";
     private const string VoiceElementName = "voice";
@@ -388,7 +390,8 @@ public sealed class MusicXmlScoreReader
                 staff,
                 TiesToNext: HasTieStart(noteElement),
                 BeamState: ParseBeamState(noteElement),
-                StemDirection: stemDirection));
+                StemDirection: stemDirection,
+                Fingering: ParseFingering(noteElement)));
         }
 
         if (!isChord)
@@ -460,6 +463,11 @@ public sealed class MusicXmlScoreReader
                 continue;
             }
 
+            if (name == TechnicalElementName)
+            {
+                continue;
+            }
+
             if (name != "tied")
             {
                 throw Unsupported(name);
@@ -477,6 +485,57 @@ public sealed class MusicXmlScoreReader
         }
 
         return hasStart;
+    }
+
+    private static ScoreFingering? ParseFingering(XElement noteElement)
+    {
+        var notations = FindChild(noteElement, NotationsElementName);
+        var technical = notations?.Elements()
+            .FirstOrDefault(element => element.Name.LocalName == TechnicalElementName);
+        if (technical is null)
+        {
+            return null;
+        }
+
+        var fingeringElements = technical.Elements()
+            .Where(element => element.Name.LocalName == FingeringElementName)
+            .ToArray();
+        var unsupportedElement = technical.Elements()
+            .FirstOrDefault(element => element.Name.LocalName != FingeringElementName);
+        if (unsupportedElement is not null)
+        {
+            throw Unsupported(unsupportedElement.Name.LocalName);
+        }
+
+        if (fingeringElements.Length == 0)
+        {
+            return null;
+        }
+
+        if (fingeringElements.Length > 1)
+        {
+            throw new NotSupportedException(
+                $"Unsupported MusicXML <{FingeringElementName}>: exactly one fingering per note is required.");
+        }
+
+        var fingeringElement = fingeringElements[0];
+        string value = fingeringElement.Value.Trim();
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int number) ||
+            number is < 1 or > 5)
+        {
+            throw new InvalidDataException(
+                $"Invalid MusicXML <{FingeringElementName}> value '{value}': expected a piano finger number from 1 to 5.");
+        }
+
+        ScoreFingeringPlacement? placement = fingeringElement.Attribute("placement")?.Value switch
+        {
+            null => null,
+            "above" => ScoreFingeringPlacement.Above,
+            "below" => ScoreFingeringPlacement.Below,
+            var placementValue => throw new InvalidDataException(
+                $"Invalid MusicXML <{FingeringElementName}> placement '{placementValue}'."),
+        };
+        return new ScoreFingering(number, placement);
     }
 
     private static BeamState ParseBeamState(XElement noteElement)

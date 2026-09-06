@@ -119,6 +119,52 @@ public sealed class GrandStaffSceneCacheTests
         Assert.Equal(Verdict.Late, Assert.Single(withVerdict.Notes).Verdict);
     }
 
+    [Fact]
+    public void BuildScore_ShowNoteLabelsChanges_RebuildsNotesWithoutLabels()
+    {
+        var cache = new GrandStaffSceneCache();
+        var sourceNote = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
+        var score = new Score(
+            "test",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure([sourceNote], [])]);
+
+        var shown = cache.BuildScore(score, firstVisibleMeasure: 0, showNoteLabels: true);
+        var hidden = cache.BuildScore(score, firstVisibleMeasure: 0, showNoteLabels: false);
+
+        Assert.NotSame(shown.Notes, hidden.Notes);
+        Assert.NotNull(Assert.Single(shown.Notes).LabelY);
+        Assert.Null(Assert.Single(hidden.Notes).LabelY);
+    }
+
+    [Fact]
+    public void BuildScore_ShowFingeringsChanges_RebuildsNotesWithoutFingering()
+    {
+        var cache = new GrandStaffSceneCache();
+        var sourceNote = new ScoreNote(
+            new Pitch(NoteLetter.C, 0, 4),
+            new NoteValue(4),
+            0,
+            0,
+            Staff.Treble,
+            Fingering: new ScoreFingering(2));
+        var score = new Score(
+            "test",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure([sourceNote], [])]);
+
+        var shown = cache.BuildScore(score, firstVisibleMeasure: 0, showFingerings: true);
+        var hidden = cache.BuildScore(score, firstVisibleMeasure: 0, showFingerings: false);
+
+        Assert.NotSame(shown.Notes, hidden.Notes);
+        Assert.NotNull(Assert.Single(shown.Notes).Fingering);
+        Assert.Null(Assert.Single(hidden.Notes).Fingering);
+    }
+
     private static Score CreateScore(int measureCount) =>
         new(
             "test",

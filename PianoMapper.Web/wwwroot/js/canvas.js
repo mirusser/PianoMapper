@@ -200,6 +200,10 @@ function prepareScoreLayer(state, width, height, pixelRatio) {
 
 function drawGrandStaff(context, scene, width, height) {
     const staffSpace = getStaffSpace(scene, height);
+    for (const band of scene.bands ?? []) {
+        drawBand(context, band, width, height);
+    }
+
     for (const line of scene.lines) {
         if (scene.shouldClipNotesAtClefs && line.kind === ledgerLineKind) {
             continue;
@@ -551,6 +555,17 @@ export function mapAbsoluteBeatToScoreX(absoluteBeat, beatsPerMeasure, firstVisi
     return scoreCursorX0 + (relativeMeasure / scoreCursorVisibleMeasureCount) * (scoreCursorX1 - scoreCursorX0);
 }
 
+function drawBand(context, band, width, height) {
+    const x0 = mapX(band.x0, width);
+    const x1 = mapX(band.x1, width);
+    const y0 = mapY(band.y0, height);
+    const y1 = mapY(band.y1, height);
+    context.fillStyle = "rgba(51, 65, 85, 0.35)";
+    context.beginPath();
+    context.roundRect(x0, Math.min(y0, y1), x1 - x0, Math.abs(y1 - y0), 6);
+    context.fill();
+}
+
 function drawLine(context, line, width, height, staffSpace) {
     context.strokeStyle = line.kind === cursorLineKind
         ? "#fb7185"
@@ -673,13 +688,19 @@ function drawNote(context, note, width, height, staffSpace, colorOverride) {
         context.fill();
     }
 
-    context.font = "16px system-ui, sans-serif";
-    context.textAlign = "center";
-    context.textBaseline = "top";
-    const labelY = Number.isFinite(note.labelY)
-        ? mapY(note.labelY, height)
-        : y + noteHeadRadiusY + 6;
-    context.fillText(note.label, x, labelY);
+    if (Number.isFinite(note.labelY)) {
+        context.font = "16px system-ui, sans-serif";
+        context.textAlign = "center";
+        context.textBaseline = "top";
+        context.fillText(note.label, x, mapY(note.labelY, height));
+    }
+
+    if (typeof note.fingering === "string" && Number.isFinite(note.fingeringY)) {
+        context.fillStyle = "#f8fafc";
+        context.font = "600 15px system-ui, sans-serif";
+        context.textBaseline = "middle";
+        context.fillText(note.fingering, x, mapY(note.fingeringY, height));
+    }
 }
 
 function drawBeam(context, beam, width, height, staffSpace) {

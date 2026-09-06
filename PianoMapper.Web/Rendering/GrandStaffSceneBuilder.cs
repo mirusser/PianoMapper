@@ -19,8 +19,23 @@ internal static class GrandStaffSceneBuilder
     private const double OpeningBarlineLead = MeasureEdgeNoteClearance;
     private const double LedgerLineHalfWidth = 0.065;
     private const double StemLength = GrandStaffLayout.DiatonicStep * 6;
-    private const double StaffSeparationOffset = GrandStaffLayout.DiatonicStep;
+    // The gap between staves has to fit two stacked rows of fixed-size canvas text (the pitch
+    // label and, below it, the fingering) at the smallest rendered canvas height (the two-row
+    // score view clamps to 240px), not just look reasonable in scene-space units. Verified against
+    // that worst-case pixel height: an 8-step label-to-fingering gap clears real font ascent/
+    // descent. 6 steps of separation gives the common case (no note under its own staff) 6 steps
+    // of clearance from the other staff, so a note that IS under its own staff (see
+    // GetStaffLowerBoundY) can push the fingering row down by a couple of ledger lines' worth
+    // before ClampAwayFromOtherStaff has to intervene.
+    private const double StaffSeparationOffset = GrandStaffLayout.DiatonicStep * 6;
     private const double NoteLabelOffsetBelowStaff = GrandStaffLayout.DiatonicStep * 2;
+    private const double FingeringOffsetBelowStaff = NoteLabelOffsetBelowStaff + (GrandStaffLayout.DiatonicStep * 8);
+    private const double MinimumClearanceFromOtherStaff = GrandStaffLayout.DiatonicStep * 2;
+    private const string RightHandFingeringPrefix = "R";
+    private const string LeftHandFingeringPrefix = "L";
+    // Kept purely cosmetic (unlike the offsets above): it only pads a background band, not text,
+    // so it doesn't need pixel-verified clearance.
+    private const double AnnotationBandPadding = GrandStaffLayout.DiatonicStep;
     private const double ViewY0 = -0.9;
     private const double ViewY1 = 0.9;
     private const int TrebleClefHeightInStaffSpaces = 7;
@@ -62,14 +77,17 @@ internal static class GrandStaffSceneBuilder
         double? cursorBeats = null,
         IReadOnlyDictionary<ScoreNote, Verdict>? verdicts = null,
         IReadOnlyList<PerformedNote>? performedNotes = null,
-        double? performedNoteBeats = null) =>
+        double? performedNoteBeats = null,
+        bool showNoteLabels = true,
+        bool showFingerings = true) =>
         ComposeScore(
-            BuildStaticScoreParts(score, firstVisibleMeasure, verdicts),
+            BuildStaticScoreParts(score, firstVisibleMeasure, verdicts, showNoteLabels, showFingerings),
             score,
             firstVisibleMeasure,
             cursorBeats,
             performedNotes,
-            performedNoteBeats);
+            performedNoteBeats,
+            showNoteLabels);
 
     /// <summary>
     /// Builds everything about a score's grand-staff rendering that does NOT depend on the
@@ -82,7 +100,9 @@ internal static class GrandStaffSceneBuilder
     internal static GrandStaffStaticScoreParts BuildStaticScoreParts(
         Score score,
         int firstVisibleMeasure,
-        IReadOnlyDictionary<ScoreNote, Verdict>? verdicts = null)
+        IReadOnlyDictionary<ScoreNote, Verdict>? verdicts = null,
+        bool showNoteLabels = true,
+        bool showFingerings = true)
     {
         int clampedMeasure = ClampFirstVisibleMeasure(score, firstVisibleMeasure);
         var lines = CreateStaffLines();
@@ -134,6 +154,10 @@ internal static class GrandStaffSceneBuilder
             visibleNotes.Add((note, layout with { X = renderedX }));
         }
 
+        double trebleLowerBoundY = GetStaffLowerBoundY(Staff.Treble, visibleNotes.Select(item => item.Layout.Position));
+        double bassLowerBoundY = GetStaffLowerBoundY(Staff.Bass, visibleNotes.Select(item => item.Layout.Position));
+        double GetLowerBoundY(Staff staff) => staff == Staff.Treble ? trebleLowerBoundY : bassLowerBoundY;
+
         var beamOverrides = new Dictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)>();
         var beams = BuildBeams(visibleNotes, beamOverrides);
         foreach (var (note, layout) in visibleNotes)
@@ -145,6 +169,7 @@ internal static class GrandStaffSceneBuilder
             bool isBeamed = beamOverrides.TryGetValue(note, out var beamOverride);
             double scoreOnsetBeats = ScoreDerivation.GetOnsetBeats(note, score.TimeSignature);
             double scoreEndBeats = scoreOnsetBeats + MusicalTime.GetBeats(note.NoteValue, score.TimeSignature);
+            double staffLowerBoundY = GetLowerBoundY(layout.Position.Staff);
 
             renderedNotes.Add(new GrandStaffNote(
                 note.Pitch.ToString(),
@@ -159,9 +184,15 @@ internal static class GrandStaffSceneBuilder
                 isBeamed ? layout.FlagCount - beamOverride.BeamCount : layout.FlagCount,
                 verdict,
                 StemEndY: isBeamed ? beamOverride.StemEndY : null,
-                LabelY: GetStaffLabelY(layout.Position.Staff),
+                LabelY: showNoteLabels ? GetStaffLabelY(layout.Position.Staff, staffLowerBoundY) : null,
                 ScoreOnsetBeats: scoreOnsetBeats,
-                ScoreEndBeats: scoreEndBeats));
+                ScoreEndBeats: scoreEndBeats,
+                Fingering: !showFingerings || note.Fingering is null
+                    ? null
+                    : GetFingeringLabel(note.Fingering.Number, layout.Position.Staff),
+                FingeringY: !showFingerings || note.Fingering is null
+                    ? null
+                    : GetFingeringY(layout.Position.Staff, staffLowerBoundY)));
             lines.AddRange(layout.Position.LedgerLineYs.Select(
                 y => new GrandStaffLine(
                     layout.X - LedgerLineHalfWidth,
@@ -179,8 +210,66 @@ internal static class GrandStaffSceneBuilder
             }
         }
 
-        return new GrandStaffStaticScoreParts(lines, glyphs, renderedNotes, beams);
+        var bands = BuildAnnotationBands(visibleNotes, showNoteLabels, showFingerings, GetLowerBoundY);
+        return new GrandStaffStaticScoreParts(lines, glyphs, renderedNotes, beams, bands);
     }
+
+    // A staff gets a background band exactly when it has a row to show: its label row (if
+    // labels are on and it has any visible note) and/or its fingering row (if fingering is on
+    // and at least one of its visible notes carries a fingering). This reads the annotation rows
+    // as their own strip belonging to the staff, instead of notation floating near the note.
+    private static IReadOnlyList<GrandStaffBand> BuildAnnotationBands(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> visibleNotes,
+        bool showNoteLabels,
+        bool showFingerings,
+        Func<Staff, double> getLowerBoundY)
+    {
+        if (!showNoteLabels && !showFingerings)
+        {
+            return [];
+        }
+
+        var bands = new List<GrandStaffBand>(signatureStaves.Length);
+        foreach (Staff staff in signatureStaves)
+        {
+            var rowYs = new List<double>(2);
+            if (showNoteLabels && visibleNotes.Any(item => item.Note.Staff == staff))
+            {
+                rowYs.Add(GetStaffLabelY(staff, getLowerBoundY(staff)));
+            }
+
+            if (showFingerings && visibleNotes.Any(item => item.Note.Staff == staff && item.Note.Fingering is not null))
+            {
+                rowYs.Add(GetFingeringY(staff, getLowerBoundY(staff)));
+            }
+
+            if (rowYs.Count == 0)
+            {
+                continue;
+            }
+
+            bands.Add(new GrandStaffBand(
+                StaffX0,
+                rowYs.Min() - AnnotationBandPadding,
+                StaffX1,
+                rowYs.Max() + AnnotationBandPadding));
+        }
+
+        return bands;
+    }
+
+    private static string GetFingeringLabel(int number, Staff staff)
+    {
+        string handPrefix = staff == Staff.Treble ? RightHandFingeringPrefix : LeftHandFingeringPrefix;
+        return handPrefix + number.ToString(CultureInfo.InvariantCulture);
+    }
+
+    // Always below the owning staff, ignoring the MusicXML placement hint: a fixed per-staff row
+    // (like GetStaffLabelY) keeps fingering clear of the staff, its notes, and the other staff,
+    // instead of risking collisions by hugging each note's own Y position. staffLowerBoundY (see
+    // GetStaffLowerBoundY) lets that fixed row still drop below a note under its own staff.
+    private static double GetFingeringY(Staff staff, double staffLowerBoundY) =>
+        ClampAwayFromOtherStaff(staff, SeparateStaffY(staffLowerBoundY, staff) - FingeringOffsetBelowStaff);
 
     /// <summary>
     /// Appends the playback cursor and held-note indicators onto a previously built
@@ -192,7 +281,8 @@ internal static class GrandStaffSceneBuilder
         int firstVisibleMeasure,
         double? cursorBeats,
         IReadOnlyList<PerformedNote>? performedNotes = null,
-        double? performedNoteBeats = null)
+        double? performedNoteBeats = null,
+        bool showNoteLabels = true)
     {
         int clampedMeasure = ClampFirstVisibleMeasure(score, firstVisibleMeasure);
         float? cursorX = GetVisibleScoreX(cursorBeats, score.TimeSignature, clampedMeasure);
@@ -210,6 +300,7 @@ internal static class GrandStaffSceneBuilder
             return new GrandStaffScene(staticParts.Lines, staticParts.Glyphs, staticParts.Notes)
             {
                 Beams = staticParts.Beams,
+                Bands = staticParts.Bands,
             };
         }
 
@@ -225,12 +316,18 @@ internal static class GrandStaffSceneBuilder
         if (canShowHeldNotes && heldNotes.Length > 0)
         {
             double noteX = indicatorX ?? GrandStaffLayout.ScoreX0;
+            var heldPositions = heldNotes.Select(note => GrandStaffLayout.GetLivePosition(note.Pitch)).ToArray();
+            double heldTrebleLowerBoundY = GetStaffLowerBoundY(Staff.Treble, heldPositions);
+            double heldBassLowerBoundY = GetStaffLowerBoundY(Staff.Bass, heldPositions);
             var composedNotes = new List<GrandStaffNote>(staticParts.Notes.Count + heldNotes.Length);
             composedNotes.AddRange(staticParts.Notes);
             foreach (var heldNote in heldNotes)
             {
                 var position = GrandStaffLayout.GetLivePosition(heldNote.Pitch);
                 double indicatorY = SeparateStaffY(position.Y, position.Staff);
+                double heldStaffLowerBoundY = position.Staff == Staff.Treble
+                    ? heldTrebleLowerBoundY
+                    : heldBassLowerBoundY;
                 composedNotes.Add(new GrandStaffNote(
                     heldNote.Pitch.ToString(),
                     noteX,
@@ -238,7 +335,7 @@ internal static class GrandStaffSceneBuilder
                     DurationSeconds: 0,
                     IsActive: true,
                     IsFilled: false,
-                    LabelY: GetStaffLabelY(position.Staff)));
+                    LabelY: showNoteLabels ? GetStaffLabelY(position.Staff, heldStaffLowerBoundY) : null));
                 lines.AddRange(position.LedgerLineYs.Select(
                     y => new GrandStaffLine(
                         noteX - LedgerLineHalfWidth,
@@ -254,6 +351,7 @@ internal static class GrandStaffSceneBuilder
         return new GrandStaffScene(lines, staticParts.Glyphs, notes)
         {
             Beams = staticParts.Beams,
+            Bands = staticParts.Bands,
         };
     }
 
@@ -286,20 +384,23 @@ internal static class GrandStaffSceneBuilder
     internal static GrandStaffScene Build(
         IReadOnlyList<PerformedNote> notes,
         TimeSpan currentTime,
-        int? selectedOctave = null) =>
+        int? selectedOctave = null,
+        bool showNoteLabels = true) =>
         Build(
             notes,
             currentTime,
             new TimeSignature(4, new NoteValue(4)),
             new Tempo(120),
-            selectedOctave);
+            selectedOctave,
+            showNoteLabels);
 
     internal static GrandStaffScene Build(
         IReadOnlyList<PerformedNote> notes,
         TimeSpan currentTime,
         TimeSignature timeSignature,
         Tempo tempo,
-        int? selectedOctave = null)
+        int? selectedOctave = null,
+        bool showNoteLabels = true)
     {
         var lines = CreateStaffLines();
         var glyphs = CreateClefGlyphs();
@@ -308,6 +409,11 @@ internal static class GrandStaffSceneBuilder
 
         var renderedNotes = new List<GrandStaffNote>(notes.Count);
         var ties = new List<GrandStaffTie>();
+        var staffHasVisibleNotes = new HashSet<Staff>();
+        var notePositions = notes.Select(note => GrandStaffLayout.GetLivePosition(note.Pitch)).ToArray();
+        double trebleLowerBoundY = GetStaffLowerBoundY(Staff.Treble, notePositions);
+        double bassLowerBoundY = GetStaffLowerBoundY(Staff.Bass, notePositions);
+        double GetLowerBoundY(Staff staff) => staff == Staff.Treble ? trebleLowerBoundY : bassLowerBoundY;
         int firstVisibleMeasure = GrandStaffLayout.GetLiveFirstVisibleMeasure(currentTime, timeSignature, tempo);
         foreach (var note in notes)
         {
@@ -325,6 +431,7 @@ internal static class GrandStaffSceneBuilder
             }
 
             var position = segments[0].Position;
+            staffHasVisibleNotes.Add(position.Staff);
             double noteY = SeparateStaffY(position.Y, position.Staff);
             var stemDirection = GrandStaffLayout.GetStemDirection(position);
             var tieCurveDirection = stemDirection == StemDirection.Up
@@ -375,7 +482,7 @@ internal static class GrandStaffSceneBuilder
                     HasDot: noteValue?.Dots > 0,
                     FlagCount: flagCount,
                     DurationEndX: isActiveSegment ? Math.Max(renderedX, segment.DurationEndX) : null,
-                    LabelY: GetStaffLabelY(position.Staff)));
+                    LabelY: showNoteLabels ? GetStaffLabelY(position.Staff, GetLowerBoundY(position.Staff)) : null));
                 lines.AddRange(position.LedgerLineYs.Select(
                     y => new GrandStaffLine(
                         renderedX - LedgerLineHalfWidth,
@@ -420,9 +527,20 @@ internal static class GrandStaffSceneBuilder
 
         DistributeChordTieDirections(ties);
 
+        IReadOnlyList<GrandStaffBand> bands = showNoteLabels
+            ? signatureStaves
+                .Where(staffHasVisibleNotes.Contains)
+                .Select(staff => new GrandStaffBand(
+                    StaffX0,
+                    GetStaffLabelY(staff, GetLowerBoundY(staff)) - AnnotationBandPadding,
+                    StaffX1,
+                    GetStaffLabelY(staff, GetLowerBoundY(staff)) + AnnotationBandPadding))
+                .ToArray()
+            : [];
         var scene = new GrandStaffScene(lines, glyphs, renderedNotes, ShouldClipNotesAtClefs: true)
         {
             Ties = ties,
+            Bands = bands,
         };
         return selectedOctave.HasValue
             ? FitToSelectedOctave(scene, selectedOctave.Value)
@@ -695,6 +813,12 @@ internal static class GrandStaffSceneBuilder
         yValues.AddRange(scene.Glyphs.Select(glyph => glyph.Y));
         yValues.AddRange(scene.Notes.Select(note => note.Y));
         yValues.AddRange(scene.Notes.Select(note => note.LabelY).OfType<double>());
+        foreach (var band in scene.Bands)
+        {
+            yValues.Add(band.Y0);
+            yValues.Add(band.Y1);
+        }
+
         foreach (var tie in scene.Ties)
         {
             yValues.Add(tie.Y0);
@@ -732,18 +856,57 @@ internal static class GrandStaffSceneBuilder
         {
             Beams = scene.Beams.Select(beam => beam with { Y0 = MapY(beam.Y0), Y1 = MapY(beam.Y1) }).ToArray(),
             Ties = scene.Ties.Select(tie => tie with { Y0 = MapY(tie.Y0), Y1 = MapY(tie.Y1) }).ToArray(),
+            Bands = scene.Bands.Select(band => band with { Y0 = MapY(band.Y0), Y1 = MapY(band.Y1) }).ToArray(),
         };
     }
 
     private static double SeparateStaffY(double y, Staff staff) =>
         y + (staff == Staff.Treble ? StaffSeparationOffset : -StaffSeparationOffset);
 
-    private static double GetStaffLabelY(Staff staff)
+    private static double GetStaffBottomLineY(Staff staff) =>
+        staff == Staff.Treble ? GrandStaffLayout.TrebleLineYs[0] : GrandStaffLayout.BassLineYs[0];
+
+    // The label/fingering rows anchor below whichever is lower: the staff's own bottom line, or
+    // the lowest edge (notehead or ledger line) of any note currently visible on that staff. Without
+    // this, a note under its own staff (e.g. middle C, one ledger line below the treble staff) could
+    // sit level with or above its own fixed-row label instead of below it.
+    private static double GetStaffLowerBoundY(Staff staff, IEnumerable<StaffPlacement> positions)
     {
-        double bottomLineY = staff == Staff.Treble
-            ? GrandStaffLayout.TrebleLineYs[0]
-            : GrandStaffLayout.BassLineYs[0];
-        return SeparateStaffY(bottomLineY, staff) - NoteLabelOffsetBelowStaff;
+        double lowerBoundY = GetStaffBottomLineY(staff);
+        foreach (var position in positions)
+        {
+            if (position.Staff != staff)
+            {
+                continue;
+            }
+
+            lowerBoundY = Math.Min(lowerBoundY, position.Y);
+            foreach (float ledgerLineY in position.LedgerLineYs)
+            {
+                lowerBoundY = Math.Min(lowerBoundY, ledgerLineY);
+            }
+        }
+
+        return lowerBoundY;
+    }
+
+    private static double GetStaffLabelY(Staff staff, double staffLowerBoundY) =>
+        ClampAwayFromOtherStaff(staff, SeparateStaffY(staffLowerBoundY, staff) - NoteLabelOffsetBelowStaff);
+
+    // GetStaffLowerBoundY can push the treble row arbitrarily far down for a note deep enough
+    // under its own staff (several ledger lines out) — far enough, past a point, to land inside
+    // the bass staff. That would be worse than the row not fully clearing one extreme outlier
+    // note, so treble's row never drops below bass's own top line plus a minimum clearance.
+    // The bass row has no equivalent risk: it only ever moves further away from treble.
+    private static double ClampAwayFromOtherStaff(Staff staff, double y)
+    {
+        if (staff != Staff.Treble)
+        {
+            return y;
+        }
+
+        double bassNearLineY = SeparateStaffY(GrandStaffLayout.BassLineYs[^1], Staff.Bass);
+        return Math.Max(y, bassNearLineY + MinimumClearanceFromOtherStaff);
     }
 
     private static NoteValue GetNearestLiveNoteValue(

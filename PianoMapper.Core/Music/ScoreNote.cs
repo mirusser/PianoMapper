@@ -8,4 +8,5 @@ public sealed record ScoreNote(
     Staff Staff,
     bool TiesToNext = false,
     BeamState BeamState = BeamState.None,
-    ScoreStemDirection? StemDirection = null);
+    ScoreStemDirection? StemDirection = null,
+    ScoreFingering? Fingering = null);

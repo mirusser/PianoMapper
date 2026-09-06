@@ -492,3 +492,6 @@ $RECYCLE.BIN/
 .agents/agents/
 .serena/
 .codegraph/
+.tools/
+docs/images/
+docs/mxml

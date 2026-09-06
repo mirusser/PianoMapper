@@ -47,6 +47,21 @@ public sealed class PianoTests
         Assert.False(shouldContinue);
     }
 
+    [Fact]
+    public void ShouldContinueVisualizationRefresh_ScheduledKeyboardNote_ReturnsTrue()
+    {
+        var scene = CreateGrandStaffSceneWithVisibleNote();
+
+        bool shouldContinue = Piano.ShouldContinueVisualizationRefresh(
+            showPianoRoll: false,
+            hasLoadedScore: true,
+            scene,
+            activeNoteCount: 0,
+            hasScheduledKeyboardNotes: true);
+
+        Assert.True(shouldContinue);
+    }
+
     [Theory]
     [InlineData(20, 0, 1, false, false, true)]
     [InlineData(20, 1, -1, false, false, true)]

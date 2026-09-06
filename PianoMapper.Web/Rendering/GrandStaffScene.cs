@@ -11,4 +11,6 @@ public sealed record GrandStaffScene(
     public IReadOnlyList<GrandStaffBeam> Beams { get; init; } = [];
 
     public IReadOnlyList<GrandStaffTie> Ties { get; init; } = [];
+
+    public IReadOnlyList<GrandStaffBand> Bands { get; init; } = [];
 }
