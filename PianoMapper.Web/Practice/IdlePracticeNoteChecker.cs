@@ -47,26 +47,12 @@ internal sealed class IdlePracticeNoteChecker
         ScoreEvent[] matchingEvents = pendingEvents
             .Where(scoreEvent => scoreEvent.Pitch.MidiNumber == pitch.MidiNumber)
             .ToArray();
-        var updatedVerdicts = verdicts.ToDictionary();
-        foreach (ScoreNote expectedNote in expectedNotes)
-        {
-            if (updatedVerdicts.GetValueOrDefault(expectedNote) == Verdict.WrongPitch)
-            {
-                updatedVerdicts.Remove(expectedNote);
-            }
-        }
-
         if (matchingEvents.Length == 0)
         {
-            foreach (ScoreNote expectedNote in expectedNotes)
-            {
-                updatedVerdicts[expectedNote] = Verdict.WrongPitch;
-            }
-
-            verdicts = updatedVerdicts;
             return new Result(IsCorrect: false, DidAdvance: false, IsComplete: false);
         }
 
+        var updatedVerdicts = verdicts.ToDictionary();
         matchedMidiNumbers.Add(pitch.MidiNumber);
         foreach (ScoreNote matchedNote in matchingEvents.SelectMany(scoreEvent => scoreEvent.SourceNotes))
         {

@@ -354,6 +354,7 @@
     private readonly GrandStaffSceneCache upperGrandStaffSceneCache = new();
     private readonly GrandStaffSceneCache lowerGrandStaffSceneCache = new();
     private readonly IdlePracticeNoteChecker idlePracticeNoteChecker = new();
+    private readonly HashSet<PerformedNote> wrongScoreInputNotes = new(ReferenceEqualityComparer.Instance);
     private ElementReference playSurface;
     private AudioClockAnchor? audioClockAnchor;
     private IJSObjectReference? keyboardModule;
@@ -389,7 +390,7 @@
     private bool showPianoRoll;
     private bool showNoteLabels = true;
     private bool showFingerings = true;
-    private bool checkNotesWhileIdle;
+    private bool checkNotesWhileIdle = true;
     private TimeSignature displayTimeSignature = new(4, new NoteValue(4));
     private Tempo displayTempo = new(120);
     private TimeSpan onTimeTolerance = TimeSpan.FromMilliseconds(NormalToleranceMilliseconds);
@@ -788,6 +789,7 @@
         await AbortPracticeAsync(updateStatus: false);
         await CancelVisualizationRefreshAsync();
         await CancelPlaybackRefreshAsync();
+        ResetIdlePracticeNoteChecker();
         ResetScoreWindowPair();
         await ScorePlaybackSession.StartAsync(score);
         displayTimeSignature = score.TimeSignature;
@@ -1275,6 +1277,11 @@
                 if (IsIdleNoteCheckingActive)
                 {
                     IdlePracticeNoteChecker.Result result = idlePracticeNoteChecker.Check(command.Pitch.Value);
+                    if (!result.IsCorrect && command.Note is { } wrongNote)
+                    {
+                        wrongScoreInputNotes.Add(wrongNote);
+                    }
+
                     audioStatus = GetIdlePracticeStatus(command.Pitch.Value, result);
                 }
                 else
@@ -1284,6 +1291,11 @@
                 break;
             case BrowserInputCommandKind.NoteOff:
                 await AudioSession.StopNoteAsync(command.NoteId!, command.EventTime);
+                if (command.Note is { } releasedNote)
+                {
+                    wrongScoreInputNotes.Remove(releasedNote);
+                }
+
                 if (!IsIdleNoteCheckingActive)
                 {
                     audioStatus = "Audio is ready.";
@@ -1291,6 +1303,7 @@
                 break;
             case BrowserInputCommandKind.Clear:
                 midiInputState.Clear(command.EventTime);
+                wrongScoreInputNotes.Clear();
                 await StopScorePlaybackAsync();
                 bool metronomeWasRunning = Metronome.IsRunning;
                 if (metronomeWasRunning)
@@ -1318,6 +1331,7 @@
                         : "All notes cleared.";
                 break;
             case BrowserInputCommandKind.ReleaseHeldNotes:
+                wrongScoreInputNotes.Clear();
                 await AudioSession.ClearAsync(command.EventTime);
                 testNoteIsActive = false;
                 if (!ScorePlaybackSession.IsActive)
@@ -1590,14 +1604,19 @@
         }
 
         var performedNotes = noteTimeline.Snapshot(currentTime);
+        IReadOnlySet<PerformedNote>? performedNotesToInclude = isIdleNoteCheckingActive
+            ? wrongScoreInputNotes
+            : null;
         int upperFirstMeasure = scoreWindowPair?.UpperFirstMeasure ?? 0;
         IReadOnlyList<PerformedNote> upperPerformedNotes = scoreWindowPair is { } windowPair
             ? GetPerformedNotesForScoreRow(
                 performedNotes,
                 windowPair,
                 ScoreGrandStaffWindowPair.PhysicalRow.Upper,
-                isIdleNoteCheckingActive)
-            : isIdleNoteCheckingActive ? [] : performedNotes;
+                performedNotesToInclude)
+            : performedNotesToInclude is null
+                ? performedNotes
+                : performedNotes.Where(performedNotesToInclude.Contains).ToArray();
         canvasScene = upperGrandStaffSceneCache.BuildScore(
             selectedScore,
             upperFirstMeasure,
@@ -1618,7 +1637,7 @@
                     performedNotes,
                     scoreWindowPair.Value,
                     ScoreGrandStaffWindowPair.PhysicalRow.Lower,
-                    isIdleNoteCheckingActive),
+                    performedNotesToInclude),
                 performedNoteBeats,
                 showNoteLabels,
                 showFingerings,
@@ -1630,16 +1649,24 @@
         IReadOnlyList<PerformedNote> performedNotes,
         ScoreGrandStaffWindowPair.State windowPair,
         ScoreGrandStaffWindowPair.PhysicalRow renderedRow,
-        bool suppressPerformedNotes)
+        IReadOnlySet<PerformedNote>? performedNotesToInclude = null)
     {
         ArgumentNullException.ThrowIfNull(performedNotes);
-        return !suppressPerformedNotes && windowPair.ActiveRow == renderedRow
+        if (windowPair.ActiveRow != renderedRow)
+        {
+            return [];
+        }
+
+        return performedNotesToInclude is null
             ? performedNotes
-            : [];
+            : performedNotes.Where(performedNotesToInclude.Contains).ToArray();
     }
 
-    private void ResetIdlePracticeNoteChecker() =>
+    private void ResetIdlePracticeNoteChecker()
+    {
         idlePracticeNoteChecker.Reset(checkNotesWhileIdle ? selectedScore : null);
+        wrongScoreInputNotes.Clear();
+    }
 
     private static string GetIdlePracticeStatus(
         Pitch pitch,

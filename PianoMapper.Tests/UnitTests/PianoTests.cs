@@ -110,8 +110,7 @@ public sealed class PianoTests
         var result = Piano.GetPerformedNotesForScoreRow(
             [performedNote],
             windowPair,
-            (ScoreGrandStaffWindowPair.PhysicalRow)renderedRowValue,
-            suppressPerformedNotes: false);
+            (ScoreGrandStaffWindowPair.PhysicalRow)renderedRowValue);
 
         if (expectsNotes)
         {
@@ -124,24 +123,33 @@ public sealed class PianoTests
     }
 
     [Fact]
-    public void GetPerformedNotesForScoreRow_IdleNoteCheckingEnabled_OmitsLiveMarker()
+    public void GetPerformedNotesForScoreRow_IdleNoteChecking_ReturnsOnlyWrongLiveMarkers()
     {
-        var performedNote = new PerformedNote
+        var correctNote = new PerformedNote
         {
             Pitch = new Pitch(NoteLetter.C, 0, 4),
+            StartTime = TimeSpan.Zero,
+        };
+        var wrongNote = new PerformedNote
+        {
+            Pitch = new Pitch(NoteLetter.D, 0, 4),
             StartTime = TimeSpan.Zero,
         };
         var windowPair = ScoreGrandStaffWindowPair.FromPageIndex(
             measureCount: 10,
             activePageIndex: 0);
+        var wrongNotes = new HashSet<PerformedNote>(ReferenceEqualityComparer.Instance)
+        {
+            wrongNote,
+        };
 
         var result = Piano.GetPerformedNotesForScoreRow(
-            [performedNote],
+            [correctNote, wrongNote],
             windowPair,
             ScoreGrandStaffWindowPair.PhysicalRow.Upper,
-            suppressPerformedNotes: true);
+            wrongNotes);
 
-        Assert.Empty(result);
+        Assert.Same(wrongNote, Assert.Single(result));
     }
 
     private static GrandStaffScene CreateGrandStaffSceneWithVisibleNote() =>

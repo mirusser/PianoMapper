@@ -25,7 +25,7 @@ public sealed class IdlePracticeNoteCheckerTests
     }
 
     [Fact]
-    public void Check_WrongPitch_MarksExpectedNoteWrongWithoutAdvancing()
+    public void Check_WrongPitch_PreservesExpectedHighlightWithoutAdvancing()
     {
         var expectedNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
         var checker = new IdlePracticeNoteChecker();
@@ -38,12 +38,33 @@ public sealed class IdlePracticeNoteCheckerTests
         Assert.False(wrongResult.DidAdvance);
         Assert.False(wrongResult.IsComplete);
         Assert.Equal(0, checker.CurrentOnsetBeats);
-        Assert.Equal(Verdict.WrongPitch, checker.Verdicts[expectedNote]);
+        Assert.DoesNotContain(expectedNote, checker.Verdicts.Keys);
+        Assert.Equal(expectedNote, Assert.Single(checker.ExpectedNotes));
 
         IdlePracticeNoteChecker.Result correctResult = checker.Check(expectedNote.Pitch);
 
         Assert.True(correctResult.IsCorrect);
         Assert.True(correctResult.IsComplete);
+        Assert.Equal(Verdict.Correct, checker.Verdicts[expectedNote]);
+    }
+
+    [Fact]
+    public void Check_EnharmonicPitch_MarksExpectedNoteCorrect()
+    {
+        var expectedNote = new ScoreNote(
+            new Pitch(NoteLetter.D, -1, 4),
+            new NoteValue(4),
+            MeasureIndex: 0,
+            BeatOffset: 0,
+            Staff.Treble);
+        var checker = new IdlePracticeNoteChecker();
+        checker.Reset(CreateScore([expectedNote]));
+
+        IdlePracticeNoteChecker.Result result = checker.Check(
+            new Pitch(NoteLetter.C, 1, 4));
+
+        Assert.True(result.IsCorrect);
+        Assert.True(result.IsComplete);
         Assert.Equal(Verdict.Correct, checker.Verdicts[expectedNote]);
     }
 
@@ -86,6 +107,22 @@ public sealed class IdlePracticeNoteCheckerTests
         Assert.True(result.IsComplete);
         Assert.Null(checker.CurrentOnsetBeats);
         Assert.Empty(checker.ExpectedNotes);
+    }
+
+    [Fact]
+    public void Reset_CompletedSequence_ClearsVerdictsAndRestoresFirstExpectedNote()
+    {
+        var note = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var score = CreateScore([note]);
+        var checker = new IdlePracticeNoteChecker();
+        checker.Reset(score);
+        checker.Check(note.Pitch);
+
+        checker.Reset(score);
+
+        Assert.Empty(checker.Verdicts);
+        Assert.Equal(0, checker.CurrentOnsetBeats);
+        Assert.Equal(note, Assert.Single(checker.ExpectedNotes));
     }
 
     private static ScoreNote CreateNote(NoteLetter letter, int measureIndex, double beatOffset) =>
