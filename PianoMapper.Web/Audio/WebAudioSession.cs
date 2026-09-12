@@ -7,6 +7,7 @@ namespace PianoMapper.Web.Audio;
 internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio, IBrowserMetronomeAudio, IAsyncDisposable
 {
     private const string ModulePath = "./js/audio.js";
+    private const string ExternalMidiSoundSourceName = "external-midi";
     internal const int DefaultNoteVelocity = 80;
 
     private IJSObjectReference? module;
@@ -34,8 +35,12 @@ internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio
         Pitch pitch,
         TimeSpan startTime,
         bool shouldMeasureLatency = true,
+        int velocity = DefaultNoteVelocity,
         CancellationToken cancellationToken = default)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(velocity, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(velocity, 127);
+
         var initializedModule = GetInitializedModule();
         double? eventPerformanceTimeMilliseconds = shouldMeasureLatency
             ? anchor!.PerformanceTimeMilliseconds +
@@ -48,7 +53,7 @@ internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio
             pitch.Frequency,
             startTime.TotalSeconds,
             eventPerformanceTimeMilliseconds,
-            DefaultNoteVelocity);
+            velocity);
     }
 
     internal ValueTask SetSoundSourceAsync(
@@ -59,6 +64,7 @@ internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio
         {
             BrowserSoundSource.Synth => "synth",
             BrowserSoundSource.Piano => "piano",
+            BrowserSoundSource.ExternalMidi => ExternalMidiSoundSourceName,
             _ => throw new ArgumentOutOfRangeException(nameof(soundSource)),
         };
         return GetInitializedModule().InvokeVoidAsync("setSoundSource", cancellationToken, sourceName);
@@ -74,6 +80,7 @@ internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio
         {
             "synth" => BrowserSoundSource.Synth,
             "piano" => BrowserSoundSource.Piano,
+            ExternalMidiSoundSourceName => BrowserSoundSource.ExternalMidi,
             _ => throw new InvalidOperationException($"Unknown browser sound source: {sourceName}"),
         };
     }

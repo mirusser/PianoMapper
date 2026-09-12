@@ -1091,6 +1091,30 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
+    public void BuildScore_ExpectedNote_ReturnsActiveScoreNote()
+    {
+        var expectedNote = new ScoreNote(
+            new Pitch(NoteLetter.C, 0, 4),
+            new NoteValue(4),
+            0,
+            0,
+            Staff.Treble);
+        var score = new Score(
+            "test",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure([expectedNote], [])]);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(
+            score,
+            firstVisibleMeasure: 0,
+            expectedNotes: new HashSet<ScoreNote> { expectedNote });
+
+        Assert.True(Assert.Single(scene.Notes).IsActive);
+    }
+
+    [Fact]
     public void BuildScore_PerformedInput_OverlaysOnlyHeldNoteAtCursor()
     {
         var score = new Score(

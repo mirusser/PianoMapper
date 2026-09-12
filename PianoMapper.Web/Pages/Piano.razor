@@ -38,7 +38,15 @@
                                     aria-pressed="@(soundSource == BrowserSoundSource.Piano)"
                                     disabled="@(!AudioSession.IsInitialized || isSoundSourceChanging)"
                                     @onclick="() => SelectSoundSourceAsync(BrowserSoundSource.Piano)">
-                                Piano
+                                PC piano
+                            </button>
+                            <button class="@GetSoundSourceClass(BrowserSoundSource.ExternalMidi)"
+                                    type="button"
+                                    aria-pressed="@(soundSource == BrowserSoundSource.ExternalMidi)"
+                                    disabled="@(!AudioSession.IsInitialized || isSoundSourceChanging || midiOutputName is null)"
+                                    title="Use the FP-10's selected tone and speakers"
+                                    @onclick="() => SelectSoundSourceAsync(BrowserSoundSource.ExternalMidi)">
+                                FP-10
                             </button>
                         </div>
                     </div>
@@ -50,7 +58,13 @@
                         <button class="button-quiet" type="button" @onclick="ShowTimingAsync" disabled="@(!AudioSession.IsInitialized)">
                             Show input latency
                         </button>
+                        <button type="button"
+                                @onclick="ConnectMidiAsync"
+                                disabled="@isMidiConnecting">
+                            @(!HasMidiConnection ? "Connect MIDI piano" : "Reconnect MIDI piano")
+                        </button>
                     </div>
+                    <p class="control-note" role="status">@midiStatus</p>
                 </div>
             </section>
 
@@ -220,14 +234,16 @@
                                    TotalCountInTicks="@loadedScore.TimeSignature.Numerator"
                                    CanStart="@AudioSession.IsInitialized"
                                    IsActive="@practiceCoordinator.IsActive"
+                                   CheckNotesWhileIdle="@checkNotesWhileIdle"
                                    Start="StartPracticeAsync"
-                                   Abort="AbortPracticeFromControlAsync" />
+                                   Abort="AbortPracticeFromControlAsync"
+                                   CheckNotesWhileIdleChanged="SetCheckNotesWhileIdleAsync" />
                 }
             </section>
 
             <section class="control-card control-card-wide" aria-labelledby="play-controls-heading">
                 <div class="control-card-heading">
-                    <h2 id="play-controls-heading">Play &amp; keyboard tools</h2>
+                    <h2 id="play-controls-heading">Play &amp; MIDI tools</h2>
                     <span>C@(keyboardState.CurrentOctave)–C@(keyboardState.CurrentOctave + 1)</span>
                 </div>
                 <div class="control-card-groups">
@@ -247,13 +263,13 @@
                     </div>
 
                     <div class="control-group" role="group" aria-labelledby="keyboard-range-heading">
-                        <span class="control-group-label" id="keyboard-range-heading">Keyboard range</span>
+                        <span class="control-group-label" id="keyboard-range-heading">Notation focus</span>
                         <div class="controls octave-controls">
                             <button type="button"
                                     @onclick="OctaveDownAsync"
                                     disabled="@(keyboardState.CurrentOctave == 1)"
                                     aria-label="Select the previous octave">
-                                Down <kbd>Z</kbd>
+                                Down
                             </button>
                             <label class="octave-picker">
                                 Octave
@@ -268,7 +284,7 @@
                                     @onclick="OctaveUpAsync"
                                     disabled="@(keyboardState.CurrentOctave == 8)"
                                     aria-label="Select the next octave">
-                                Up <kbd>X</kbd>
+                                Up
                             </button>
                         </div>
                     </div>
@@ -287,7 +303,9 @@
                         </div>
                     </div>
                 </div>
-                <p class="control-note">The staff follows this range so high and low octaves stay visible.</p>
+                <p class="control-note">
+                    The notation focus controls the live staff view. MIDI notes retain their actual piano octaves.
+                </p>
             </section>
         </div>
 
@@ -299,7 +317,8 @@
         <div class="session-summary" aria-label="Current piano settings">
             <span>Meter <strong>@displayTimeSignature.Numerator/@displayTimeSignature.BeatNoteValue.Denominator</strong></span>
             <span>Tempo <strong>@TempoBeatsPerMinuteText BPM</strong></span>
-            <span>Play keys <strong>A W S E D F R J U K I L ;</strong></span>
+            <span>MIDI input <strong>@MidiInputSummary</strong></span>
+            <span>MIDI output <strong>@MidiOutputSummary</strong></span>
         </div>
         <PianoCanvas Scene="@canvasScene"
                      SecondaryScene="@secondaryCanvasScene"
@@ -331,12 +350,15 @@
     private readonly NoteTimeline noteTimeline = new();
     private readonly TempoFeedbackTracker tempoFeedbackTracker = new();
     private readonly BrowserKeyboardState keyboardState;
+    private readonly BrowserMidiInputState midiInputState;
     private readonly GrandStaffSceneCache upperGrandStaffSceneCache = new();
     private readonly GrandStaffSceneCache lowerGrandStaffSceneCache = new();
+    private readonly IdlePracticeNoteChecker idlePracticeNoteChecker = new();
     private ElementReference playSurface;
     private AudioClockAnchor? audioClockAnchor;
     private IJSObjectReference? keyboardModule;
-    private DotNetObjectReference<Piano>? keyboardReference;
+    private IJSObjectReference? midiModule;
+    private DotNetObjectReference<Piano>? inputReference;
     private IPianoCanvasScene canvasScene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero, selectedOctave: 4);
     private IPianoCanvasScene? secondaryCanvasScene;
     private ScoreCursorPlaybackState? scoreCursorState;
@@ -357,12 +379,17 @@
     private CancellationTokenSource? visualizationRefreshCancellation;
     private Task? visualizationRefreshTask;
     private string audioStatus = "Starting audio...";
+    private string midiStatus = "No MIDI piano connected.";
+    private IReadOnlyList<string> midiInputNames = [];
+    private string? midiOutputName;
     private BrowserSoundSource soundSource = BrowserSoundSource.Piano;
     private bool isSoundSourceChanging;
+    private bool isMidiConnecting;
     private bool testNoteIsActive;
     private bool showPianoRoll;
     private bool showNoteLabels = true;
     private bool showFingerings = true;
+    private bool checkNotesWhileIdle;
     private TimeSignature displayTimeSignature = new(4, new NoteValue(4));
     private Tempo displayTempo = new(120);
     private TimeSpan onTimeTolerance = TimeSpan.FromMilliseconds(NormalToleranceMilliseconds);
@@ -376,9 +403,20 @@
 
     private int OnTimeToleranceMilliseconds => (int)onTimeTolerance.TotalMilliseconds;
 
-    private string AudioReadyStatus => soundSource == BrowserSoundSource.Piano
-        ? "Piano samples are ready."
-        : "Synth audio is ready.";
+    private string AudioReadyStatus => soundSource switch
+    {
+        BrowserSoundSource.Piano => "PC piano samples are ready.",
+        BrowserSoundSource.ExternalMidi => $"FP-10 sound is ready through {midiOutputName}.",
+        _ => "Synth audio is ready.",
+    };
+
+    private bool HasMidiConnection => midiInputNames.Count > 0 || midiOutputName is not null;
+
+    private string MidiInputSummary => midiInputNames.Count == 0
+        ? "Not connected"
+        : string.Join(", ", midiInputNames);
+
+    private string MidiOutputSummary => midiOutputName ?? "Not connected";
 
     private string SelectedMeasureRangeLabel => selectedFirstMeasure == selectedLastMeasure
         ? $"measure {selectedFirstMeasure + 1}"
@@ -401,6 +439,13 @@
         pageDelta: 1,
         ScorePlaybackSession.IsActive,
         practiceCoordinator.IsActive);
+
+    private bool IsIdleNoteCheckingActive =>
+        checkNotesWhileIdle &&
+        selectedScore is not null &&
+        !showPianoRoll &&
+        practiceCoordinator.State == PracticeSessionState.Idle &&
+        !ScorePlaybackSession.IsActive;
 
     private string? PrimaryScoreRangeLabel => FormatScoreRowRange(scoreWindowPair?.UpperFirstMeasure);
 
@@ -457,7 +502,8 @@
 
     public Piano()
     {
-        keyboardState = new BrowserKeyboardState(noteTimeline, initialOctave: 4);
+        keyboardState = new BrowserKeyboardState(initialOctave: 4);
+        midiInputState = new BrowserMidiInputState(noteTimeline);
     }
 
     protected override void OnInitialized()
@@ -472,6 +518,8 @@
             return;
         }
 
+        await TryAutoConnectMidiAsync();
+        StateHasChanged();
         await EnableAudioAsync();
         StateHasChanged();
     }
@@ -516,15 +564,18 @@
         }
 
         isSoundSourceChanging = true;
-        audioStatus = selectedSource == BrowserSoundSource.Piano
-            ? "Loading piano samples..."
-            : "Switching to synth audio...";
+        audioStatus = selectedSource switch
+        {
+            BrowserSoundSource.Piano => "Loading PC piano samples...",
+            BrowserSoundSource.ExternalMidi => "Switching sound to the FP-10...",
+            _ => "Switching to synth audio...",
+        };
         try
         {
             await AbortPracticeAsync(updateStatus: false);
             await StopScorePlaybackAsync();
             TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync();
-            keyboardState.Clear(currentTime);
+            midiInputState.Clear(currentTime);
             await AudioSession.ClearAsync(currentTime);
             testNoteIsActive = false;
             RefreshCanvasScene(currentTime);
@@ -552,6 +603,68 @@
         await ApplyInputCommandAsync(keyboardState.Clear(GetAnchorTime()));
     }
 
+    private async Task ConnectMidiAsync()
+    {
+        if (isMidiConnecting)
+        {
+            return;
+        }
+
+        isMidiConnecting = true;
+        midiStatus = "Connecting MIDI piano...";
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            midiModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/midi.js");
+            inputReference ??= DotNetObjectReference.Create(this);
+            var status = await midiModule.InvokeAsync<BrowserMidiConnectionStatus>(
+                "connect",
+                inputReference);
+            UpdateMidiConnectionStatus(status);
+        }
+        catch (JSException exception)
+        {
+            midiInputNames = [];
+            midiOutputName = null;
+            midiStatus = $"MIDI could not connect: {exception.Message} Allow MIDI access and retry.";
+        }
+        finally
+        {
+            isMidiConnecting = false;
+            RefreshExternalMidiAudioStatus();
+        }
+    }
+
+    private async Task TryAutoConnectMidiAsync()
+    {
+        if (isMidiConnecting)
+        {
+            return;
+        }
+
+        isMidiConnecting = true;
+        try
+        {
+            midiModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/midi.js");
+            inputReference ??= DotNetObjectReference.Create(this);
+            var status = await midiModule.InvokeAsync<BrowserMidiConnectionStatus>(
+                "connectIfPermitted",
+                inputReference);
+            UpdateMidiConnectionStatus(status);
+        }
+        catch (JSException exception)
+        {
+            midiInputNames = [];
+            midiOutputName = null;
+            midiStatus = $"MIDI could not connect: {exception.Message} Select Connect MIDI piano to retry.";
+        }
+        finally
+        {
+            isMidiConnecting = false;
+            RefreshExternalMidiAudioStatus();
+        }
+    }
+
     private async Task ShowTimingAsync()
     {
         var summary = await AudioSession.GetSchedulingLatencyAsync();
@@ -577,6 +690,7 @@
         selectedScore = score.Measures.Count == 0
             ? score
             : ScoreMeasureRange.Create(score, selectedFirstMeasure, selectedLastMeasure);
+        ResetIdlePracticeNoteChecker();
         displayTimeSignature = score.TimeSignature;
         displayTempo = score.Tempo;
         if (metronomeWasRunning)
@@ -599,6 +713,7 @@
         importedScore = null;
         loadedScore = null;
         selectedScore = null;
+        ResetIdlePracticeNoteChecker();
         selectedFirstMeasure = 0;
         selectedLastMeasure = 0;
         scoreWindowPair = null;
@@ -654,6 +769,7 @@
         selectedFirstMeasure = firstMeasure;
         selectedLastMeasure = lastMeasure;
         selectedScore = ScoreMeasureRange.Create(score, firstMeasure, lastMeasure);
+        ResetIdlePracticeNoteChecker();
         ResetScoreWindowPair();
         TimeSpan currentTime = AudioSession.IsInitialized
             ? await AudioSession.GetCurrentTimeAsync()
@@ -729,7 +845,7 @@
         await CancelVisualizationRefreshAsync();
         ResetScoreWindowPair();
         TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync();
-        keyboardState.Clear(currentTime);
+        midiInputState.Clear(currentTime);
         await AudioSession.ClearAsync(currentTime);
         await practiceCoordinator.StartAsync(
             score,
@@ -962,6 +1078,7 @@
             selectedScore = loadedScore.Measures.Count == 0
                 ? loadedScore
                 : ScoreMeasureRange.Create(loadedScore, selectedFirstMeasure, selectedLastMeasure);
+            ResetIdlePracticeNoteChecker();
         }
 
         TimeSpan currentTime = AudioSession.IsInitialized
@@ -1014,6 +1131,19 @@
         return RefreshNotationVisibilityAsync();
     }
 
+    private async Task SetCheckNotesWhileIdleAsync(bool isEnabled)
+    {
+        checkNotesWhileIdle = isEnabled;
+        ResetIdlePracticeNoteChecker();
+        TimeSpan currentTime = AudioSession.IsInitialized
+            ? await AudioSession.GetCurrentTimeAsync()
+            : TimeSpan.Zero;
+        RefreshCanvasScene(currentTime);
+        audioStatus = isEnabled
+            ? "Idle note checking enabled. Play the highlighted score note."
+            : "Idle note checking disabled.";
+    }
+
     private async Task RefreshNotationVisibilityAsync()
     {
         TimeSpan currentTime = AudioSession.IsInitialized
@@ -1031,17 +1161,31 @@
                 MapEventTime(keyboardEvent.EventTimestampMilliseconds)));
 
     [JSInvokable]
-    public Task HandleKeyUpAsync(BrowserKeyboardEvent keyboardEvent) =>
-        ApplyInputCommandAsync(
-            keyboardState.HandleKeyUp(
-                keyboardEvent.Code,
-                MapEventTime(keyboardEvent.EventTimestampMilliseconds)));
+    public Task HandleMidiMessageAsync(BrowserMidiEvent midiEvent) =>
+        audioClockAnchor is null
+            ? Task.CompletedTask
+            : ApplyInputCommandAsync(
+                midiInputState.Handle(
+                    midiEvent,
+                    MapEventTime(midiEvent.EventTimestampMilliseconds)));
+
+    [JSInvokable]
+    public async Task HandleMidiConnectionChangedAsync(BrowserMidiConnectionStatus status)
+    {
+        UpdateMidiConnectionStatus(status);
+        TimeSpan eventTime = AudioSession.IsInitialized
+            ? await AudioSession.GetCurrentTimeAsync()
+            : TimeSpan.Zero;
+        await ApplyInputCommandAsync(midiInputState.ReleaseAll(eventTime));
+        RefreshExternalMidiAudioStatus();
+
+        await InvokeAsync(StateHasChanged);
+    }
 
     [JSInvokable]
     public async Task HandleFocusLostAsync(double eventTimestampMilliseconds)
     {
         TimeSpan eventTime = MapEventTime(eventTimestampMilliseconds);
-        await ApplyInputCommandAsync(keyboardState.ReleaseAll(eventTime));
         if (practiceCoordinator.IsActive)
         {
             await AbortPracticeAsync(eventTime);
@@ -1064,7 +1208,13 @@
             await keyboardModule.DisposeAsync();
         }
 
-        keyboardReference?.Dispose();
+        if (midiModule is not null)
+        {
+            await midiModule.InvokeVoidAsync("dispose");
+            await midiModule.DisposeAsync();
+        }
+
+        inputReference?.Dispose();
     }
 
     private TimeSpan GetAnchorTime() =>
@@ -1076,12 +1226,37 @@
     private async Task AttachKeyboardAsync()
     {
         keyboardModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/keyboard.js");
-        keyboardReference ??= DotNetObjectReference.Create(this);
+        inputReference ??= DotNetObjectReference.Create(this);
         await keyboardModule.InvokeVoidAsync(
             "attach",
             playSurface,
-            keyboardReference,
+            inputReference,
             BrowserKeyBindings.HandledCodes);
+    }
+
+    private void UpdateMidiConnectionStatus(BrowserMidiConnectionStatus status)
+    {
+        midiInputNames = status.InputNames;
+        midiOutputName = status.OutputName;
+        midiStatus = !status.IsSupported
+            ? "Web MIDI is not supported by this browser. Use a Web MIDI-capable browser on localhost or HTTPS."
+            : status.IsPermissionRequired
+                ? "MIDI permission is required. Select Connect MIDI piano and allow access."
+            : !HasMidiConnection
+                ? "No MIDI piano found. Connect and power on the piano, then retry."
+                : $"Connected. Input: {MidiInputSummary}. Output: {MidiOutputSummary}.";
+    }
+
+    private void RefreshExternalMidiAudioStatus()
+    {
+        if (!AudioSession.IsInitialized || soundSource != BrowserSoundSource.ExternalMidi)
+        {
+            return;
+        }
+
+        audioStatus = midiOutputName is null
+            ? "FP-10 MIDI output disconnected. Reconnect it or select a PC sound."
+            : AudioReadyStatus;
     }
 
     private async Task ApplyInputCommandAsync(BrowserInputCommand command)
@@ -1091,15 +1266,31 @@
             case BrowserInputCommandKind.None:
                 return;
             case BrowserInputCommandKind.NoteOn:
-                await AudioSession.StartNoteAsync(command.NoteId!, command.Pitch!.Value, command.EventTime);
+                await AudioSession.StartNoteAsync(
+                    command.NoteId!,
+                    command.Pitch!.Value,
+                    command.EventTime,
+                    velocity: command.Velocity);
                 tempoFeedbackTracker.Record(command.EventTime, Metronome.Grid, onTimeTolerance);
-                audioStatus = $"Playing {command.Pitch}.";
+                if (IsIdleNoteCheckingActive)
+                {
+                    IdlePracticeNoteChecker.Result result = idlePracticeNoteChecker.Check(command.Pitch.Value);
+                    audioStatus = GetIdlePracticeStatus(command.Pitch.Value, result);
+                }
+                else
+                {
+                    audioStatus = $"Playing {command.Pitch}.";
+                }
                 break;
             case BrowserInputCommandKind.NoteOff:
                 await AudioSession.StopNoteAsync(command.NoteId!, command.EventTime);
-                audioStatus = "Audio is ready.";
+                if (!IsIdleNoteCheckingActive)
+                {
+                    audioStatus = "Audio is ready.";
+                }
                 break;
             case BrowserInputCommandKind.Clear:
+                midiInputState.Clear(command.EventTime);
                 await StopScorePlaybackAsync();
                 bool metronomeWasRunning = Metronome.IsRunning;
                 if (metronomeWasRunning)
@@ -1280,10 +1471,11 @@
         }
 
         await practiceCoordinator.AbortAsync();
+        ResetIdlePracticeNoteChecker();
         if (AudioSession.IsInitialized)
         {
             TimeSpan releaseTime = eventTime ?? await AudioSession.GetCurrentTimeAsync();
-            keyboardState.Clear(releaseTime);
+            midiInputState.Clear(releaseTime);
             await AudioSession.ClearAsync(releaseTime);
         }
 
@@ -1326,7 +1518,7 @@
             showPianoRoll,
             selectedScore is not null,
             canvasScene,
-            keyboardState.ActiveNoteCount,
+            midiInputState.ActiveNoteCount,
             scheduledKeyboardNotes.Count > 0))
         {
             EnsureVisualizationRefresh();
@@ -1376,7 +1568,22 @@
             ResetScoreWindowPair();
         }
 
-        double? performedNoteBeats = cursorBeats;
+        bool isIdleNoteCheckingActive = IsIdleNoteCheckingActive;
+        double? effectiveCursorBeats = cursorBeats ?? (isIdleNoteCheckingActive
+            ? idlePracticeNoteChecker.CurrentOnsetBeats
+            : null);
+        if (!cursorBeats.HasValue && effectiveCursorBeats.HasValue)
+        {
+            UpdateScoreWindowPairFromCursor(effectiveCursorBeats.Value);
+        }
+
+        IReadOnlyDictionary<ScoreNote, Verdict>? effectiveVerdicts = verdicts ??
+            (isIdleNoteCheckingActive ? idlePracticeNoteChecker.Verdicts : null);
+        IReadOnlySet<ScoreNote>? expectedNotes = isIdleNoteCheckingActive
+            ? idlePracticeNoteChecker.ExpectedNotes
+            : null;
+
+        double? performedNoteBeats = effectiveCursorBeats;
         if (!performedNoteBeats.HasValue && ScorePlaybackSession.IsActive)
         {
             performedNoteBeats = ScorePlaybackSession.GetCursorBeats(currentTime);
@@ -1384,26 +1591,75 @@
 
         var performedNotes = noteTimeline.Snapshot(currentTime);
         int upperFirstMeasure = scoreWindowPair?.UpperFirstMeasure ?? 0;
+        IReadOnlyList<PerformedNote> upperPerformedNotes = scoreWindowPair is { } windowPair
+            ? GetPerformedNotesForScoreRow(
+                performedNotes,
+                windowPair,
+                ScoreGrandStaffWindowPair.PhysicalRow.Upper,
+                isIdleNoteCheckingActive)
+            : isIdleNoteCheckingActive ? [] : performedNotes;
         canvasScene = upperGrandStaffSceneCache.BuildScore(
             selectedScore,
             upperFirstMeasure,
-            cursorBeats,
-            verdicts,
-            performedNotes,
+            effectiveCursorBeats,
+            effectiveVerdicts,
+            upperPerformedNotes,
             performedNoteBeats,
             showNoteLabels,
-            showFingerings);
+            showFingerings,
+            expectedNotes);
         secondaryCanvasScene = scoreWindowPair?.LowerFirstMeasure is { } lowerFirstMeasure
             ? lowerGrandStaffSceneCache.BuildScore(
                 selectedScore,
                 lowerFirstMeasure,
-                cursorBeats,
-                verdicts,
-                performedNotes,
+                effectiveCursorBeats,
+                effectiveVerdicts,
+                GetPerformedNotesForScoreRow(
+                    performedNotes,
+                    scoreWindowPair.Value,
+                    ScoreGrandStaffWindowPair.PhysicalRow.Lower,
+                    isIdleNoteCheckingActive),
                 performedNoteBeats,
                 showNoteLabels,
-                showFingerings)
+                showFingerings,
+                expectedNotes)
             : null;
+    }
+
+    internal static IReadOnlyList<PerformedNote> GetPerformedNotesForScoreRow(
+        IReadOnlyList<PerformedNote> performedNotes,
+        ScoreGrandStaffWindowPair.State windowPair,
+        ScoreGrandStaffWindowPair.PhysicalRow renderedRow,
+        bool suppressPerformedNotes)
+    {
+        ArgumentNullException.ThrowIfNull(performedNotes);
+        return !suppressPerformedNotes && windowPair.ActiveRow == renderedRow
+            ? performedNotes
+            : [];
+    }
+
+    private void ResetIdlePracticeNoteChecker() =>
+        idlePracticeNoteChecker.Reset(checkNotesWhileIdle ? selectedScore : null);
+
+    private static string GetIdlePracticeStatus(
+        Pitch pitch,
+        IdlePracticeNoteChecker.Result result)
+    {
+        if (!result.IsCorrect)
+        {
+            return result.IsComplete
+                ? "Idle note check complete."
+                : $"{pitch} is not the highlighted note. Try again.";
+        }
+
+        if (result.IsComplete)
+        {
+            return "Correct. Idle note check complete.";
+        }
+
+        return result.DidAdvance
+            ? "Correct. The next score note is highlighted."
+            : "Correct. Continue with the highlighted chord notes.";
     }
 
     private void RefreshKeyboardState(TimeSpan currentTime)
@@ -1484,7 +1740,7 @@
                 showPianoRoll,
                 selectedScore is not null,
                 canvasScene,
-                keyboardState.ActiveNoteCount,
+                midiInputState.ActiveNoteCount,
                 scheduledKeyboardNotes.Count > 0))
         {
             return;
@@ -1508,7 +1764,7 @@
                     showPianoRoll,
                     selectedScore is not null,
                     canvasScene,
-                    keyboardState.ActiveNoteCount,
+                    midiInputState.ActiveNoteCount,
                     scheduledKeyboardNotes.Count > 0))
                 {
                     break;

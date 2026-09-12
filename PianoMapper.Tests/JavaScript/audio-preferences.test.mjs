@@ -16,6 +16,9 @@ test("sound source preference restores a saved source", () => {
         readSoundSourcePreference("theme=dark; pianomapper-sound-source=synth; session=abc"),
         "synth");
     assert.equal(readSoundSourcePreference("pianomapper-sound-source=piano"), "piano");
+    assert.equal(
+        readSoundSourcePreference("pianomapper-sound-source=external-midi"),
+        "external-midi");
 });
 
 test("sound source preference creates a persistent site cookie", () => {

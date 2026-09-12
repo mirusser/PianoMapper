@@ -7,7 +7,7 @@ namespace PianoMapper.Web.Rendering;
 /// Caller-owned memoization for <see cref="GrandStaffSceneBuilder.BuildScore"/>. A hot loop that
 /// re-renders every tick purely because the playback cursor moved (e.g. practice mode) can reuse
 /// this cache across calls instead of rebuilding barlines, ledger lines, and note glyphs from
-/// scratch every 16ms.
+/// scratch every 16ms. Verdict and expected-note changes invalidate the cached notation.
 /// </summary>
 /// <remarks>
 /// This is deliberately an explicit object the caller creates and owns (one per grand-staff view
@@ -23,6 +23,7 @@ internal sealed class GrandStaffSceneCache
     private Score? cachedScore;
     private int cachedFirstVisibleMeasure;
     private IReadOnlyDictionary<ScoreNote, Verdict>? cachedVerdicts;
+    private IReadOnlySet<ScoreNote>? cachedExpectedNotes;
     private bool cachedShowNoteLabels;
     private bool cachedShowFingerings;
     private GrandStaffStaticScoreParts? cachedStaticParts;
@@ -35,7 +36,8 @@ internal sealed class GrandStaffSceneCache
         IReadOnlyList<PerformedNote>? performedNotes = null,
         double? performedNoteBeats = null,
         bool showNoteLabels = true,
-        bool showFingerings = true)
+        bool showFingerings = true,
+        IReadOnlySet<ScoreNote>? expectedNotes = null)
     {
         ArgumentNullException.ThrowIfNull(score);
 
@@ -43,6 +45,7 @@ internal sealed class GrandStaffSceneCache
             !ReferenceEquals(cachedScore, score) ||
             cachedFirstVisibleMeasure != firstVisibleMeasure ||
             !VerdictsEqual(cachedVerdicts, verdicts) ||
+            !ScoreNotesEqual(cachedExpectedNotes, expectedNotes) ||
             cachedShowNoteLabels != showNoteLabels ||
             cachedShowFingerings != showFingerings)
         {
@@ -51,11 +54,13 @@ internal sealed class GrandStaffSceneCache
                 firstVisibleMeasure,
                 verdicts,
                 showNoteLabels,
-                showFingerings);
+                showFingerings,
+                expectedNotes);
             cachedStaticParts = staticParts;
             cachedScore = score;
             cachedFirstVisibleMeasure = firstVisibleMeasure;
             cachedVerdicts = verdicts;
+            cachedExpectedNotes = expectedNotes;
             cachedShowNoteLabels = showNoteLabels;
             cachedShowFingerings = showFingerings;
         }
@@ -93,5 +98,17 @@ internal sealed class GrandStaffSceneCache
         }
 
         return true;
+    }
+
+    private static bool ScoreNotesEqual(
+        IReadOnlySet<ScoreNote>? left,
+        IReadOnlySet<ScoreNote>? right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        return left is not null && right is not null && left.SetEquals(right);
     }
 }

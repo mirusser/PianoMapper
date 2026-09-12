@@ -78,6 +78,7 @@ public sealed class WebAudioSessionTests
     [Theory]
     [InlineData("synth", "Synth")]
     [InlineData("piano", "Piano")]
+    [InlineData("external-midi", "ExternalMidi")]
     public async Task GetSoundSourceAsync_SavedSource_ReturnsBrowserSoundSource(
         string savedSource,
         string expectedSourceName)
@@ -93,6 +94,20 @@ public sealed class WebAudioSessionTests
 
         Assert.Equal(expectedSource, source);
         Assert.Contains("module:getSoundSource", calls);
+    }
+
+    [Fact]
+    public async Task SetSoundSourceAsync_ExternalMidi_UsesBrowserContractValue()
+    {
+        var calls = new List<string>();
+        var module = new RecordingJsModule(calls, new AudioClockAnchor(1000, 2));
+        var runtime = new RecordingJsRuntime(calls, module);
+        await using var session = new WebAudioSession(runtime);
+        await session.InitializeAsync();
+
+        await session.SetSoundSourceAsync(BrowserSoundSource.ExternalMidi);
+
+        Assert.Equal(["external-midi"], module.Arguments["setSoundSource"]);
     }
 
     [Fact]

@@ -2,7 +2,7 @@
 
 ## Browser app: local input and audio on the laptop
 
-The browser build downloads WebAssembly and static assets from `archie`, then handles keyboard input, rendering, and Web Audio on the laptop. You do not need VNC or an audio stream for this path.
+The browser build downloads WebAssembly and static assets from `archie`, then handles MIDI input/output, command shortcuts, rendering, and Web Audio on the laptop. The USB piano must therefore be connected to the laptop running the browser, not to `archie`. You do not need VNC or an audio stream for this path; selecting **FP-10** sends generated notes directly to the piano attached to the laptop.
 
 Start the development host on `archie` from the repository root:
 
@@ -16,7 +16,7 @@ Forward it from the laptop:
 ssh -f -N -L 5080:localhost:5080 mirusser@192.168.0.74
 ```
 
-Open `http://localhost:5080`. Browsers treat localhost as a secure context for Web Audio and service workers. For regular shared access, publish the PWA and place `wwwroot` behind an HTTPS static host instead of leaving the development server running.
+Open `http://localhost:5080`. Browsers treat localhost as a secure context for Web MIDI and service workers. Select **Connect MIDI piano** and allow MIDI access when prompted; in Firefox, select **Remember this decision** for automatic reconnection on later visits. For regular shared access, publish the PWA and place `wwwroot` behind an HTTPS static host instead of leaving the development server running.
 
 ## Desktop app: VNC and streamed audio
 

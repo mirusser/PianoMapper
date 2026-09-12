@@ -4,23 +4,23 @@ Test the published PWA over HTTPS. Browser extensions, power-saving modes, and a
 
 ## Current evidence
 
-| Browser | Platform | Keyboard and audio | MusicXML, playback, practice | Resize and offline | Status |
+| Browser | Platform | MIDI, shortcuts, and audio | MusicXML, playback, practice | Resize and offline | Status |
 |---|---|---|---|---|---|
-| Headless Chromium 149 | Linux (`archie`) | Audio unlock, 13 note bindings, polyphony, release, blur cleanup, analyser data, reserved keys | Supported and malformed import, score schedule, paired-row navigation/playback/Practice, practice start/abort/retry, random measure | Canvas batches, paired-row responsive widths, unload/reload, view toggling, and published offline reload | Automated pass, 2026-08-02 |
-| Chrome stable | Primary laptop | Pending physical audio and latency check | Pending | Pending install check | Manual pass required |
+| Headless Chromium 149 | Linux (`archie`) | Prior audio unlock, polyphony, analyser, and shortcut pass; Web MIDI rerun pending | Supported and malformed import, score schedule, paired-row navigation/playback/Practice, practice start/abort/retry, random measure | Canvas batches, paired-row responsive widths, unload/reload, view toggling, and published offline reload | Prior non-MIDI pass, 2026-08-02; rerun required |
+| Chrome stable | Primary laptop | Pending physical FP-10 audio and latency check | Pending | Pending install check | Manual pass required |
 | Edge stable | Desktop | Pending | Pending | Pending install check | Manual pass required |
-| Firefox stable | Desktop | Pending | Pending | Pending offline check | Manual pass required |
+| Firefox 153.0.1 | Linux (`archie`) | FP-10 enumeration, permission flow, piano-sample audio, and a physical C8 note-on passed; full endpoint/shortcut pass pending | Pending | Pending offline check | Physical MIDI smoke pass, 2026-09-11 |
 | Safari stable | macOS | No test device selected | No test device selected | No test device selected | Access decision required |
 
 ## Manual pass
 
 Use one supported MusicXML fixture and one malformed file.
 
-1. Load the page over HTTPS. Confirm the startup message changes and Enable audio can recover after a blocked or failed attempt.
-2. Focus the play surface. Hold a chord, release each key, switch views with V, resize the window, and confirm no note sticks.
-3. Use Tab, Enter, Space, Escape, Page Up/Down, and the arrow keys for their browser-native behavior. Type in the file input and octave selector without triggering piano commands.
+1. Connect and power on the MIDI piano, load the page over HTTPS or localhost, and grant MIDI permission. In Firefox, select **Remember this decision** to enable automatic reconnection on later visits. Confirm the Audio panel names both the MIDI input and output and Enable audio can recover after a blocked or failed attempt.
+2. Play the A0 and C8 endpoints, then hold a chord and release each piano key. Switch views with V, resize the window, and confirm pitch, velocity response, highlighting, and release behavior without stuck notes.
+3. Confirm `A W S E D F R J U K I L ;`, `Z`/`X`, and `1`–`8` do not play or remap notes. Use Tab, Enter, Space, Escape, Page Up/Down, and the arrow keys for their browser-native behavior. Type in the file input and notation-focus selector without triggering piano commands.
 4. Load the supported score. Use the buttons and `[`/`]` to navigate, then play and restart it with P.
-5. Start practice with T, abort with C, retry, and hide the tab during a second run. The hidden run must abort and release audio.
+5. Start practice with T, play it from the MIDI piano, abort with C, retry, and hide the tab during a second run. The hidden run must abort and release audio.
 6. Play a random measure with M. Return to the loaded score and play it again.
 7. Close the tab after the online load, go offline, reopen the installed or cached PWA, and confirm the shell starts. MusicXML fixtures must still come from user file selection.
 
@@ -58,3 +58,17 @@ Run these checks on the live grand staff. Record the browser, viewport, sound so
 | Sound source | Repeat an internal crossing with piano, then synth. | Both sources sustain through the barline without a new attack. | Pending |
 | Responsive layout | Repeat an internal crossing in a narrow viewport and a wide viewport. | Ties stay clipped to the score and keep the same staff-relative curve and stroke proportions. | Pending |
 | Piano roll | Switch to the piano roll while holding a note across a grand-staff barline. | The performance still appears as one continuous piano-roll bar. | Pending |
+
+## USB MIDI lifecycle
+
+Use the Roland FP-10 through its USB COMPUTER port.
+
+| Scenario | Action | Expected result | Result |
+|---|---|---|---|
+| Initial permission | Open the app on localhost or HTTPS and allow MIDI access. | The Audio panel reports `Roland Digital Piano`; playing a key starts audio and highlights the matching full-piano key. | Firefox 153.0.1 physical pass with C8, 2026-09-11 |
+| Authorized reload | Reload the page after granting MIDI permission. | The existing Roland input reconnects without another in-page action. | Firefox 153.0.1 physical pass, 2026-09-11 |
+| Velocity | Play the same key softly and firmly using the PC piano sound source. | Both attacks register and the selected sample layer follows the MIDI velocity. | Pending |
+| FP-10 sound | Select **FP-10**, play physical keys, then use **Play test note** and score playback. | Physical keys sound once through the piano; generated notes use the FP-10's selected tone and speakers. The MIDI output summary names Roland rather than `Midi Through`. | Automated routing pass; physical audio pending, 2026-09-12 |
+| Note-off forms | Play and release notes normally. | Explicit note-off and zero-velocity note-on messages both release without sticking. | Automated pass, 2026-09-11 |
+| Hot disconnect | Hold a chord and unplug the USB cable. Reconnect it afterward. | Held app notes release, status changes to no input, and the reconnected piano is detected without a page reload. | Pending |
+| Computer note keys removed | Press the former note and octave shortcuts. | No note sounds and the notation focus does not change; remaining command shortcuts continue to work. | Automated pass, 2026-09-11 |

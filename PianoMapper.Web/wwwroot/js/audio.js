@@ -6,9 +6,16 @@ import {
 import {
     createSoundSourceCookie,
     defaultSoundSource,
+    externalMidiSoundSource,
     isSoundSource,
     readSoundSourcePreference,
 } from "./audio-preferences.js";
+import {
+    clearMidiOutput,
+    hasMidiOutput,
+    sendMidiNoteOff,
+    sendMidiNoteOn,
+} from "./midi.js";
 
 let audioContext;
 let masterGain;
@@ -70,6 +77,8 @@ export async function initialize() {
 
     if (soundSource === "piano") {
         await ensurePianoSamplesLoaded(defaultPianoVelocity);
+    } else if (soundSource === externalMidiSoundSource) {
+        ensureMidiOutputAvailable();
     }
 
     return {
@@ -87,6 +96,8 @@ export async function noteOn(
     ensureReady();
     if (soundSource === "piano") {
         await ensurePianoSamplesLoaded(velocity);
+    } else if (soundSource === externalMidiSoundSource) {
+        ensureMidiOutputAvailable();
     }
 
     releaseNote(noteId, audioContext.currentTime);
@@ -99,7 +110,7 @@ export async function noteOn(
     }
 
     const startTime = Math.max(startTimeSeconds, audioContext.currentTime);
-    activeNotes.set(noteId, createNote(frequency, velocity, startTime));
+    activeNotes.set(noteId, createNote(noteId, frequency, velocity, startTime));
 }
 
 export async function setSoundSource(source) {
@@ -114,6 +125,8 @@ export async function setSoundSource(source) {
 
     if (source === "piano") {
         await ensurePianoSamplesLoaded(defaultPianoVelocity);
+    } else if (source === externalMidiSoundSource) {
+        ensureMidiOutputAvailable();
     }
 
     clear(audioContext.currentTime);
@@ -136,6 +149,8 @@ export async function scheduleScore(events) {
     if (soundSource === "piano") {
         const velocities = [...new Set(events.map(event => event.velocity ?? defaultPianoVelocity))];
         await Promise.all(velocities.map(ensurePianoSamplesLoaded));
+    } else if (soundSource === externalMidiSoundSource) {
+        ensureMidiOutputAvailable();
     }
 
     stopScore();
@@ -143,6 +158,7 @@ export async function scheduleScore(events) {
     for (const event of events) {
         const startTime = Math.max(event.startTimeSeconds, audioContext.currentTime);
         const note = createNote(
+            event.noteId,
             event.frequency,
             event.velocity ?? defaultPianoVelocity,
             startTime);
@@ -157,6 +173,16 @@ export async function scheduleScore(events) {
 
 export function stopScore() {
     ensureInitialized();
+    if (soundSource === externalMidiSoundSource) {
+        if (scheduledScoreNotes.size === 0) {
+            return;
+        }
+
+        scheduledScoreNotes.clear();
+        clearMidiOutput();
+        return;
+    }
+
     const releaseTime = audioContext.currentTime;
     for (const [noteId, note] of scheduledScoreNotes) {
         scheduledScoreNotes.delete(noteId);
@@ -268,10 +294,31 @@ function clearMetronomePulse() {
     pulse?.classList.remove("metronome-pulse-active", "metronome-pulse-downbeat");
 }
 
-function createNote(frequency, velocity, startTime) {
-    return soundSource === "piano"
-        ? createPianoNote(frequency, velocity, startTime)
-        : createSynthNote(frequency, startTime);
+function createNote(noteId, frequency, velocity, startTime) {
+    if (soundSource === "piano") {
+        return createPianoNote(frequency, velocity, startTime);
+    }
+
+    if (soundSource === externalMidiSoundSource) {
+        return createExternalMidiNote(noteId, frequency, velocity, startTime);
+    }
+
+    return createSynthNote(frequency, startTime);
+}
+
+function createExternalMidiNote(noteId, frequency, velocity, startTime) {
+    const wasSent = !noteId.startsWith("midi:");
+    const midiNumber = frequencyToMidiNumber(frequency);
+    if (wasSent) {
+        sendMidiNoteOn(midiNumber, velocity, toPerformanceTimestamp(startTime));
+    }
+
+    return {
+        isExternalMidi: true,
+        midiNumber,
+        startTime,
+        wasSent,
+    };
 }
 
 function createSynthNote(frequency, startTime) {
@@ -340,7 +387,6 @@ export function clear(releaseTimeSeconds) {
     for (const noteId of [...activeNotes.keys()]) {
         releaseNote(noteId, releaseTimeSeconds);
     }
-
 }
 
 export function getSchedulingLatency() {
@@ -411,6 +457,11 @@ function releaseNote(noteId, releaseTimeSeconds) {
 }
 
 function releaseNodes(note, releaseTimeSeconds, onDisconnected) {
+    if (note.isExternalMidi) {
+        releaseExternalMidiNote(note, releaseTimeSeconds, onDisconnected);
+        return;
+    }
+
     const isRunning = audioContext.state === "running";
     const releaseTime = isRunning
         ? Math.max(releaseTimeSeconds, audioContext.currentTime)
@@ -436,6 +487,30 @@ function releaseNodes(note, releaseTimeSeconds, onDisconnected) {
         note.envelope.disconnect();
         onDisconnected?.();
     }, Math.max(0, (stopTime - audioContext.currentTime) * 1000) + 25);
+}
+
+function releaseExternalMidiNote(note, releaseTimeSeconds, onDisconnected) {
+    if (note.wasSent && hasMidiOutput()) {
+        sendMidiNoteOff(note.midiNumber, toPerformanceTimestamp(releaseTimeSeconds));
+    }
+
+    window.setTimeout(
+        () => onDisconnected?.(),
+        Math.max(0, (releaseTimeSeconds - audioContext.currentTime) * 1000) + 25);
+}
+
+function frequencyToMidiNumber(frequency) {
+    return Math.max(0, Math.min(127, Math.round(69 + (12 * Math.log2(frequency / 440)))));
+}
+
+function toPerformanceTimestamp(audioTimeSeconds) {
+    return performance.now() + (Math.max(0, audioTimeSeconds - audioContext.currentTime) * 1000);
+}
+
+function ensureMidiOutputAvailable() {
+    if (!hasMidiOutput()) {
+        throw new Error("Connect the FP-10 MIDI output before selecting FP-10 sound.");
+    }
 }
 
 async function ensurePianoSamplesLoaded(velocity) {

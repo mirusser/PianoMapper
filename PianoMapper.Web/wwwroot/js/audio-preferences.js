@@ -2,9 +2,10 @@ const soundSourceCookieName = "pianomapper-sound-source";
 const soundSourceCookieMaxAgeSeconds = 31536000;
 
 export const defaultSoundSource = "piano";
+export const externalMidiSoundSource = "external-midi";
 
 export function isSoundSource(source) {
-    return source === "synth" || source === "piano";
+    return source === "synth" || source === "piano" || source === externalMidiSoundSource;
 }
 
 export function readSoundSourcePreference(cookieHeader) {

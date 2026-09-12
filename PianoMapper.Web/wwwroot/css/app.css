@@ -170,8 +170,8 @@ p {
 
 .sound-source-picker {
     display: grid;
-    grid-template-columns: repeat(2, minmax(4.5rem, 1fr));
-    min-width: 10rem;
+    grid-template-columns: repeat(3, minmax(4.5rem, 1fr));
+    min-width: 15rem;
     overflow: hidden;
     border: 1px solid #475569;
     border-radius: 0.6rem;

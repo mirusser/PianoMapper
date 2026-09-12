@@ -1,5 +1,6 @@
 using PianoMapper.Web.Pages;
 using PianoMapper.Web.Rendering;
+using PianoMapper.Music;
 
 namespace PianoMapper.Tests.UnitTests;
 
@@ -85,6 +86,62 @@ public sealed class PianoTests
             isPracticeActive);
 
         Assert.Equal(expected, canChange);
+    }
+
+    [Theory]
+    [InlineData(0, (int)ScoreGrandStaffWindowPair.PhysicalRow.Upper, true)]
+    [InlineData(0, (int)ScoreGrandStaffWindowPair.PhysicalRow.Lower, false)]
+    [InlineData(1, (int)ScoreGrandStaffWindowPair.PhysicalRow.Upper, false)]
+    [InlineData(1, (int)ScoreGrandStaffWindowPair.PhysicalRow.Lower, true)]
+    public void GetPerformedNotesForScoreRow_CurrentAndLookAheadRows_ReturnsNotesOnlyForCurrentRow(
+        int activePageIndex,
+        int renderedRowValue,
+        bool expectsNotes)
+    {
+        var performedNote = new PerformedNote
+        {
+            Pitch = new Pitch(NoteLetter.C, 0, 4),
+            StartTime = TimeSpan.Zero,
+        };
+        var windowPair = ScoreGrandStaffWindowPair.FromPageIndex(
+            measureCount: 10,
+            activePageIndex);
+
+        var result = Piano.GetPerformedNotesForScoreRow(
+            [performedNote],
+            windowPair,
+            (ScoreGrandStaffWindowPair.PhysicalRow)renderedRowValue,
+            suppressPerformedNotes: false);
+
+        if (expectsNotes)
+        {
+            Assert.Same(performedNote, Assert.Single(result));
+        }
+        else
+        {
+            Assert.Empty(result);
+        }
+    }
+
+    [Fact]
+    public void GetPerformedNotesForScoreRow_IdleNoteCheckingEnabled_OmitsLiveMarker()
+    {
+        var performedNote = new PerformedNote
+        {
+            Pitch = new Pitch(NoteLetter.C, 0, 4),
+            StartTime = TimeSpan.Zero,
+        };
+        var windowPair = ScoreGrandStaffWindowPair.FromPageIndex(
+            measureCount: 10,
+            activePageIndex: 0);
+
+        var result = Piano.GetPerformedNotesForScoreRow(
+            [performedNote],
+            windowPair,
+            ScoreGrandStaffWindowPair.PhysicalRow.Upper,
+            suppressPerformedNotes: true);
+
+        Assert.Empty(result);
     }
 
     private static GrandStaffScene CreateGrandStaffSceneWithVisibleNote() =>

@@ -6,6 +6,13 @@
         <button type="button" @onclick="Abort" disabled="@(!IsActive)">
             Abort practice (C)
         </button>
+        <label class="control-checkbox">
+            <input type="checkbox"
+                   checked="@CheckNotesWhileIdle"
+                   @onchange="SetCheckNotesWhileIdleAsync"
+                   disabled="@(State != PracticeSessionState.Idle)" />
+            Check notes while idle
+        </label>
     </div>
     <p role="status">
         @if (State == PracticeSessionState.CountingIn)
@@ -86,8 +93,17 @@
     public bool IsActive { get; set; }
 
     [Parameter]
+    public bool CheckNotesWhileIdle { get; set; }
+
+    [Parameter]
     public EventCallback Start { get; set; }
 
     [Parameter]
     public EventCallback Abort { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> CheckNotesWhileIdleChanged { get; set; }
+
+    private Task SetCheckNotesWhileIdleAsync(ChangeEventArgs eventArgs) =>
+        CheckNotesWhileIdleChanged.InvokeAsync(eventArgs.Value is true);
 }

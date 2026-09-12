@@ -4,4 +4,5 @@ internal enum BrowserSoundSource
 {
     Synth,
     Piano,
+    ExternalMidi,
 }

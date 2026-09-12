@@ -120,6 +120,34 @@ public sealed class GrandStaffSceneCacheTests
     }
 
     [Fact]
+    public void BuildScore_ExpectedNotesChange_RebuildsActiveScoreNote()
+    {
+        var cache = new GrandStaffSceneCache();
+        var firstNote = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
+        var secondNote = new ScoreNote(new Pitch(NoteLetter.D, 0, 4), new NoteValue(4), 0, 1, Staff.Treble);
+        var score = new Score(
+            "test",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure([firstNote, secondNote], [])]);
+
+        var first = cache.BuildScore(
+            score,
+            firstVisibleMeasure: 0,
+            expectedNotes: new HashSet<ScoreNote> { firstNote });
+        var second = cache.BuildScore(
+            score,
+            firstVisibleMeasure: 0,
+            expectedNotes: new HashSet<ScoreNote> { secondNote });
+
+        Assert.True(first.Notes.Single(note => note.Label == "C4").IsActive);
+        Assert.False(first.Notes.Single(note => note.Label == "D4").IsActive);
+        Assert.False(second.Notes.Single(note => note.Label == "C4").IsActive);
+        Assert.True(second.Notes.Single(note => note.Label == "D4").IsActive);
+    }
+
+    [Fact]
     public void BuildScore_ShowNoteLabelsChanges_RebuildsNotesWithoutLabels()
     {
         var cache = new GrandStaffSceneCache();

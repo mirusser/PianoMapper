@@ -281,7 +281,10 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        // A parent can queue another render while this component is still completing its
+        // first asynchronous render. Initialize by resource state so that overlapping
+        // render callbacks cannot observe a null module.
+        if (module is null)
         {
             module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/canvas.js");
             await module.InvokeVoidAsync(

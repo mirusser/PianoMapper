@@ -75,9 +75,16 @@ internal static class GrandStaffSceneBuilder
         IReadOnlyList<PerformedNote>? performedNotes = null,
         double? performedNoteBeats = null,
         bool showNoteLabels = true,
-        bool showFingerings = true) =>
+        bool showFingerings = true,
+        IReadOnlySet<ScoreNote>? expectedNotes = null) =>
         ComposeScore(
-            BuildStaticScoreParts(score, firstVisibleMeasure, verdicts, showNoteLabels, showFingerings),
+            BuildStaticScoreParts(
+                score,
+                firstVisibleMeasure,
+                verdicts,
+                showNoteLabels,
+                showFingerings,
+                expectedNotes),
             score,
             firstVisibleMeasure,
             cursorBeats,
@@ -88,7 +95,8 @@ internal static class GrandStaffSceneBuilder
     /// <summary>
     /// Builds everything about a score's grand-staff rendering that does NOT depend on the
     /// playback cursor position: staff/barlines, ledger and beam geometry, notation glyphs, and
-    /// note markers (including verdict coloring). Callers that re-render every tick only because
+    /// note markers (including verdict coloring and the currently expected notes). Callers that
+    /// re-render every tick only because
     /// the cursor moved (e.g. practice mode) can cache this result and skip straight to
     /// <see cref="ComposeScore"/> when the score, visible measure window, and verdicts are
     /// unchanged from the previous call — see <c>GrandStaffSceneCache</c>.
@@ -98,7 +106,8 @@ internal static class GrandStaffSceneBuilder
         int firstVisibleMeasure,
         IReadOnlyDictionary<ScoreNote, Verdict>? verdicts = null,
         bool showNoteLabels = true,
-        bool showFingerings = true)
+        bool showFingerings = true,
+        IReadOnlySet<ScoreNote>? expectedNotes = null)
     {
         int clampedMeasure = ClampFirstVisibleMeasure(score, firstVisibleMeasure);
         var visibleNotes = new List<(ScoreNote Note, ScoreNoteLayout Layout)>();
@@ -177,7 +186,7 @@ internal static class GrandStaffSceneBuilder
                 layout.X,
                 noteY,
                 DurationSeconds: 0,
-                IsActive: false,
+                IsActive: expectedNotes?.Contains(note) == true,
                 IsFilled: layout.HeadStyle == NoteHeadStyle.Filled,
                 layout.HasStem,
                 isBeamed ? beamOverride.Direction : layout.StemDirection,

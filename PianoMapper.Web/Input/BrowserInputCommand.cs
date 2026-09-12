@@ -8,4 +8,5 @@ internal readonly record struct BrowserInputCommand(
     string? NoteId = null,
     Pitch? Pitch = null,
     PerformedNote? Note = null,
-    TimeSpan EventTime = default);
+    TimeSpan EventTime = default,
+    int Velocity = 0);
