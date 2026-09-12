@@ -89,6 +89,28 @@ public sealed class PianoTests
     }
 
     [Theory]
+    [InlineData(true, true, false, false, true)]
+    [InlineData(false, true, false, false, false)]
+    [InlineData(true, false, false, false, false)]
+    [InlineData(true, true, true, false, false)]
+    [InlineData(true, true, false, true, false)]
+    public void CanResetScoreHighlights_State_ReturnsExpectedPolicy(
+        bool hasScore,
+        bool isNoteCheckingEnabled,
+        bool isScorePlaybackActive,
+        bool isPracticeActive,
+        bool expected)
+    {
+        bool canReset = Piano.CanResetScoreHighlights(
+            hasScore,
+            isNoteCheckingEnabled,
+            isScorePlaybackActive,
+            isPracticeActive);
+
+        Assert.Equal(expected, canReset);
+    }
+
+    [Theory]
     [InlineData(0, (int)ScoreGrandStaffWindowPair.PhysicalRow.Upper, true)]
     [InlineData(0, (int)ScoreGrandStaffWindowPair.PhysicalRow.Lower, false)]
     [InlineData(1, (int)ScoreGrandStaffWindowPair.PhysicalRow.Upper, false)]

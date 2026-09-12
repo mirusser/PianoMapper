@@ -324,6 +324,8 @@
                      SecondaryScene="@secondaryCanvasScene"
                      SelectedOctave="@keyboardState.CurrentOctave"
                      IsScoreView="@(selectedScore is not null && !showPianoRoll)"
+                     CanResetScoreHighlights="@CanResetHighlights"
+                     ResetScoreHighlights="ResetScoreHighlightsAsync"
                      ScoreCursor="@scoreCursorState"
                      SecondaryScoreCursor="@secondaryScoreCursorState"
                      PrimaryScoreRangeLabel="@PrimaryScoreRangeLabel"
@@ -441,6 +443,12 @@
         ScorePlaybackSession.IsActive,
         practiceCoordinator.IsActive);
 
+    private bool CanResetHighlights => CanResetScoreHighlights(
+        selectedScore is not null,
+        checkNotesWhileIdle,
+        ScorePlaybackSession.IsActive,
+        practiceCoordinator.State != PracticeSessionState.Idle);
+
     private bool IsIdleNoteCheckingActive =>
         checkNotesWhileIdle &&
         selectedScore is not null &&
@@ -500,6 +508,13 @@
         int requestedPageIndex = activePageIndex + pageDelta;
         return requestedPageIndex >= 0 && requestedPageIndex < pageCount;
     }
+
+    internal static bool CanResetScoreHighlights(
+        bool hasScore,
+        bool isNoteCheckingEnabled,
+        bool isScorePlaybackActive,
+        bool isPracticeActive) =>
+        hasScore && isNoteCheckingEnabled && !isScorePlaybackActive && !isPracticeActive;
 
     public Piano()
     {
@@ -1144,6 +1159,22 @@
         audioStatus = isEnabled
             ? "Idle note checking enabled. Play the highlighted score note."
             : "Idle note checking disabled.";
+    }
+
+    private async Task ResetScoreHighlightsAsync()
+    {
+        if (!CanResetHighlights)
+        {
+            return;
+        }
+
+        ResetIdlePracticeNoteChecker();
+        ResetScoreWindowPair();
+        TimeSpan currentTime = AudioSession.IsInitialized
+            ? await AudioSession.GetCurrentTimeAsync()
+            : TimeSpan.Zero;
+        RefreshCanvasScene(currentTime);
+        audioStatus = "Score highlights reset. Play the first highlighted note.";
     }
 
     private async Task RefreshNotationVisibilityAsync()

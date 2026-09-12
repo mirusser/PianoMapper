@@ -8,7 +8,22 @@
                 <p class="panel-kicker">Notes</p>
                 <h2 id="piano-view-heading">@SceneTitle</h2>
             </div>
-            <span class="panel-context">@SceneContext</span>
+            @if (IsScoreView)
+            {
+                <div class="controls">
+                    <span class="panel-context">@SceneContext</span>
+                    <button class="button-quiet"
+                            type="button"
+                            disabled="@(!CanResetScoreHighlights)"
+                            @onclick="ResetScoreHighlights">
+                        Reset highlights
+                    </button>
+                </div>
+            }
+            else
+            {
+                <span class="panel-context">@SceneContext</span>
+            }
         </div>
         <p class="panel-description">@SceneDescription</p>
         <div class="legend" aria-label="Note color legend">
@@ -223,6 +238,12 @@
 
     [Parameter]
     public bool IsScoreView { get; set; }
+
+    [Parameter]
+    public bool CanResetScoreHighlights { get; set; }
+
+    [Parameter]
+    public EventCallback ResetScoreHighlights { get; set; }
 
     [Parameter]
     public ScoreCursorPlaybackState? ScoreCursor { get; set; }
