@@ -14,6 +14,11 @@
         </div>
     </div>
 
+    @if (isLoadingScore)
+    {
+        <ScoreLoadingIndicator />
+    }
+
     @if (savedScores is null)
     {
         <p class="control-note">Loading saved scores…</p>
@@ -56,6 +61,7 @@
     private IReadOnlyList<SavedScoreSummary>? savedScores;
     private string? status;
     private bool isBusy;
+    private bool isLoadingScore;
 
     [Parameter]
     public Score? CurrentScore { get; set; }
@@ -127,6 +133,8 @@
     private async Task LoadAsync(Guid id)
     {
         isBusy = true;
+        isLoadingScore = true;
+        status = null;
         try
         {
             SavedScoreDetails savedScore = await Client.FindAsync(id);
@@ -141,6 +149,7 @@
         finally
         {
             isBusy = false;
+            isLoadingScore = false;
         }
     }
 

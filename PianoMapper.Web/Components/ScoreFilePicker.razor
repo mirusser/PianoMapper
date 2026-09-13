@@ -5,10 +5,17 @@
     <InputFile @key="inputGeneration"
                id="score-file"
                OnChange="SelectFileAsync"
+               disabled="@isLoadingScore"
                accept=".mxl,.musicxml,.xml,.jpg,.jpeg,.png,application/vnd.recordare.musicxml,application/vnd.recordare.musicxml+xml,application/xml,text/xml,image/jpeg,image/png" />
+    @if (isLoadingScore)
+    {
+        <ScoreLoadingIndicator />
+    }
     @if (HasLoadedScore)
     {
-        <button class="button-quiet" type="button" @onclick="UnloadScoreAsync">Unload score</button>
+        <button class="button-quiet" type="button" @onclick="UnloadScoreAsync" disabled="@isLoadingScore">
+            Unload score
+        </button>
     }
     <details class="learning-disclosure score-file-help">
         <summary>Supported score files</summary>
@@ -28,6 +35,7 @@
 
     private int inputGeneration;
     private string? status;
+    private bool isLoadingScore;
 
     [Parameter]
     public EventCallback<Score> ScoreLoaded { get; set; }
@@ -47,6 +55,8 @@
             return;
         }
 
+        isLoadingScore = true;
+        status = null;
         try
         {
             await using var source = file.OpenReadStream(MaximumFileSizeBytes);
@@ -62,6 +72,10 @@
             exception is IOException or InvalidDataException or NotSupportedException or ArgumentException or HttpRequestException)
         {
             status = $"Could not load score: {exception.Message}";
+        }
+        finally
+        {
+            isLoadingScore = false;
         }
     }
 

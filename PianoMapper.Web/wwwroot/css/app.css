@@ -430,6 +430,35 @@ select {
     flex-basis: 100%;
 }
 
+.score-loading-indicator {
+    display: inline-flex;
+    gap: 0.45rem;
+    align-items: center;
+    color: #aebdd0;
+    font-size: 0.85rem;
+}
+
+.score-loading-spinner {
+    width: 0.9rem;
+    height: 0.9rem;
+    border: 2px solid rgb(174 189 208 / 35%);
+    border-top-color: #60a5fa;
+    border-radius: 50%;
+    animation: score-loading-spinner-rotation 0.7s linear infinite;
+}
+
+@keyframes score-loading-spinner-rotation {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .score-loading-spinner {
+        animation: none;
+    }
+}
+
 input[type="file"] {
     max-width: 100%;
     color: #aebdd0;
