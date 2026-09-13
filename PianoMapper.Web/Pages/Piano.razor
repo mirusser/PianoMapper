@@ -173,9 +173,13 @@
             </section>
 
             <section class="score-card control-card-wide" aria-label="Imported score">
-                <ScoreFilePicker ScoreLoaded="HandleScoreLoadedAsync"
+                <ScoreFilePicker ScoreLoaded="HandleImportedScoreLoadedAsync"
                                  ScoreUnloaded="HandleScoreUnloadedAsync"
                                  HasLoadedScore="@(loadedScore is not null)" />
+                <SavedScoreLibrary CurrentScore="@loadedScore"
+                                   CurrentSavedScoreId="@loadedSavedScoreId"
+                                   ScoreLoaded="HandleSavedScoreLoadedAsync"
+                                   ScoreSaved="HandleSavedScoreSaved" />
                 @if (loadedScore is not null && selectedScore is not null)
                 {
                     <p class="score-title">@loadedScore.Title — @loadedScore.Measures.Count measure(s)</p>
@@ -371,6 +375,7 @@
     private Score? importedScore;
     private Score? loadedScore;
     private Score? selectedScore;
+    private Guid? loadedSavedScoreId;
     private int selectedFirstMeasure;
     private int selectedLastMeasure;
     private ScoreGrandStaffWindowPair.State? scoreWindowPair;
@@ -722,6 +727,21 @@
         RefreshCanvasScene(currentTime);
     }
 
+    private async Task HandleImportedScoreLoadedAsync(Score score)
+    {
+        loadedSavedScoreId = null;
+        await HandleScoreLoadedAsync(score);
+    }
+
+    private async Task HandleSavedScoreLoadedAsync(SavedScoreDetails savedScore)
+    {
+        await HandleScoreLoadedAsync(savedScore.Score);
+        loadedSavedScoreId = savedScore.Id;
+    }
+
+    private void HandleSavedScoreSaved(SavedScoreDetails savedScore) =>
+        loadedSavedScoreId = savedScore.Id;
+
     private async Task HandleScoreUnloadedAsync()
     {
         await AbortPracticeAsync(updateStatus: false);
@@ -729,6 +749,7 @@
         importedScore = null;
         loadedScore = null;
         selectedScore = null;
+        loadedSavedScoreId = null;
         ResetIdlePracticeNoteChecker();
         selectedFirstMeasure = 0;
         selectedLastMeasure = 0;

@@ -1,7 +1,10 @@
+using System.Text.Json.Serialization;
+
 namespace PianoMapper.Music;
 
 public readonly record struct NoteValue
 {
+    [JsonConstructor]
     public NoteValue(int denominator, int dots = 0)
     {
         if (denominator is not (1 or 2 or 4 or 8 or 16))

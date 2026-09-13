@@ -1,10 +1,15 @@
+using Npgsql;
 using PianoMapper.Server.Omr;
+using PianoMapper.Server.Persistence;
 
 const long maximumImageSizeBytes = 10L * 1024 * 1024;
 const string sourceNameHeader = "X-PianoMapper-Source-Name";
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = maximumImageSizeBytes);
+string scoreConnectionString = builder.Configuration.GetConnectionString(SavedScoreRepository.ConnectionStringName) ??
+    throw new InvalidOperationException(
+        $"ConnectionStrings:{SavedScoreRepository.ConnectionStringName} must be configured.");
 string audiverisExecutable = builder.Configuration["Omr:AudiverisExecutable"] ?? "audiveris";
 int timeoutSeconds = builder.Configuration.GetValue("Omr:TimeoutSeconds", 180);
 if (timeoutSeconds <= 0)
@@ -18,8 +23,14 @@ builder.Services.AddSingleton(new AudiverisOptions(
 builder.Services.AddSingleton<IAudiverisProcessRunner, AudiverisProcessRunner>();
 builder.Services.AddSingleton<IImageScoreConverter, AudiverisImageScoreConverter>();
 builder.Services.AddSingleton<AudiverisMusicXmlNormalizer>();
+builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(scoreConnectionString));
+builder.Services.AddSingleton<SavedScoreRepository>();
 
 var app = builder.Build();
+
+await app.Services
+    .GetRequiredService<SavedScoreRepository>()
+    .InitializeAsync(app.Lifetime.ApplicationStopping);
 
 app.UseBlazorFrameworkFiles();
 app.UseStaticFiles();
@@ -68,6 +79,8 @@ app.MapPost("/api/score-images/convert", async (
         return Results.Text(exception.Message, statusCode: StatusCodes.Status422UnprocessableEntity);
     }
 });
+
+app.MapSavedScoreEndpoints();
 
 app.MapFallbackToFile("index.html");
 

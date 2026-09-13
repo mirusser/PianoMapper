@@ -1,0 +1,157 @@
+@inject SavedScoreClient Client
+
+<section class="saved-score-library" aria-labelledby="saved-scores-heading">
+    <div class="saved-score-library-heading">
+        <h3 id="saved-scores-heading">Saved scores</h3>
+        <div class="controls">
+            <button class="button-primary"
+                    type="button"
+                    @onclick="SaveAsync"
+                    disabled="@(CurrentScore is null || isBusy)">
+                @(CurrentSavedScoreId.HasValue ? "Save changes" : "Save score")
+            </button>
+            <button class="button-quiet" type="button" @onclick="RefreshAsync" disabled="@isBusy">Refresh</button>
+        </div>
+    </div>
+
+    @if (savedScores is null)
+    {
+        <p class="control-note">Loading saved scores…</p>
+    }
+    else if (savedScores.Count == 0)
+    {
+        <p class="control-note">No saved scores yet.</p>
+    }
+    else
+    {
+        <ul class="saved-score-list">
+            @foreach (var savedScore in savedScores)
+            {
+                <li>
+                    <span>
+                        <strong>@savedScore.Title</strong>
+                        <small>
+                            @savedScore.MeasureCount measure(s) · saved
+                            @savedScore.UpdatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
+                        </small>
+                    </span>
+                    <button type="button"
+                            @onclick="() => LoadAsync(savedScore.Id)"
+                            disabled="@isBusy"
+                            aria-label="Load @savedScore.Title">
+                        Load
+                    </button>
+                </li>
+            }
+        </ul>
+    }
+
+    @if (!string.IsNullOrEmpty(status))
+    {
+        <p class="control-note" role="status">@status</p>
+    }
+</section>
+
+@code {
+    private IReadOnlyList<SavedScoreSummary>? savedScores;
+    private string? status;
+    private bool isBusy;
+
+    [Parameter]
+    public Score? CurrentScore { get; set; }
+
+    [Parameter]
+    public Guid? CurrentSavedScoreId { get; set; }
+
+    [Parameter]
+    public EventCallback<SavedScoreDetails> ScoreLoaded { get; set; }
+
+    [Parameter]
+    public EventCallback<SavedScoreDetails> ScoreSaved { get; set; }
+
+    protected override Task OnInitializedAsync() => RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        isBusy = true;
+        try
+        {
+            savedScores = await Client.ListAsync();
+            status = null;
+        }
+        catch (HttpRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            savedScores = [];
+            status = "Saved scores require the hosted PianoMapper server.";
+        }
+        catch (Exception exception) when (
+            exception is HttpRequestException or JsonException or NotSupportedException)
+        {
+            savedScores = [];
+            status = $"Could not load saved scores: {exception.Message}";
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (CurrentScore is null)
+        {
+            return;
+        }
+
+        isBusy = true;
+        try
+        {
+            SavedScoreDetails savedScore = CurrentSavedScoreId is Guid id
+                ? await Client.UpdateAsync(id, CurrentScore)
+                : await Client.CreateAsync(CurrentScore);
+            AddOrReplaceSummary(savedScore);
+            await ScoreSaved.InvokeAsync(savedScore);
+            status = $"Saved {savedScore.Score.Title}.";
+        }
+        catch (Exception exception) when (
+            exception is HttpRequestException or InvalidDataException or JsonException or NotSupportedException)
+        {
+            status = $"Could not save score: {exception.Message}";
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task LoadAsync(Guid id)
+    {
+        isBusy = true;
+        try
+        {
+            SavedScoreDetails savedScore = await Client.FindAsync(id);
+            await ScoreLoaded.InvokeAsync(savedScore);
+            status = $"Loaded {savedScore.Score.Title} from saved scores.";
+        }
+        catch (Exception exception) when (
+            exception is HttpRequestException or InvalidDataException or JsonException or NotSupportedException)
+        {
+            status = $"Could not load saved score: {exception.Message}";
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void AddOrReplaceSummary(SavedScoreDetails savedScore)
+    {
+        var summary = new SavedScoreSummary(
+            savedScore.Id,
+            savedScore.Score.Title,
+            savedScore.Score.Measures.Count,
+            savedScore.CreatedAt,
+            savedScore.UpdatedAt);
+        savedScores = [summary, .. (savedScores ?? []).Where(score => score.Id != summary.Id)];
+    }
+}

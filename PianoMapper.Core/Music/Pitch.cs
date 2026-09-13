@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
 
 namespace PianoMapper.Music;
 
@@ -6,6 +7,7 @@ public readonly record struct Pitch
 {
     private static readonly int[] SemitonesFromC = [0, 2, 4, 5, 7, 9, 11];
 
+    [JsonConstructor]
     public Pitch(NoteLetter letter, int alter, int octave)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(alter, -2);

@@ -4,6 +4,7 @@ using PianoMapper.Web;
 using PianoMapper.Web.Audio;
 using PianoMapper.Web.Importing;
 using PianoMapper.Web.Playback;
+using PianoMapper.Web.Scores;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
@@ -15,5 +16,6 @@ builder.Services.AddScoped<IBrowserScoreAudio>(services => services.GetRequiredS
 builder.Services.AddScoped<IBrowserMetronomeAudio>(services => services.GetRequiredService<WebAudioSession>());
 builder.Services.AddScoped<BrowserScorePlayback>();
 builder.Services.AddScoped<BrowserMetronome>();
+builder.Services.AddScoped<SavedScoreClient>();
 
 await builder.Build().RunAsync();

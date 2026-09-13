@@ -450,6 +450,63 @@ input[type="file"]::file-selector-button {
     font-weight: 700;
 }
 
+.saved-score-library {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #334155;
+}
+
+.saved-score-library-heading {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.saved-score-library-heading h3 {
+    margin: 0;
+    color: #dbeafe;
+    font-size: 0.95rem;
+}
+
+.saved-score-list {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.saved-score-list li {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid #334155;
+    border-radius: 0.55rem;
+    background: #162238;
+}
+
+.saved-score-list span {
+    min-width: 0;
+}
+
+.saved-score-list strong,
+.saved-score-list small {
+    display: block;
+}
+
+.saved-score-list strong {
+    overflow-wrap: anywhere;
+}
+
+.saved-score-list small {
+    margin-top: 0.2rem;
+    color: #93a4b8;
+}
+
 .measure-range-controls {
     margin-bottom: 0.75rem;
 }

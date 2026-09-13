@@ -15,9 +15,20 @@ readonly local_audiveris="${audiveris_directory}/opt/audiveris/bin/Audiveris"
 require_command() {
     local command_name="$1"
     if ! command -v "${command_name}" >/dev/null 2>&1; then
-        echo "Cannot install Audiveris: '${command_name}' is required." >&2
+        echo "Cannot start PianoMapper: '${command_name}' is required." >&2
         exit 1
     fi
+}
+
+start_postgres() {
+    require_command docker
+    if ! docker compose version >/dev/null 2>&1; then
+        echo "Cannot start PianoMapper: the Docker Compose plugin is required." >&2
+        exit 1
+    fi
+
+    echo "Starting PianoMapper PostgreSQL..."
+    docker compose up --detach --wait postgres
 }
 
 install_audiveris() {
@@ -69,6 +80,10 @@ cleanup_installer() {
 }
 
 cd "${repo_root}"
+
+if [[ -z "${ConnectionStrings__PianoMapper:-}" ]]; then
+    start_postgres
+fi
 
 audiveris_executable="${Omr__AudiverisExecutable:-}"
 if [[ -z "${audiveris_executable}" ]]; then

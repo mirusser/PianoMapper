@@ -10,6 +10,7 @@ PianoMapper captures piano performances and renders them as notation. The reposi
 - A full 88-key browser piano from A0 through C8 that highlights live input and score-playback notes while they sound.
 - Strict MusicXML (`.mxl`, `.musicxml`, or `.xml`) import for one part and up to two staves, including chords, ties, rests, dotted values, beam groups, backup/forward timing, preserved `up`/`down` stem direction, and piano fingering numbers.
 - JPEG and PNG sheet-music import through an Audiveris optical music recognition (OMR) host, with recognized fingering numbers carried into the grand staff.
+- A shared PostgreSQL score library that saves the current imported score and loads it again without repeating MusicXML parsing or image recognition.
 - Scheduled score playback, measure navigation, a tempo cursor, and random-measure playback. In the browser, imported scores keep the current five-measure grand-staff page and the next page visible together; playback and Practice alternate between those rows without replacing the row being played.
 - Count-in practice with pitch/timing/duration verdicts and an accuracy summary.
 - Optional browser metronome with accented downbeats, on-tempo feedback, and adjustable timing tolerance.
@@ -21,7 +22,7 @@ PianoMapper captures piano performances and renders them as notation. The reposi
 - .NET SDK 10.0.
 - Desktop app: an OpenAL-capable audio device and a display.
 - Browser app: a current desktop browser with WebAssembly, Web Audio, and Canvas 2D. USB MIDI features additionally require Web MIDI support, user permission, and a secure context such as HTTPS or localhost.
-- Hosted browser launcher: Make and Bash. Automatic Audiveris setup also uses `curl`, `ar`, `sha256sum`, `tar`, and `unzstd`.
+- Hosted browser launcher: Make, Bash, Docker, and the Docker Compose plugin. Automatic Audiveris setup also uses `curl`, `ar`, `sha256sum`, `tar`, and `unzstd`.
 - Image import: `make` automatically installs a repo-local [Audiveris](https://audiveris.github.io/audiveris/) bundle on Linux x86_64. Other platforms require a separate Audiveris installation. MusicXML-only use does not require Audiveris.
 
 ## Run the desktop app
@@ -36,17 +37,26 @@ dotnet run --project PianoMapper/PianoMapper.csproj -- --score path/to/piece.mus
 ## Run the browser app
 
 ```bash
-# Recommended: hosted client with MusicXML and JPEG/PNG import
+# Recommended: hosted client with PostgreSQL, MusicXML, and JPEG/PNG import
 make
 
-# Standalone client: MusicXML import
+# Standalone client: MusicXML import without saved scores
 dotnet run --project PianoMapper.Web/PianoMapper.Web.csproj
 
-# Hosted client without make's Audiveris setup
+# Hosted client without make's PostgreSQL and Audiveris setup
+docker compose up --detach --wait postgres
 dotnet run --project PianoMapper.Server/PianoMapper.Server.csproj
 ```
 
-The hosted server also serves the Blazor client, so `make` starts the complete image-enabled browser app as one process; the standalone Web project does not need to run beside it. Open the URL printed by the development server. Select **Enable audio** before playing; browser autoplay policy requires that user action. Choose a `.mxl`, `.musicxml`, `.xml`, `.jpg`, `.jpeg`, or `.png` file with the on-page picker. The browser rejects files larger than 10 MiB before parsing or recognition.
+The hosted server also serves the Blazor client, so `make` starts PostgreSQL and the complete image-enabled browser app. The standalone Web project does not need to run beside it, but it cannot use the server-backed saved-score library. Open the URL printed by the development server. Select **Enable audio** before playing; browser autoplay policy requires that user action. Choose a `.mxl`, `.musicxml`, `.xml`, `.jpg`, `.jpeg`, or `.png` file with the on-page picker. The browser rejects files larger than 10 MiB before parsing or recognition.
+
+The development PostgreSQL container listens only on `localhost:5434` and keeps its data in the `pianomapper-postgres-data` Docker volume. `PianoMapper.Server` creates the single `scores` application table when it starts. To use an existing PostgreSQL server instead, set the connection string before starting the host; `make` skips the development container when this value is present:
+
+```bash
+ConnectionStrings__PianoMapper='Host=db.example;Database=pianomapper;Username=pianomapper;Password=secret' make
+```
+
+Imported files and recognized images both become the same PianoMapper score document. **Save score** creates a shared library entry, **Save changes** updates the loaded entry, and **Load** replaces the active score. The original image or MusicXML bytes are not stored.
 
 Connect a USB MIDI piano to the computer before or while running the browser app. For a Roland FP-10, connect its square **USB COMPUTER** port to the computer with a data-capable USB cable; the rectangular **USB FOR UPDATE** port is not a MIDI connection. Select **Connect MIDI piano** and allow MIDI access when the browser asks. In Firefox, select **Remember this decision** if you want the piano to reconnect automatically on later visits. The Audio panel reports detected MIDI inputs and a compatible Roland output and provides a reconnect button.
 
@@ -98,11 +108,13 @@ Publish output is under `PianoMapper.Web/bin/Release/net10.0/publish/wwwroot/`. 
 
 The first load needs network access so the service worker can cache the published assets. Close existing PianoMapper tabs after deploying a new version, then reopen the app so the new service worker can activate. MusicXML files are not bundled or cached from prior selections; select them again from local storage.
 
-The standalone PWA has no process in which to run Audiveris, so it supports MusicXML import only. To deploy image import, publish and host the ASP.NET Core companion instead:
+The standalone PWA has no process in which to run Audiveris or connect to PostgreSQL, so it supports MusicXML import only and does not provide saved scores. To deploy image import and the saved-score library, publish and host the ASP.NET Core companion instead:
 
 ```bash
 dotnet publish PianoMapper.Server/PianoMapper.Server.csproj --configuration Release
 ```
+
+Set `ConnectionStrings__PianoMapper` for the production PostgreSQL database before starting the published server. The development connection string is loaded only in the Development environment.
 
 ## Test
 
