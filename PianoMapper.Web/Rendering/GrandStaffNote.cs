@@ -21,4 +21,5 @@ public sealed record GrandStaffNote(
     double? ScoreOnsetBeats = null,
     double? ScoreEndBeats = null,
     string? Fingering = null,
-    double? FingeringY = null);
+    double? FingeringY = null,
+    ScoreNoteAddress? Address = null);

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
     dispose,
+    hitTestScoreNote,
     initialize,
     initializeScoreCanvas,
     mapAbsoluteBeatToScoreX,
@@ -232,6 +233,100 @@ async function createScoreCursorHarness(currentTime) {
         },
     };
 }
+
+function createEditableScoreScene(notes) {
+    return {
+        kind: 0,
+        lines: [
+            { x0: -1, y0: 0.5, x1: 1, y1: 0.5, kind: 0 },
+            { x0: -1, y0: 0.4, x1: 1, y1: 0.4, kind: 0 },
+        ],
+        glyphs: [],
+        notes,
+        beams: [],
+        ties: [],
+        bands: [],
+    };
+}
+
+test("score note hit testing selects the closest chord member", async () => {
+    const harness = await createScoreCursorHarness(0);
+    const canvas = harness.createCanvas();
+    const scene = createEditableScoreScene([
+        { x: 0, y: 0.2, address: { measureIndex: 0, noteIndex: 0 } },
+        { x: 0, y: -0.2, address: { measureIndex: 0, noteIndex: 1 } },
+    ]);
+
+    try {
+        render(canvas, scene, false, false);
+
+        assert.deepEqual(hitTestScoreNote(canvas, 320, 96), { measureIndex: 0, noteIndex: 0 });
+        assert.deepEqual(hitTestScoreNote(canvas, 320, 144), { measureIndex: 0, noteIndex: 1 });
+    } finally {
+        await harness.dispose();
+    }
+});
+
+test("score note hit testing returns null away from noteheads", async () => {
+    const harness = await createScoreCursorHarness(0);
+    const canvas = harness.createCanvas();
+
+    try {
+        render(
+            canvas,
+            createEditableScoreScene([
+                { x: 0, y: 0, address: { measureIndex: 2, noteIndex: 3 } },
+            ]),
+            false,
+            false);
+
+        assert.equal(hitTestScoreNote(canvas, 40, 40), null);
+    } finally {
+        await harness.dispose();
+    }
+});
+
+test("score note hit testing follows responsive canvas size", async () => {
+    const harness = await createScoreCursorHarness(0);
+    const canvas = harness.createCanvas();
+    canvas.clientWidth = 320;
+    canvas.clientHeight = 120;
+
+    try {
+        render(
+            canvas,
+            createEditableScoreScene([
+                { x: 0.5, y: -0.5, address: { measureIndex: 4, noteIndex: 2 } },
+            ]),
+            false,
+            false);
+
+        assert.deepEqual(hitTestScoreNote(canvas, 231, 81), { measureIndex: 4, noteIndex: 2 });
+    } finally {
+        await harness.dispose();
+    }
+});
+
+test("selected score note draws an overlay ring", async () => {
+    const harness = await createScoreCursorHarness(0);
+    const canvas = harness.createCanvas();
+    const address = { measureIndex: 1, noteIndex: 2 };
+
+    try {
+        render(
+            canvas,
+            createEditableScoreScene([
+                { x: 0, y: 0, address },
+            ]),
+            false,
+            false,
+            address);
+
+        assert.equal(canvas.context.ellipseCalls.length, 1);
+    } finally {
+        await harness.dispose();
+    }
+});
 
 test("score cursor exact boundary belongs only to incoming canvas", async () => {
     const harness = await createScoreCursorHarness(20);

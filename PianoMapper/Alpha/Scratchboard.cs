@@ -2,7 +2,7 @@ namespace PianoMapper.Alpha;
 
 public sealed class Scratchboard
 {
-    
+
     public static short[] GeneratePianoWave(float frequency, float durationSeconds)
     {
         int sampleCount = (int)(Consts.SampleRate * durationSeconds);
@@ -170,7 +170,7 @@ public sealed class Scratchboard
 
         return buffer;
     }
-    
+
     public static short[] GeneratePianoWave4(float frequency, float durationSeconds)
     {
         int sampleCount = (int)(Consts.SampleRate * durationSeconds);

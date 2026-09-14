@@ -46,9 +46,10 @@
                 </div>
             }
             <canvas @ref="canvas"
-                    class="piano-canvas @(IsScoreView ? "score-row-canvas" : null)"
+                    class="piano-canvas @(IsScoreView ? "score-row-canvas" : null) @(CanSelectScoreNotes ? "score-note-editable" : null)"
                     role="img"
-                    aria-label="@PrimarySceneLabel">
+                    aria-label="@PrimarySceneLabel"
+                    @onclick="SelectPrimaryScoreNoteAsync">
                 Piano visualization.
             </canvas>
             <div class="score-row" hidden="@(!HasSecondaryScoreRow)">
@@ -60,9 +61,10 @@
                     }
                 </div>
                 <canvas @ref="secondaryCanvas"
-                        class="piano-canvas score-row-canvas"
+                        class="piano-canvas score-row-canvas @(CanSelectScoreNotes ? "score-note-editable" : null)"
                         role="img"
-                        aria-label="@SecondarySceneLabel">
+                        aria-label="@SecondarySceneLabel"
+                        @onclick="SelectSecondaryScoreNoteAsync">
                     Secondary imported-score grand staff.
                 </canvas>
             </div>
@@ -246,6 +248,15 @@
     public EventCallback ResetScoreHighlights { get; set; }
 
     [Parameter]
+    public bool CanSelectScoreNotes { get; set; }
+
+    [Parameter]
+    public ScoreNoteAddress? SelectedScoreNote { get; set; }
+
+    [Parameter]
+    public EventCallback<ScoreNoteAddress> ScoreNoteSelected { get; set; }
+
+    [Parameter]
     public ScoreCursorPlaybackState? ScoreCursor { get; set; }
 
     [Parameter]
@@ -337,7 +348,8 @@
             canvas,
             Scene,
             isWaveformVisible,
-            isFrequencySpectrumVisible);
+            isFrequencySpectrumVisible,
+            CanSelectScoreNotes ? SelectedScoreNote : null);
 
         if (!HasSecondaryScoreRow)
         {
@@ -368,7 +380,32 @@
             secondaryCanvas,
             SecondaryScene!,
             false,
-            false);
+            false,
+            CanSelectScoreNotes ? SelectedScoreNote : null);
+    }
+
+    private Task SelectPrimaryScoreNoteAsync(MouseEventArgs eventArgs) =>
+        SelectScoreNoteAsync(canvas, eventArgs);
+
+    private Task SelectSecondaryScoreNoteAsync(MouseEventArgs eventArgs) =>
+        SelectScoreNoteAsync(secondaryCanvas, eventArgs);
+
+    private async Task SelectScoreNoteAsync(ElementReference scoreCanvas, MouseEventArgs eventArgs)
+    {
+        if (!CanSelectScoreNotes || module is null)
+        {
+            return;
+        }
+
+        ScoreNoteAddress? address = await module.InvokeAsync<ScoreNoteAddress?>(
+            "hitTestScoreNote",
+            scoreCanvas,
+            eventArgs.OffsetX,
+            eventArgs.OffsetY);
+        if (address.HasValue)
+        {
+            await ScoreNoteSelected.InvokeAsync(address.Value);
+        }
     }
 
     private void ToggleWaveform() => isWaveformVisible = !isWaveformVisible;

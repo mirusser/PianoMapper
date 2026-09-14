@@ -241,6 +241,16 @@ button:hover:not(:disabled) {
     color: #cbd5e1;
 }
 
+.button-danger {
+    border-color: #ef4444;
+    background: #991b1b;
+}
+
+.button-danger:hover:not(:disabled) {
+    border-color: #f87171;
+    background: #b91c1c;
+}
+
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
@@ -305,6 +315,36 @@ select {
     color: #cbd5e1;
     font-size: 0.82rem;
     font-weight: 700;
+}
+
+.fingering-editor {
+    display: grid;
+    gap: 0.65rem;
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    border: 1px solid #334155;
+    border-radius: 0.65rem;
+    background: #0f172a;
+}
+
+.fingering-note-picker {
+    display: grid;
+    gap: 0.4rem;
+    color: #cbd5e1;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.fingering-note-picker select {
+    width: 100%;
+    min-height: 2.55rem;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid #475569;
+    border-radius: 0.6rem;
+}
+
+.fingering-editor .control-note {
+    margin: 0;
 }
 
 .timing-controls {
@@ -536,6 +576,12 @@ input[type="file"]::file-selector-button {
     color: #93a4b8;
 }
 
+.saved-score-actions {
+    display: flex;
+    flex: none;
+    gap: 0.5rem;
+}
+
 .measure-range-controls {
     margin-bottom: 0.75rem;
 }
@@ -634,6 +680,11 @@ input[type="file"]::file-selector-button {
 
 .piano-canvas {
     height: clamp(25rem, 46vw, 34rem);
+}
+
+.piano-canvas.score-note-editable {
+    cursor: crosshair;
+    border-color: #38bdf8;
 }
 
 .piano-canvas-stack {

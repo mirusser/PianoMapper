@@ -111,33 +111,40 @@ internal static class GrandStaffSceneBuilder
     {
         int clampedMeasure = ClampFirstVisibleMeasure(score, firstVisibleMeasure);
         var visibleNotes = new List<(ScoreNote Note, ScoreNoteLayout Layout)>();
-        foreach (var note in score.Measures.SelectMany(measure => measure.Notes))
+        var visibleNoteAddresses = new List<ScoreNoteAddress>();
+        for (int measureIndex = 0; measureIndex < score.Measures.Count; measureIndex++)
         {
-            Staff notationStaff = GrandStaffLayout.GetLivePosition(note.Pitch).Staff;
-            ScoreNote notationNote = note with { Staff = notationStaff };
-            if (GrandStaffLayout.GetScoreNoteLayout(notationNote, score.TimeSignature, clampedMeasure) is not { } layout)
+            ScoreMeasure measure = score.Measures[measureIndex];
+            for (int noteIndex = 0; noteIndex < measure.Notes.Count; noteIndex++)
             {
-                continue;
-            }
+                ScoreNote note = measure.Notes[noteIndex];
+                Staff notationStaff = GrandStaffLayout.GetLivePosition(note.Pitch).Staff;
+                ScoreNote notationNote = note with { Staff = notationStaff };
+                if (GrandStaffLayout.GetScoreNoteLayout(notationNote, score.TimeSignature, clampedMeasure) is not { } layout)
+                {
+                    continue;
+                }
 
-            double measureStartX = GrandStaffLayout.MapScoreOnsetToX(
-                note.MeasureIndex,
-                beatOffset: 0,
-                score.TimeSignature,
-                clampedMeasure);
-            double visibleMeasureStartX = note.MeasureIndex == clampedMeasure
-                ? measureStartX - OpeningBarlineLead
-                : measureStartX;
-            double measureEndX = GrandStaffLayout.MapScoreOnsetToX(
-                note.MeasureIndex + 1,
-                beatOffset: 0,
-                score.TimeSignature,
-                clampedMeasure);
-            float renderedX = (float)Math.Clamp(
-                layout.X,
-                visibleMeasureStartX + MeasureEdgeNoteClearance,
-                measureEndX - MeasureEdgeNoteClearance);
-            visibleNotes.Add((note, layout with { X = renderedX }));
+                double measureStartX = GrandStaffLayout.MapScoreOnsetToX(
+                    note.MeasureIndex,
+                    beatOffset: 0,
+                    score.TimeSignature,
+                    clampedMeasure);
+                double visibleMeasureStartX = note.MeasureIndex == clampedMeasure
+                    ? measureStartX - OpeningBarlineLead
+                    : measureStartX;
+                double measureEndX = GrandStaffLayout.MapScoreOnsetToX(
+                    note.MeasureIndex + 1,
+                    beatOffset: 0,
+                    score.TimeSignature,
+                    clampedMeasure);
+                float renderedX = (float)Math.Clamp(
+                    layout.X,
+                    visibleMeasureStartX + MeasureEdgeNoteClearance,
+                    measureEndX - MeasureEdgeNoteClearance);
+                visibleNotes.Add((note, layout with { X = renderedX }));
+                visibleNoteAddresses.Add(new ScoreNoteAddress(measureIndex, noteIndex));
+            }
         }
 
         // Score pitch determines notation placement independently of the hand stored on ScoreNote.
@@ -172,8 +179,9 @@ internal static class GrandStaffSceneBuilder
                     GrandStaffLineKind.Barline);
             }));
 
-        foreach (var (note, layout) in visibleNotes)
+        for (int visibleNoteIndex = 0; visibleNoteIndex < visibleNotes.Count; visibleNoteIndex++)
         {
+            var (note, layout) = visibleNotes[visibleNoteIndex];
             Verdict? verdict = verdicts is not null && verdicts.TryGetValue(note, out var visibleVerdict)
                 ? visibleVerdict
                 : null;
@@ -202,7 +210,8 @@ internal static class GrandStaffSceneBuilder
                     : GetFingeringLabel(note.Fingering.Number, note.Staff),
                 FingeringY: !showFingerings || note.Fingering is null
                     ? null
-                    : annotationRows.FingeringY));
+                    : annotationRows.FingeringY,
+                Address: visibleNoteAddresses[visibleNoteIndex]));
             lines.AddRange(layout.Position.LedgerLineYs.Select(
                 y => new GrandStaffLine(
                     layout.X - LedgerLineHalfWidth,

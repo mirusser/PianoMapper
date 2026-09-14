@@ -45,6 +45,14 @@ internal sealed class SavedScoreClient(HttpClient httpClient)
         return await ReadDetailsAsync(response, cancellationToken);
     }
 
+    internal async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        using var response = await httpClient.DeleteAsync(
+            SavedScoreApiRoutes.ById(id),
+            cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
     private static async Task<SavedScoreDetails> ReadDetailsAsync(
         HttpResponseMessage response,
         CancellationToken cancellationToken)

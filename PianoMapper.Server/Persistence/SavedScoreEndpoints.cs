@@ -11,6 +11,7 @@ internal static class SavedScoreEndpoints
         endpoints.MapGet($"{SavedScoreApiRoutes.Collection}/{{id:guid}}", FindAsync);
         endpoints.MapPost(SavedScoreApiRoutes.Collection, CreateAsync);
         endpoints.MapPut($"{SavedScoreApiRoutes.Collection}/{{id:guid}}", UpdateAsync);
+        endpoints.MapDelete($"{SavedScoreApiRoutes.Collection}/{{id:guid}}", DeleteAsync);
         return endpoints;
     }
 
@@ -48,5 +49,14 @@ internal static class SavedScoreEndpoints
     {
         var savedScore = await repository.UpdateAsync(id, score, cancellationToken).ConfigureAwait(false);
         return savedScore is null ? Results.NotFound() : Results.Ok(savedScore);
+    }
+
+    private static async Task<IResult> DeleteAsync(
+        Guid id,
+        SavedScoreRepository repository,
+        CancellationToken cancellationToken)
+    {
+        bool wasDeleted = await repository.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+        return wasDeleted ? Results.NoContent() : Results.NotFound();
     }
 }

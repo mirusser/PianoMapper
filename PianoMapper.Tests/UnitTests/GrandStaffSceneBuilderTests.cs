@@ -42,12 +42,29 @@ public sealed class GrandStaffSceneBuilderTests
 
         Assert.Equal(2, scene.Notes.Count);
         Assert.Equal(scene.Notes[0].X, scene.Notes[1].X);
+        Assert.Equal(
+            [new ScoreNoteAddress(0, 0), new ScoreNoteAddress(0, 1)],
+            scene.Notes.Select(note => note.Address));
         Assert.All(scene.Notes, note => Assert.True(note.IsFilled));
         Assert.All(scene.Notes, note => Assert.True(note.HasStem));
         Assert.All(scene.Notes, note => Assert.True(note.HasDot));
         Assert.All(scene.Notes, note => Assert.Equal(1, note.FlagCount));
         Assert.Single(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Accidental);
         Assert.Equal(5, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Barline));
+    }
+
+    [Fact]
+    public void Build_LivePerformedNote_HasNoScoreNoteAddress()
+    {
+        var note = new PerformedNote
+        {
+            Pitch = new Pitch(NoteLetter.C, 0, 4),
+            StartTime = TimeSpan.Zero,
+        };
+
+        var scene = GrandStaffSceneBuilder.Build([note], TimeSpan.FromSeconds(0.5));
+
+        Assert.Null(Assert.Single(scene.Notes).Address);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 @inject SavedScoreClient Client
+@inject IJSRuntime JS
 
 <section class="saved-score-library" aria-labelledby="saved-scores-heading">
     <div class="saved-score-library-heading">
@@ -40,12 +41,21 @@
                             @savedScore.UpdatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
                         </small>
                     </span>
-                    <button type="button"
-                            @onclick="() => LoadAsync(savedScore.Id)"
-                            disabled="@isBusy"
-                            aria-label="Load @savedScore.Title">
-                        Load
-                    </button>
+                    <div class="saved-score-actions">
+                        <button type="button"
+                                @onclick="() => LoadAsync(savedScore.Id)"
+                                disabled="@isBusy"
+                                aria-label="Load @savedScore.Title">
+                            Load
+                        </button>
+                        <button class="button-danger"
+                                type="button"
+                                @onclick="() => DeleteAsync(savedScore)"
+                                disabled="@isBusy"
+                                aria-label="Delete @savedScore.Title">
+                            Delete
+                        </button>
+                    </div>
                 </li>
             }
         </ul>
@@ -74,6 +84,9 @@
 
     [Parameter]
     public EventCallback<SavedScoreDetails> ScoreSaved { get; set; }
+
+    [Parameter]
+    public EventCallback<Guid> ScoreDeleted { get; set; }
 
     protected override Task OnInitializedAsync() => RefreshAsync();
 
@@ -150,6 +163,41 @@
         {
             isBusy = false;
             isLoadingScore = false;
+        }
+    }
+
+    private async Task DeleteAsync(SavedScoreSummary savedScore)
+    {
+        bool confirmed = await JS.InvokeAsync<bool>(
+            "confirm",
+            $"Delete {savedScore.Title} from saved scores? This cannot be undone.");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        isBusy = true;
+        status = null;
+        bool wasCurrentScore = CurrentSavedScoreId == savedScore.Id;
+        try
+        {
+            await Client.DeleteAsync(savedScore.Id);
+            savedScores = (savedScores ?? [])
+                .Where(score => score.Id != savedScore.Id)
+                .ToArray();
+            await ScoreDeleted.InvokeAsync(savedScore.Id);
+            status = wasCurrentScore
+                ? $"Deleted {savedScore.Title} from saved scores. The score remains open until you unload or replace it."
+                : $"Deleted {savedScore.Title} from saved scores.";
+        }
+        catch (Exception exception) when (
+            exception is HttpRequestException or NotSupportedException)
+        {
+            status = $"Could not delete saved score: {exception.Message}";
+        }
+        finally
+        {
+            isBusy = false;
         }
     }
 

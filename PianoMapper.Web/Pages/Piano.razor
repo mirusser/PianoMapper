@@ -179,7 +179,8 @@
                 <SavedScoreLibrary CurrentScore="@loadedScore"
                                    CurrentSavedScoreId="@loadedSavedScoreId"
                                    ScoreLoaded="HandleSavedScoreLoadedAsync"
-                                   ScoreSaved="HandleSavedScoreSaved" />
+                                   ScoreSaved="HandleSavedScoreSaved"
+                                   ScoreDeleted="HandleSavedScoreDeleted" />
                 @if (loadedScore is not null && selectedScore is not null)
                 {
                     <p class="score-title">@loadedScore.Title — @loadedScore.Measures.Count measure(s)</p>
@@ -301,10 +302,87 @@
                                 Note names
                             </label>
                             <label class="control-checkbox">
-                                <input type="checkbox" checked="@showFingerings" @onchange="SetShowFingeringsAsync" />
+                                <input type="checkbox"
+                                       checked="@showFingerings"
+                                       disabled="@isFingeringEditing"
+                                       @onchange="SetShowFingeringsAsync" />
                                 Fingering
                             </label>
+                            @if (loadedScore is not null && selectedScore is not null && !showPianoRoll)
+                            {
+                                <label class="control-checkbox">
+                                    <input type="checkbox"
+                                           checked="@isFingeringEditing"
+                                           @onchange="SetFingeringEditModeAsync" />
+                                    Edit fingering
+                                </label>
+                                <button type="button"
+                                        disabled="@isFingeringGenerating"
+                                        title="Replace every existing fingering number"
+                                        @onclick="RegenerateAllFingeringsAsync">
+                                    @(isFingeringGenerating ? "Generating fingerings…" : "Regenerate all fingerings")
+                                </button>
+                            }
                         </div>
+                        @if (isFingeringEditing)
+                        {
+                            <div class="fingering-editor" aria-label="Fingering editor">
+                                <label class="fingering-note-picker">
+                                    Note
+                                    <select value="@SelectedScoreNoteAddressValue"
+                                            @onchange="SelectVisibleScoreNote">
+                                        <option value="">Select a visible note</option>
+                                        @foreach (var option in GetVisibleFingeringNotes())
+                                        {
+                                            <option value="@FormatScoreNoteAddress(option.Address)">
+                                                @FormatFingeringNote(option.Address, option.Note)
+                                            </option>
+                                        }
+                                    </select>
+                                </label>
+                                <div>
+                                    <span class="control-group-label" id="fingering-number-heading">Finger</span>
+                                    <div class="controls" role="group" aria-labelledby="fingering-number-heading">
+                                        @for (int number = 1; number <= 5; number++)
+                                        {
+                                            int fingerNumber = number;
+                                            <button class="@(SelectedFingeringNumber == fingerNumber ? "button-primary" : null)"
+                                                    type="button"
+                                                    aria-pressed="@(SelectedFingeringNumber == fingerNumber ? "true" : "false")"
+                                                    disabled="@(selectedScoreNoteAddress is null)"
+                                                    @onclick="() => SetSelectedFingeringAsync(fingerNumber)">
+                                                @fingerNumber
+                                            </button>
+                                        }
+                                        <button type="button"
+                                                disabled="@(SelectedFingeringNumber is null)"
+                                                @onclick="() => SetSelectedFingeringAsync(null)">
+                                            Remove
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <span class="control-group-label" id="fingering-hand-heading">Hand</span>
+                                    <div class="controls" role="group" aria-labelledby="fingering-hand-heading">
+                                        <button class="@(SelectedHand == Staff.Treble ? "button-primary" : null)"
+                                                type="button"
+                                                aria-pressed="@(SelectedHand == Staff.Treble ? "true" : "false")"
+                                                disabled="@(selectedScoreNoteAddress is null)"
+                                                @onclick="() => SetSelectedHandAsync(Staff.Treble)">
+                                            Right hand
+                                        </button>
+                                        <button class="@(SelectedHand == Staff.Bass ? "button-primary" : null)"
+                                                type="button"
+                                                aria-pressed="@(SelectedHand == Staff.Bass ? "true" : "false")"
+                                                disabled="@(selectedScoreNoteAddress is null)"
+                                                @onclick="() => SetSelectedHandAsync(Staff.Bass)">
+                                            Left hand
+                                        </button>
+                                    </div>
+                                </div>
+                                <p class="control-note" role="status">@FingeringEditStatus</p>
+                            </div>
+                        }
                     </div>
                 </div>
                 <p class="control-note">
@@ -330,6 +408,9 @@
                      IsScoreView="@(selectedScore is not null && !showPianoRoll)"
                      CanResetScoreHighlights="@CanResetHighlights"
                      ResetScoreHighlights="ResetScoreHighlightsAsync"
+                     CanSelectScoreNotes="@isFingeringEditing"
+                     SelectedScoreNote="@selectedScoreNoteAddress"
+                     ScoreNoteSelected="HandleScoreNoteSelected"
                      ScoreCursor="@scoreCursorState"
                      SecondaryScoreCursor="@secondaryScoreCursorState"
                      PrimaryScoreRangeLabel="@PrimaryScoreRangeLabel"
@@ -379,6 +460,7 @@
     private int selectedFirstMeasure;
     private int selectedLastMeasure;
     private ScoreGrandStaffWindowPair.State? scoreWindowPair;
+    private ScoreNoteAddress? selectedScoreNoteAddress;
     private CancellationTokenSource? playbackRefreshCancellation;
     private Task? playbackRefreshTask;
     private BrowserPracticeCoordinator practiceCoordinator = null!;
@@ -397,6 +479,8 @@
     private bool showPianoRoll;
     private bool showNoteLabels = true;
     private bool showFingerings = true;
+    private bool isFingeringEditing;
+    private bool isFingeringGenerating;
     private bool checkNotesWhileIdle = true;
     private TimeSignature displayTimeSignature = new(4, new NoteValue(4));
     private Tempo displayTempo = new(120);
@@ -448,18 +532,39 @@
         ScorePlaybackSession.IsActive,
         practiceCoordinator.IsActive);
 
-    private bool CanResetHighlights => CanResetScoreHighlights(
-        selectedScore is not null,
-        checkNotesWhileIdle,
-        ScorePlaybackSession.IsActive,
-        practiceCoordinator.State != PracticeSessionState.Idle);
+    private bool CanResetHighlights =>
+        !isFingeringEditing &&
+        CanResetScoreHighlights(
+            selectedScore is not null,
+            checkNotesWhileIdle,
+            ScorePlaybackSession.IsActive,
+            practiceCoordinator.State != PracticeSessionState.Idle);
 
     private bool IsIdleNoteCheckingActive =>
         checkNotesWhileIdle &&
         selectedScore is not null &&
         !showPianoRoll &&
+        !isFingeringEditing &&
         practiceCoordinator.State == PracticeSessionState.Idle &&
         !ScorePlaybackSession.IsActive;
+
+    private string SelectedScoreNoteAddressValue => selectedScoreNoteAddress is { } address
+        ? FormatScoreNoteAddress(address)
+        : string.Empty;
+
+    private int? SelectedFingeringNumber => SelectedFingeringNote?.Fingering?.Number;
+
+    private Staff? SelectedHand => SelectedFingeringNote?.Staff;
+
+    private ScoreNote? SelectedFingeringNote =>
+        selectedScoreNoteAddress is { } address && TryGetSelectedScoreNote(address, out ScoreNote? note)
+            ? note
+            : null;
+
+    private string FingeringEditStatus =>
+        selectedScoreNoteAddress is { } address && SelectedFingeringNote is { } note
+            ? $"Selected {FormatFingeringNote(address, note)}. Current fingering: {note.Fingering?.Number.ToString(CultureInfo.InvariantCulture) ?? "none"}."
+            : "Select a note on either grand-staff row, or choose one from the list.";
 
     private string? PrimaryScoreRangeLabel => FormatScoreRowRange(scoreWindowPair?.UpperFirstMeasure);
 
@@ -494,6 +599,67 @@
             : firstMeasure.Value > ActiveScoreFirstMeasure
                 ? "Look ahead"
                 : "Previous";
+    }
+
+    private IReadOnlyList<(ScoreNoteAddress Address, ScoreNote Note)> GetVisibleFingeringNotes()
+    {
+        if (selectedScore is not { } score || scoreWindowPair is not { } windowPair)
+        {
+            return [];
+        }
+
+        var visibleMeasureIndexes = new SortedSet<int>();
+        int?[] firstMeasures = [windowPair.UpperFirstMeasure, windowPair.LowerFirstMeasure];
+        foreach (int firstMeasure in firstMeasures.OfType<int>())
+        {
+            int lastMeasure = Math.Min(
+                firstMeasure + GrandStaffLayout.VisibleMeasureCount,
+                score.Measures.Count);
+            for (int measureIndex = firstMeasure; measureIndex < lastMeasure; measureIndex++)
+            {
+                visibleMeasureIndexes.Add(measureIndex);
+            }
+        }
+
+        var options = new List<(ScoreNoteAddress Address, ScoreNote Note)>();
+        foreach (int measureIndex in visibleMeasureIndexes)
+        {
+            ScoreMeasure measure = score.Measures[measureIndex];
+            for (int noteIndex = 0; noteIndex < measure.Notes.Count; noteIndex++)
+            {
+                options.Add((
+                    new ScoreNoteAddress(measureIndex, noteIndex),
+                    measure.Notes[noteIndex]));
+            }
+        }
+
+        return options;
+    }
+
+    private string FormatFingeringNote(ScoreNoteAddress address, ScoreNote note)
+    {
+        string hand = note.Staff == Staff.Treble ? "right" : "left";
+        string beat = (note.BeatOffset + 1).ToString("0.###", CultureInfo.CurrentCulture);
+        return $"measure {selectedFirstMeasure + address.MeasureIndex + 1}, beat {beat}, {note.Pitch}, {hand} hand";
+    }
+
+    private static string FormatScoreNoteAddress(ScoreNoteAddress address) =>
+        $"{address.MeasureIndex.ToString(CultureInfo.InvariantCulture)}:{address.NoteIndex.ToString(CultureInfo.InvariantCulture)}";
+
+    private bool TryGetSelectedScoreNote(ScoreNoteAddress address, out ScoreNote? note)
+    {
+        note = null;
+        if (selectedScore is not { } score ||
+            address.MeasureIndex < 0 ||
+            address.MeasureIndex >= score.Measures.Count ||
+            address.NoteIndex < 0 ||
+            address.NoteIndex >= score.Measures[address.MeasureIndex].Notes.Count)
+        {
+            return false;
+        }
+
+        note = score.Measures[address.MeasureIndex].Notes[address.NoteIndex];
+        return true;
     }
 
     internal static bool CanChangeScorePage(
@@ -696,6 +862,7 @@
 
     private async Task HandleScoreLoadedAsync(Score score)
     {
+        ExitFingeringEditMode();
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
         bool metronomeWasRunning = Metronome.IsRunning;
@@ -742,8 +909,17 @@
     private void HandleSavedScoreSaved(SavedScoreDetails savedScore) =>
         loadedSavedScoreId = savedScore.Id;
 
+    private void HandleSavedScoreDeleted(Guid id)
+    {
+        if (loadedSavedScoreId == id)
+        {
+            loadedSavedScoreId = null;
+        }
+    }
+
     private async Task HandleScoreUnloadedAsync()
     {
+        ExitFingeringEditMode();
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
         importedScore = null;
@@ -805,6 +981,7 @@
         await StopScorePlaybackAsync();
         selectedFirstMeasure = firstMeasure;
         selectedLastMeasure = lastMeasure;
+        selectedScoreNoteAddress = null;
         selectedScore = ScoreMeasureRange.Create(score, firstMeasure, lastMeasure);
         ResetIdlePracticeNoteChecker();
         ResetScoreWindowPair();
@@ -822,6 +999,7 @@
             return;
         }
 
+        ExitFingeringEditMode();
         await AbortPracticeAsync(updateStatus: false);
         await CancelVisualizationRefreshAsync();
         await CancelPlaybackRefreshAsync();
@@ -844,6 +1022,7 @@
             return;
         }
 
+        ExitFingeringEditMode();
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
         var measure = RandomMeasureComposer.Compose(
@@ -873,6 +1052,7 @@
             return;
         }
 
+        ExitFingeringEditMode();
         if (Metronome.IsRunning)
         {
             await StopMetronomeAsync();
@@ -928,6 +1108,7 @@
             return;
         }
 
+        selectedScoreNoteAddress = null;
         scoreWindowPair = ScoreGrandStaffWindowPair.FromPageIndex(
             selectedScore.Measures.Count,
             (scoreWindowPair?.ActivePageIndex ?? 0) - 1);
@@ -944,6 +1125,7 @@
             return;
         }
 
+        selectedScoreNoteAddress = null;
         scoreWindowPair = ScoreGrandStaffWindowPair.FromPageIndex(
             selectedScore.Measures.Count,
             (scoreWindowPair?.ActivePageIndex ?? 0) + 1);
@@ -1098,6 +1280,7 @@
 
     private async Task ApplyTimingAsync(TimeSignature timeSignature, Tempo tempo)
     {
+        selectedScoreNoteAddress = null;
         bool metronomeWasRunning = Metronome.IsRunning;
         if (metronomeWasRunning)
         {
@@ -1167,6 +1350,162 @@
     {
         showFingerings = eventArgs.Value is true;
         return RefreshNotationVisibilityAsync();
+    }
+
+    private async Task SetFingeringEditModeAsync(ChangeEventArgs eventArgs)
+    {
+        bool isEnabled = eventArgs.Value is true;
+        if (isEnabled && (loadedScore is null || selectedScore is null || showPianoRoll))
+        {
+            return;
+        }
+
+        if (isEnabled)
+        {
+            await AbortPracticeAsync(updateStatus: false);
+            await StopScorePlaybackAsync();
+            isFingeringEditing = true;
+            showFingerings = true;
+            selectedScoreNoteAddress = null;
+            audioStatus = "Fingering edit mode enabled.";
+        }
+        else
+        {
+            ExitFingeringEditMode();
+            audioStatus = "Fingering edit mode closed.";
+        }
+
+        ResetIdlePracticeNoteChecker();
+        TimeSpan currentTime = AudioSession.IsInitialized
+            ? await AudioSession.GetCurrentTimeAsync()
+            : TimeSpan.Zero;
+        RefreshCanvasScene(currentTime);
+    }
+
+    private void SelectVisibleScoreNote(ChangeEventArgs eventArgs)
+    {
+        string value = eventArgs.Value?.ToString() ?? string.Empty;
+        string[] parts = value.Split(':', count: 2);
+        if (parts.Length != 2 ||
+            !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int measureIndex) ||
+            !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int noteIndex))
+        {
+            selectedScoreNoteAddress = null;
+            return;
+        }
+
+        HandleScoreNoteSelected(new ScoreNoteAddress(measureIndex, noteIndex));
+    }
+
+    private void HandleScoreNoteSelected(ScoreNoteAddress address)
+    {
+        if (isFingeringEditing && TryGetSelectedScoreNote(address, out _))
+        {
+            selectedScoreNoteAddress = address;
+        }
+    }
+
+    private async Task SetSelectedFingeringAsync(int? fingerNumber)
+    {
+        if (!isFingeringEditing ||
+            selectedScoreNoteAddress is not { } address ||
+            importedScore is not { } sourceScore ||
+            loadedScore is not { } currentScore ||
+            !TryGetSelectedScoreNote(address, out ScoreNote? selectedNote) ||
+            selectedNote is null)
+        {
+            return;
+        }
+
+        int noteOrdinal = ScoreNoteAddressResolver.ResolveOrdinal(
+            currentScore,
+            selectedFirstMeasure,
+            address);
+        Score editedScore = ScoreFingeringEditor.SetFingering(sourceScore, noteOrdinal, fingerNumber);
+        await ApplyFingeringEditAsync(editedScore);
+        audioStatus = fingerNumber is int number
+            ? $"Set {selectedNote.Pitch} to finger {number}."
+            : $"Removed fingering from {selectedNote.Pitch}.";
+    }
+
+    private async Task SetSelectedHandAsync(Staff hand)
+    {
+        if (!isFingeringEditing ||
+            selectedScoreNoteAddress is not { } address ||
+            importedScore is not { } sourceScore ||
+            loadedScore is not { } currentScore ||
+            !TryGetSelectedScoreNote(address, out ScoreNote? selectedNote) ||
+            selectedNote is null)
+        {
+            return;
+        }
+
+        int noteOrdinal = ScoreNoteAddressResolver.ResolveOrdinal(
+            currentScore,
+            selectedFirstMeasure,
+            address);
+        Score editedScore = ScoreFingeringEditor.SetHand(sourceScore, noteOrdinal, hand);
+        await ApplyFingeringEditAsync(editedScore);
+        string handName = hand == Staff.Treble ? "right" : "left";
+        audioStatus = $"Assigned {selectedNote.Pitch} to the {handName} hand.";
+    }
+
+    private async Task RegenerateAllFingeringsAsync()
+    {
+        if (importedScore is not { } sourceScore || isFingeringGenerating)
+        {
+            return;
+        }
+
+        bool confirmed = await JS.InvokeAsync<bool>(
+            "confirm",
+            "Regenerate the finger number for every note? Existing finger numbers will be replaced. Hand assignments will be preserved.");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        isFingeringGenerating = true;
+        audioStatus = "Generating fingering numbers…";
+        try
+        {
+            await AbortPracticeAsync(updateStatus: false);
+            await StopScorePlaybackAsync();
+            Score generatedScore = ScoreFingeringGenerator.Generate(sourceScore);
+            showFingerings = true;
+            await ApplyFingeringEditAsync(generatedScore);
+            int noteCount = generatedScore.Measures.Sum(measure => measure.Notes.Count);
+            string saveAction = loadedSavedScoreId.HasValue ? "Save changes" : "Save score";
+            audioStatus = $"Generated fingering numbers for {noteCount} notes. Use {saveAction} to persist them.";
+        }
+        catch (InvalidOperationException exception)
+        {
+            audioStatus = $"Could not generate fingerings: {exception.Message}";
+        }
+        finally
+        {
+            isFingeringGenerating = false;
+        }
+    }
+
+    private async Task ApplyFingeringEditAsync(Score editedScore)
+    {
+        importedScore = editedScore;
+        loadedScore = ScoreTiming.Apply(importedScore, displayTimeSignature, displayTempo);
+        selectedScore = loadedScore.Measures.Count == 0
+            ? loadedScore
+            : ScoreMeasureRange.Create(loadedScore, selectedFirstMeasure, selectedLastMeasure);
+        ResetIdlePracticeNoteChecker();
+        TimeSpan currentTime = AudioSession.IsInitialized
+            ? await AudioSession.GetCurrentTimeAsync()
+            : TimeSpan.Zero;
+        RefreshCanvasScene(currentTime);
+    }
+
+    private void ExitFingeringEditMode()
+    {
+        isFingeringEditing = false;
+        selectedScoreNoteAddress = null;
     }
 
     private async Task SetCheckNotesWhileIdleAsync(bool isEnabled)
@@ -1578,6 +1917,11 @@
     private async Task SetViewAsync(TimeSpan currentTime)
     {
         showPianoRoll = !showPianoRoll;
+        if (showPianoRoll)
+        {
+            ExitFingeringEditMode();
+        }
+
         RefreshCanvasScene(currentTime);
         UpdateScoreCursorStates();
         if (ShouldContinueVisualizationRefresh(

@@ -33,6 +33,8 @@ const tieCenterThicknessInStaffSpaces = 0.08;
 const staffLineWidth = 1.5;
 const spectrumReleaseClearMilliseconds = 120;
 const scorePlaybackHighlightColor = "#a78bfa";
+const scoreNoteSelectionColor = "#38bdf8";
+const scoreNoteHitRadiusPixels = 12;
 const plotLeftMargin = 44;
 const plotRightMargin = 16;
 const plotTopMargin = 26;
@@ -70,6 +72,7 @@ function initializeCanvas(canvas, waveformCanvas, spectrumCanvas, analysisLayout
         scoreLayerHeight: undefined,
         scoreLayerPixelRatio: undefined,
         scoreCursor: undefined,
+        selectedScoreNoteAddress: undefined,
         animationFrame: undefined,
         lastAudioActiveTimeMilliseconds: undefined,
         analyser: undefined,
@@ -91,17 +94,51 @@ function initializeCanvas(canvas, waveformCanvas, spectrumCanvas, analysisLayout
     draw(state);
 }
 
-export function render(canvas, scene, isWaveformVisible, isFrequencySpectrumVisible) {
+export function render(canvas, scene, isWaveformVisible, isFrequencySpectrumVisible, selectedScoreNoteAddress) {
     const state = canvases.get(canvas);
     if (!state) {
         throw new Error("Canvas is not initialized.");
     }
 
     state.scene = scene;
+    state.selectedScoreNoteAddress = selectedScoreNoteAddress;
     state.isWaveformVisible = isWaveformVisible;
     state.isFrequencySpectrumVisible = isFrequencySpectrumVisible;
     state.scoreLayerDirty = true;
     draw(state);
+}
+
+export function hitTestScoreNote(canvas, offsetX, offsetY) {
+    const state = canvases.get(canvas);
+    if (!state || state.scene.kind !== 0 || !Number.isFinite(offsetX) || !Number.isFinite(offsetY)) {
+        return null;
+    }
+
+    const bounds = canvas.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) {
+        return null;
+    }
+
+    const staffSpace = getStaffSpace(state.scene, bounds.height);
+    const radiusX = Math.max(scoreNoteHitRadiusPixels, staffSpace * noteHeadWidthInStaffSpaces / 2);
+    const radiusY = Math.max(scoreNoteHitRadiusPixels, staffSpace * noteHeadHeightInStaffSpaces / 2);
+    let closestAddress = null;
+    let closestDistance = Number.POSITIVE_INFINITY;
+    for (const note of state.scene.notes) {
+        if (!isScoreNoteAddress(note.address)) {
+            continue;
+        }
+
+        const deltaX = (offsetX - mapX(note.x, bounds.width)) / radiusX;
+        const deltaY = (offsetY - mapY(note.y, bounds.height)) / radiusY;
+        const distance = (deltaX * deltaX) + (deltaY * deltaY);
+        if (distance <= 1 && distance < closestDistance) {
+            closestAddress = note.address;
+            closestDistance = distance;
+        }
+    }
+
+    return closestAddress;
 }
 
 // `cursor` is a ScoreCursorPlaybackState pushed from Piano.razor whenever score playback starts,
@@ -161,6 +198,12 @@ function draw(state) {
     } else {
         const scoreLayer = prepareScoreLayer(state, width, height, pixelRatio);
         context.drawImage(scoreLayer, 0, 0, width, height);
+        drawScoreNoteSelection(
+            context,
+            scene,
+            width,
+            height,
+            state.selectedScoreNoteAddress);
         const scorePlaybackBeats = getScorePlaybackBeats(state);
         drawScorePlaybackHighlights(context, scene, width, height, scorePlaybackBeats);
         drawScoreCursor(context, state, width, height, scorePlaybackBeats);
@@ -173,6 +216,46 @@ function draw(state) {
         drawSpectrum(state);
     }
     ensureAnimation(state);
+}
+
+function drawScoreNoteSelection(context, scene, width, height, selectedAddress) {
+    if (!isScoreNoteAddress(selectedAddress)) {
+        return;
+    }
+
+    const selectedNote = scene.notes.find(note => scoreNoteAddressesEqual(note.address, selectedAddress));
+    if (!selectedNote) {
+        return;
+    }
+
+    const staffSpace = getStaffSpace(scene, height);
+    const radiusX = (staffSpace * noteHeadWidthInStaffSpaces / 2) + 5;
+    const radiusY = (staffSpace * noteHeadHeightInStaffSpaces / 2) + 5;
+    context.strokeStyle = scoreNoteSelectionColor;
+    context.lineWidth = 3;
+    context.beginPath();
+    context.ellipse(
+        mapX(selectedNote.x, width),
+        mapY(selectedNote.y, height),
+        radiusX,
+        radiusY,
+        noteHeadRotationRadians,
+        0,
+        Math.PI * 2);
+    context.stroke();
+}
+
+function isScoreNoteAddress(address) {
+    return address
+        && Number.isInteger(address.measureIndex)
+        && Number.isInteger(address.noteIndex);
+}
+
+function scoreNoteAddressesEqual(first, second) {
+    return isScoreNoteAddress(first)
+        && isScoreNoteAddress(second)
+        && first.measureIndex === second.measureIndex
+        && first.noteIndex === second.noteIndex;
 }
 
 function prepareScoreLayer(state, width, height, pixelRatio) {

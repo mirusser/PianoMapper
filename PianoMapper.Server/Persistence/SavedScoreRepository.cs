@@ -52,6 +52,11 @@ internal sealed class SavedScoreRepository(NpgsqlDataSource dataSource)
         RETURNING created_at, updated_at;
         """;
 
+    private const string DeleteScoreSql = """
+        DELETE FROM scores
+        WHERE id = @id;
+        """;
+
     internal async Task InitializeAsync(CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(InitializeDatabaseSql);
@@ -131,6 +136,14 @@ internal sealed class SavedScoreRepository(NpgsqlDataSource dataSource)
             score,
             reader.GetFieldValue<DateTimeOffset>(0),
             reader.GetFieldValue<DateTimeOffset>(1));
+    }
+
+    internal async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(DeleteScoreSql);
+        command.Parameters.AddWithValue("id", id);
+        int deletedRows = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        return deletedRows == 1;
     }
 
     private static void AddScoreParameters(NpgsqlCommand command, Guid id, Score score)

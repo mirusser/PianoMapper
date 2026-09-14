@@ -8,7 +8,7 @@ PianoMapper captures piano performances and renders them as notation. The reposi
 - Computer-key note input and octave selection in the legacy desktop client.
 - Live grand staff and scrolling piano roll with clefs, ledger lines, accidentals, and note duration.
 - A full 88-key browser piano from A0 through C8 that highlights live input and score-playback notes while they sound.
-- Strict MusicXML (`.mxl`, `.musicxml`, or `.xml`) import for one part and up to two staves, including chords, ties, rests, dotted values, beam groups, backup/forward timing, preserved `up`/`down` stem direction, and piano fingering numbers.
+- Strict MusicXML (`.mxl`, `.musicxml`, or `.xml`) import for one part and up to two staves, including chords, ties, rests, dotted values, beam groups, backup/forward timing, preserved `up`/`down` stem direction, and editable or automatically generated piano fingering numbers.
 - JPEG and PNG sheet-music import through an Audiveris optical music recognition (OMR) host, with recognized fingering numbers carried into the grand staff.
 - A shared PostgreSQL score library that saves the current imported score and loads it again without repeating MusicXML parsing or image recognition.
 - Scheduled score playback, measure navigation, a tempo cursor, and random-measure playback. In the browser, imported scores keep the current five-measure grand-staff page and the next page visible together; playback and Practice alternate between those rows without replacing the row being played.
@@ -56,7 +56,11 @@ The development PostgreSQL container listens only on `localhost:5434` and keeps 
 ConnectionStrings__PianoMapper='Host=db.example;Database=pianomapper;Username=pianomapper;Password=secret' make
 ```
 
-Imported files and recognized images both become the same PianoMapper score document. **Save score** creates a shared library entry, **Save changes** updates the loaded entry, and **Load** replaces the active score. The original image or MusicXML bytes are not stored.
+Imported files and recognized images both become the same PianoMapper score document. **Save score** creates a shared library entry, **Save changes** updates the loaded entry, and **Load** replaces the active score. **Delete** asks for confirmation and then permanently removes that library entry; if it was open, the score remains in memory and can be saved as a new entry. The original image or MusicXML bytes are not stored.
+
+To correct a fingering, show the grand staff and enable **Edit fingering** under Notation. Select a note on either score row, or choose it from the accessible note list, then assign finger 1–5 or select **Remove** and choose **Right hand** or **Left hand**. The grand-staff label updates to `R` or `L` immediately. Edits update the current score immediately; use **Save score** or **Save changes** to persist them in the hosted score library.
+
+Select **Regenerate all fingerings** to replace the finger number on every note with one deterministic, ergonomically optimized suggestion. Generation preserves each note's current right/left-hand assignment and does not preserve existing finger numbers. Confirming the operation changes only the open score; use **Save score** or **Save changes** afterward to persist the generated numbers.
 
 Connect a USB MIDI piano to the computer before or while running the browser app. For a Roland FP-10, connect its square **USB COMPUTER** port to the computer with a data-capable USB cable; the rectangular **USB FOR UPDATE** port is not a MIDI connection. Select **Connect MIDI piano** and allow MIDI access when the browser asks. In Firefox, select **Remember this decision** if you want the piano to reconnect automatically on later visits. The Audio panel reports detected MIDI inputs and a compatible Roland output and provides a reconnect button.
 
@@ -68,7 +72,7 @@ On Linux x86_64, the first `make` downloads the official Audiveris 5.10.2 packag
 Omr__AudiverisExecutable=/opt/audiveris/bin/Audiveris make
 ```
 
-Image recognition is approximate. Check imported pitches, rhythm, and fingerings against the source image before relying on playback or practice grading.
+Image recognition is approximate. Check imported pitches, rhythm, and fingerings against the source image before relying on playback or practice grading. Fingering mistakes can be corrected on the grand staff.
 
 To open the app from a laptop on the same local network, run this command on the server:
 
@@ -129,7 +133,7 @@ The manual browser checklist and current evidence are in [docs/browser-test-matr
 ## Current limits
 
 - Multipart scores, tuplets, grace notes, tempo/time-signature changes, stem values `none`/`double`, and unsupported MusicXML semantics fail with a readable error. Repeat barlines are accepted, but playback remains linear.
-- OMR output depends on scan quality and Audiveris recognition. The image importer corrects the narrow beginner-score case where an isolated fingering `3` is exported as an unbeamed quarter-note triplet; other recognition mistakes require correction in an external score editor.
+- OMR output depends on scan quality and Audiveris recognition. The image importer corrects the narrow beginner-score case where an isolated fingering `3` is exported as an unbeamed quarter-note triplet. Fingering mistakes can be corrected on the grand staff; pitch, rhythm, and other recognition mistakes still require an external score editor.
 - A touch piano, accounts, backend synchronization, and mobile-specific layout are outside the current browser release.
 - Web MIDI input and FP-10 output depend on browser support, MIDI permission, and a secure context; the browser app reports when any of these prevent connection.
 - The desktop app uses OpenAL PCM synthesis. The browser's Synth and PC piano sources use Web Audio with equivalent note lifecycle; the FP-10 source sends MIDI rather than browser audio.

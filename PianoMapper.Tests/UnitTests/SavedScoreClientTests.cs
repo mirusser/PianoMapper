@@ -59,6 +59,21 @@ public sealed class SavedScoreClientTests
         Assert.Equal(expected.UpdatedAt, actual.UpdatedAt);
     }
 
+    [Fact]
+    public async Task DeleteAsync_SavedScore_DeletesItemRoute()
+    {
+        Guid id = Guid.NewGuid();
+        var handler = new StubHttpMessageHandler(
+            _ => new HttpResponseMessage(HttpStatusCode.NoContent));
+        using var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://localhost") };
+        var client = new SavedScoreClient(httpClient);
+
+        await client.DeleteAsync(id);
+
+        Assert.Equal(HttpMethod.Delete, handler.RequestMethod);
+        Assert.Equal(SavedScoreApiRoutes.ById(id), handler.RequestUri?.AbsolutePath);
+    }
+
     private static Score CreateScore() =>
         new(
             "Saved score",
