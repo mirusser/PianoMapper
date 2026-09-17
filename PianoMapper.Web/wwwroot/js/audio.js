@@ -48,6 +48,11 @@ const pianoSampleBaseUrl = new URL("../audio/piano/salamander/", import.meta.url
 
 export async function initialize() {
     soundSource = readSoundSourcePreference(document.cookie);
+    if (soundSource === externalMidiSoundSource && !hasMidiOutput()) {
+        soundSource = defaultSoundSource;
+        document.cookie = createSoundSourceCookie(soundSource);
+    }
+
     const AudioContextType = window.AudioContext ?? window.webkitAudioContext;
     if (!AudioContextType) {
         throw new Error("Web Audio is not supported by this browser.");

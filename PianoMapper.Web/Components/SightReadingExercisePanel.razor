@@ -1,0 +1,127 @@
+<section class="control-card control-card-wide" aria-labelledby="sight-reading-heading">
+    <div class="control-card-heading">
+        <h2 id="sight-reading-heading">Note reading exercise</h2>
+        <span>Self-paced pitch practice</span>
+    </div>
+    <div class="controls">
+        <label class="octave-picker">
+            Staff
+            <select value="@SelectedStaff" @onchange="SelectStaffAsync">
+                <option value="@Staff.Treble">Treble / right hand</option>
+                <option value="@Staff.Bass">Bass / left hand</option>
+            </select>
+        </label>
+        <label class="octave-picker">
+            Range
+            <select value="@Difficulty" @onchange="SelectDifficultyAsync">
+                <option value="@SightReadingDifficulty.Starter">Starter — five notes</option>
+                <option value="@SightReadingDifficulty.OneOctave">One octave</option>
+            </select>
+        </label>
+        <label class="octave-picker">
+            Length
+            <select value="@MeasureCount" @onchange="SelectMeasureCountAsync">
+                <option value="2">8 notes</option>
+                <option value="4">16 notes</option>
+            </select>
+        </label>
+        <button class="button-primary" type="button" @onclick="Generate">
+            Generate new exercise
+        </button>
+        <button type="button" @onclick="Retry" disabled="@(!IsActive)">
+            Retry same notes
+        </button>
+        <button class="button-quiet" type="button" @onclick="End" disabled="@(!IsActive)">
+            End exercise
+        </button>
+    </div>
+    <p class="control-note">
+        Play each highlighted note on your MIDI piano. Note names and fingerings stay hidden during the exercise.
+    </p>
+    @if (IsActive)
+    {
+        <p role="status">
+            @if (IsComplete)
+            {
+                <span>
+                    Complete: @FirstTryAccuracyPercent.ToString("F1", CultureInfo.InvariantCulture)% first-try accuracy,
+                    @WrongAttemptCount mistake(s), @ElapsedTime.ToString(@"m\:ss", CultureInfo.InvariantCulture).
+                </span>
+            }
+            else
+            {
+                <span>
+                    Progress: @CompletedPromptCount of @PromptCount notes ·
+                    @FirstTryAccuracyPercent.ToString("F1", CultureInfo.InvariantCulture)% first-try accuracy ·
+                    @WrongAttemptCount mistake(s)
+                </span>
+            }
+        </p>
+    }
+</section>
+
+@code {
+    [Parameter]
+    public Staff SelectedStaff { get; set; }
+
+    [Parameter]
+    public SightReadingDifficulty Difficulty { get; set; }
+
+    [Parameter]
+    public int MeasureCount { get; set; }
+
+    [Parameter]
+    public bool IsActive { get; set; }
+
+    [Parameter]
+    public bool IsComplete { get; set; }
+
+    [Parameter]
+    public int PromptCount { get; set; }
+
+    [Parameter]
+    public int CompletedPromptCount { get; set; }
+
+    [Parameter]
+    public int WrongAttemptCount { get; set; }
+
+    [Parameter]
+    public double FirstTryAccuracyPercent { get; set; }
+
+    [Parameter]
+    public TimeSpan ElapsedTime { get; set; }
+
+    [Parameter]
+    public EventCallback<Staff> SelectedStaffChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<SightReadingDifficulty> DifficultyChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<int> MeasureCountChanged { get; set; }
+
+    [Parameter]
+    public EventCallback Generate { get; set; }
+
+    [Parameter]
+    public EventCallback Retry { get; set; }
+
+    [Parameter]
+    public EventCallback End { get; set; }
+
+    private Task SelectStaffAsync(ChangeEventArgs eventArgs) =>
+        Enum.TryParse(eventArgs.Value?.ToString(), out Staff staff) && Enum.IsDefined(staff)
+            ? SelectedStaffChanged.InvokeAsync(staff)
+            : Task.CompletedTask;
+
+    private Task SelectDifficultyAsync(ChangeEventArgs eventArgs) =>
+        Enum.TryParse(eventArgs.Value?.ToString(), out SightReadingDifficulty difficulty) && Enum.IsDefined(difficulty)
+            ? DifficultyChanged.InvokeAsync(difficulty)
+            : Task.CompletedTask;
+
+    private Task SelectMeasureCountAsync(ChangeEventArgs eventArgs) =>
+        int.TryParse(eventArgs.Value?.ToString(), CultureInfo.InvariantCulture, out int measureCount) &&
+        measureCount is 2 or 4
+            ? MeasureCountChanged.InvokeAsync(measureCount)
+            : Task.CompletedTask;
+}

@@ -68,7 +68,9 @@ class FakeCanvasContext {
     }
     lineTo(x, y) {
         if (this.pathStart) {
-            this.lineSegments.push({ ...this.pathStart, x1: x, y1: y });
+            const segment = { ...this.pathStart, x1: x, y1: y };
+            this.lineSegments.push(segment);
+            this.operations.push({ kind: "line", segment });
         }
     }
     rect(...args) {
@@ -819,7 +821,7 @@ test("grand staff draws pitch labels on the supplied shared row", () => {
     assert.equal(labelYs[0], labelYs[1]);
 });
 
-test("grand staff keeps ledger lines compact on wide canvases", () => {
+test("grand staff ledger lines extend visibly beyond noteheads", () => {
     const originalWindow = globalThis.window;
     const originalDocument = globalThis.document;
     const originalResizeObserver = globalThis.ResizeObserver;
@@ -854,7 +856,7 @@ test("grand staff keeps ledger lines compact on wide canvases", () => {
                 { x0: -0.065, y0: -0.1, x1: 0.065, y1: -0.1, kind: 1 },
             ],
             glyphs: [],
-            notes: [],
+            notes: [{ x: 0, y: -0.1, isActive: false, isFilled: true, label: "C#4" }],
             beams: [],
             shouldClipNotesAtClefs: false,
         });
@@ -862,7 +864,15 @@ test("grand staff keeps ledger lines compact on wide canvases", () => {
         const [firstStaffLine, secondStaffLine, ledgerLine] = createdCanvases[0].context.lineSegments;
         const staffSpace = Math.abs(firstStaffLine.y - secondStaffLine.y);
         const ledgerLineLength = Math.abs(ledgerLine.x1 - ledgerLine.x);
-        assert.ok(ledgerLineLength <= staffSpace * 2);
+        const noteHeadWidth = createdCanvases[0].context.ellipseCalls[0][2] * 2;
+        assert.ok(ledgerLineLength - noteHeadWidth >= (staffSpace * 0.8) - 1e-9);
+        const noteHeadOperationIndex = createdCanvases[0].context.operations
+            .findIndex(operation => operation.kind === "ellipse");
+        const ledgerLineOperationIndex = createdCanvases[0].context.operations
+            .findIndex(operation => operation.kind === "line"
+                && operation.segment.y === operation.segment.y1
+                && Math.abs(operation.segment.x1 - operation.segment.x) === ledgerLineLength);
+        assert.ok(ledgerLineOperationIndex > noteHeadOperationIndex);
     } finally {
         dispose(canvas);
         globalThis.window = originalWindow;

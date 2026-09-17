@@ -8,12 +8,59 @@ import {
 import {
     clear,
     dispose as disposeAudio,
+    getSoundSource,
     initialize,
     noteOff,
     noteOn,
     scheduleScore,
+    setSoundSource,
     stopScore,
 } from "../../PianoMapper.Web/wwwroot/js/audio.js";
+
+test("audio initialization falls back to PC piano when the saved FP-10 output is unavailable", async () => {
+    const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const originalFetch = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: {
+            cookie: "pianomapper-sound-source=external-midi",
+            querySelector: () => null,
+        },
+    });
+    Object.defineProperty(globalThis, "fetch", {
+        configurable: true,
+        value: () => Promise.resolve({
+            ok: true,
+            arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+        }),
+    });
+    Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: {
+            AudioContext: FakeAudioContext,
+            clearInterval() {},
+            setTimeout() {
+                return 1;
+            },
+        },
+    });
+
+    try {
+        await initialize();
+
+        assert.equal(getSoundSource(), "piano");
+        assert.match(document.cookie, /^pianomapper-sound-source=piano;/);
+        await assert.rejects(
+            setSoundSource("external-midi"),
+            /Connect the FP-10 MIDI output/);
+    } finally {
+        await disposeAudio();
+        restoreProperty("document", originalDocument);
+        restoreProperty("fetch", originalFetch);
+        restoreProperty("window", originalWindow);
+    }
+});
 
 test("external MIDI sound sends generated notes to Roland without echoing its input", async () => {
     const sent = [];
@@ -130,6 +177,10 @@ class FakeAudioContext {
     close() {
         this.state = "closed";
         return Promise.resolve();
+    }
+
+    decodeAudioData() {
+        return Promise.resolve({});
     }
 }
 

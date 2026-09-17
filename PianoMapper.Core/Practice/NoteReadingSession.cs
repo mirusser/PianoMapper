@@ -1,25 +1,53 @@
 using PianoMapper.Music;
-using PianoMapper.Practice;
 
-namespace PianoMapper.Web.Practice;
+namespace PianoMapper.Practice;
 
-internal sealed class IdlePracticeNoteChecker
+public sealed class NoteReadingSession
 {
+    private readonly TimeProvider timeProvider;
+    private readonly HashSet<int> matchedMidiNumbers = [];
     private IReadOnlyList<Step> steps = [];
     private IReadOnlyDictionary<ScoreNote, Verdict> verdicts = new Dictionary<ScoreNote, Verdict>();
     private IReadOnlySet<ScoreNote> expectedNotes = new HashSet<ScoreNote>();
-    private readonly HashSet<int> matchedMidiNumbers = [];
+    private long startTimestamp;
+    private TimeSpan completedElapsedTime;
     private int stepIndex;
+    private bool currentPromptHasWrongAttempt;
 
-    internal IReadOnlyDictionary<ScoreNote, Verdict> Verdicts => verdicts;
+    public NoteReadingSession(TimeProvider? timeProvider = null)
+    {
+        this.timeProvider = timeProvider ?? TimeProvider.System;
+    }
 
-    internal IReadOnlySet<ScoreNote> ExpectedNotes => expectedNotes;
+    public IReadOnlyDictionary<ScoreNote, Verdict> Verdicts => verdicts;
 
-    internal double? CurrentOnsetBeats => stepIndex < steps.Count
+    public IReadOnlySet<ScoreNote> ExpectedNotes => expectedNotes;
+
+    public double? CurrentOnsetBeats => stepIndex < steps.Count
         ? steps[stepIndex].OnsetBeats
         : null;
 
-    internal void Reset(Score? score)
+    public int PromptCount => steps.Count;
+
+    public int CompletedPromptCount => stepIndex;
+
+    public int FirstTryCorrectCount { get; private set; }
+
+    public int WrongAttemptCount { get; private set; }
+
+    public double FirstTryAccuracyPercent => CompletedPromptCount == 0
+        ? 0
+        : 100.0 * FirstTryCorrectCount / CompletedPromptCount;
+
+    public bool IsComplete => stepIndex >= PromptCount;
+
+    public TimeSpan ElapsedTime => PromptCount == 0
+        ? TimeSpan.Zero
+        : IsComplete
+            ? completedElapsedTime
+            : timeProvider.GetElapsedTime(startTimestamp);
+
+    public void Reset(Score? score)
     {
         steps = score is null
             ? []
@@ -30,14 +58,19 @@ internal sealed class IdlePracticeNoteChecker
         verdicts = new Dictionary<ScoreNote, Verdict>();
         matchedMidiNumbers.Clear();
         stepIndex = 0;
+        FirstTryCorrectCount = 0;
+        WrongAttemptCount = 0;
+        currentPromptHasWrongAttempt = false;
+        startTimestamp = timeProvider.GetTimestamp();
+        completedElapsedTime = TimeSpan.Zero;
         UpdateExpectedNotes();
     }
 
-    internal Result Check(Pitch pitch)
+    public CheckResult Check(Pitch pitch)
     {
         if (stepIndex >= steps.Count)
         {
-            return new Result(IsCorrect: false, DidAdvance: false, IsComplete: true);
+            return new CheckResult(IsCorrect: false, DidAdvance: false, IsComplete: true);
         }
 
         Step step = steps[stepIndex];
@@ -49,7 +82,9 @@ internal sealed class IdlePracticeNoteChecker
             .ToArray();
         if (matchingEvents.Length == 0)
         {
-            return new Result(IsCorrect: false, DidAdvance: false, IsComplete: false);
+            WrongAttemptCount++;
+            currentPromptHasWrongAttempt = true;
+            return new CheckResult(IsCorrect: false, DidAdvance: false, IsComplete: false);
         }
 
         var updatedVerdicts = verdicts.ToDictionary();
@@ -65,16 +100,26 @@ internal sealed class IdlePracticeNoteChecker
             .All(matchedMidiNumbers.Contains);
         if (didAdvance)
         {
+            if (!currentPromptHasWrongAttempt)
+            {
+                FirstTryCorrectCount++;
+            }
+
             stepIndex++;
             matchedMidiNumbers.Clear();
+            currentPromptHasWrongAttempt = false;
+            if (IsComplete)
+            {
+                completedElapsedTime = timeProvider.GetElapsedTime(startTimestamp);
+            }
         }
 
         verdicts = updatedVerdicts;
         UpdateExpectedNotes();
-        return new Result(
+        return new CheckResult(
             IsCorrect: true,
             DidAdvance: didAdvance,
-            IsComplete: stepIndex >= steps.Count);
+            IsComplete: IsComplete);
     }
 
     private void UpdateExpectedNotes()
@@ -87,7 +132,7 @@ internal sealed class IdlePracticeNoteChecker
                 .ToHashSet();
     }
 
-    internal readonly record struct Result(bool IsCorrect, bool DidAdvance, bool IsComplete);
+    public readonly record struct CheckResult(bool IsCorrect, bool DidAdvance, bool IsComplete);
 
     private sealed record Step(double OnsetBeats, IReadOnlyList<ScoreEvent> Events);
 }

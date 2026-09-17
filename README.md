@@ -13,6 +13,7 @@ PianoMapper captures piano performances and renders them as notation. The reposi
 - A shared PostgreSQL score library that saves the current imported score and loads it again without repeating MusicXML parsing or image recognition.
 - Scheduled score playback, measure navigation, a tempo cursor, and random-measure playback. In the browser, imported scores keep the current five-measure grand-staff page and the next page visible together; playback and Practice alternate between those rows without replacing the row being played.
 - Count-in practice with pitch/timing/duration verdicts and an accuracy summary.
+- Generated, self-paced note-reading exercises with treble or bass ranges, highlighted prompts, first-try accuracy, and mistake counts.
 - Optional browser metronome with accented downbeats, on-tempo feedback, and adjustable timing tolerance.
 - Piano-style multi-harmonic synthesis, oscilloscope, and spectrum.
 - Browser-local Web Audio, static publishing, and offline PWA startup after the first online load.

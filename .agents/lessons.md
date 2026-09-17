@@ -28,3 +28,4 @@
 [browser-input] Don't treat every HTML input as text-editable — keep piano shortcuts active on checkbox and file controls. (cause: focused controls swallowed note input)
 [rendering] Don't suppress all live staff markers during score following — show wrong played pitches while keeping correct-input overlays from covering green score notes. (cause: wrong notes became invisible)
 [blazor] Don't stop at clearing site data for integrity failures when the server returns 304 — distinguish Firefox's HTTP cache from service-worker storage and verify `127.0.0.1` and `localhost` as separate origins. (cause: Firefox retained corrupt framework bodies after site-data cleanup)
+[rendering] Don't collapse loaded-score pitch labels into one shared grand-staff row — keep separate label lanes below the treble and bass staves. (cause: bass note names were cramped into the treble label row)

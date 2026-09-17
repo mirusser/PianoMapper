@@ -68,6 +68,53 @@ public sealed class MusicXmlScoreReaderTests
     }
 
     [Fact]
+    public void Read_IvanovskayaTranscription_ReturnsCompleteScore()
+    {
+        var reader = new MusicXmlScoreReader();
+
+        var score = reader.Read(Fixture("mia_sebastians_theme_ivanovskaya_transcription.musicxml"));
+
+        Assert.Equal(new TimeSignature(3, new NoteValue(4)), score.TimeSignature);
+        Assert.Equal(3, score.KeyFifths);
+        Assert.Equal(24, score.Measures.Count);
+        Assert.Equal(150, score.Measures.Sum(measure => measure.Notes.Count));
+        Assert.Equal(3, score.Measures.Sum(measure => measure.Rests.Count));
+        Assert.Equal(
+            4,
+            score.Measures.SelectMany(measure => measure.Notes)
+                .Count(note => note.Accidental == ScoreAccidental.Sharp));
+        Assert.Equal(
+            2,
+            score.Measures.SelectMany(measure => measure.Notes)
+                .Count(note => note.Fermata == ScoreFermata.Upright));
+        Assert.Equal(new Pitch(NoteLetter.C, 1, 4), score.Measures[0].Notes[0].Pitch);
+        Assert.Equal(new Pitch(NoteLetter.G, 1, 5), score.Measures[10].Notes[0].Pitch);
+
+        var printedBSharp = Assert.Single(
+            score.Measures[14].Notes,
+            note => note.Pitch == new Pitch(NoteLetter.B, 1, 2));
+        Assert.Equal(ScoreAccidental.Sharp, printedBSharp.Accidental);
+        Assert.Equal(new Pitch(NoteLetter.C, 1, 4), score.Measures[23].Notes[0].Pitch);
+    }
+
+    [Fact]
+    public void Read_AccidentalAndInvertedFermata_PreservesNotation()
+    {
+        var score = ReadNotes("""
+            <note>
+              <pitch><step>B</step><alter>-1</alter><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type><accidental>flat</accidental>
+              <notations><fermata type="inverted" /></notations>
+            </note>
+            """);
+
+        var note = Assert.Single(Assert.Single(score.Measures).Notes);
+
+        Assert.Equal(ScoreAccidental.Flat, note.Accidental);
+        Assert.Equal(ScoreFermata.Inverted, note.Fermata);
+    }
+
+    [Fact]
     public void Read_UnsupportedSemanticElement_ThrowsMessageNamingElement()
     {
         var reader = new MusicXmlScoreReader();

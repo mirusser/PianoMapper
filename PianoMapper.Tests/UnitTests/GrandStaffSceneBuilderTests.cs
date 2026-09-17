@@ -54,6 +54,38 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
+    public void BuildScore_IvanovskayaOpeningCSharp_RendersOnTrebleLedgerLine()
+    {
+        string fixture = Path.Combine(
+            AppContext.BaseDirectory,
+            "Fixtures",
+            "mia_sebastians_theme_ivanovskaya_transcription.musicxml");
+        var score = new MusicXmlScoreReader().Read(fixture);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        var openingNote = Assert.Single(
+            scene.Notes,
+            note => note.Address == new ScoreNoteAddress(0, 0));
+        Assert.Equal("C#4", openingNote.Label);
+
+        GrandStaffLine[] trebleStaffLines = scene.Lines
+            .Where(line => line.Kind == GrandStaffLineKind.Staff)
+            .Take(5)
+            .ToArray();
+        double staffSpace = trebleStaffLines[1].Y0 - trebleStaffLines[0].Y0;
+        Assert.Equal(trebleStaffLines[0].Y0 - staffSpace, openingNote.Y, 6);
+
+        var ledgerLine = Assert.Single(
+            scene.Lines,
+            line => line.Kind == GrandStaffLineKind.Ledger
+                && Math.Abs(line.Y0 - openingNote.Y) < 0.000001
+                && line.X0 < openingNote.X
+                && line.X1 > openingNote.X);
+        Assert.Equal(openingNote.Y, ledgerLine.Y1, 6);
+    }
+
+    [Fact]
     public void Build_LivePerformedNote_HasNoScoreNoteAddress()
     {
         var note = new PerformedNote
@@ -91,7 +123,7 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
-    public void BuildScore_DifferentPitchesOnEachStaff_AlignsLabelsInInterStaffLane()
+    public void BuildScore_DifferentPitchesOnEachStaff_UsesSeparateLabelRowsBelowEachStaff()
     {
         ScoreNote[] notes =
         [
@@ -114,14 +146,87 @@ public sealed class GrandStaffSceneBuilderTests
             .Where(line => line.Kind == GrandStaffLineKind.Staff)
             .ToArray();
         double trebleBottomLineY = staffLines.Take(5).Min(line => line.Y0);
-        double bassTopLineY = staffLines.Skip(5).Max(line => line.Y0);
+        double bassBottomLineY = staffLines.Skip(5).Min(line => line.Y0);
 
         Assert.Equal(renderedNotes["A4"].LabelY, renderedNotes["F#5"].LabelY);
         Assert.Equal(renderedNotes["C3"].LabelY, renderedNotes["A2"].LabelY);
-        Assert.Equal(renderedNotes["A4"].LabelY, renderedNotes["C3"].LabelY);
+        Assert.NotEqual(renderedNotes["A4"].LabelY, renderedNotes["C3"].LabelY);
+        Assert.True(renderedNotes["A4"].LabelY < trebleBottomLineY);
+        Assert.True(renderedNotes["C3"].LabelY < bassBottomLineY);
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void BuildScore_SimultaneousNotesOnSameStaff_StacksLabels(int noteCount)
+    {
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.C, 0, 3), new NoteValue(4), 0, 2, Staff.Bass),
+            new(new Pitch(NoteLetter.E, 0, 3), new NoteValue(4), 0, 2, Staff.Bass),
+            new(
+                new Pitch(NoteLetter.G, 0, 3),
+                new NoteValue(4),
+                0,
+                2,
+                Staff.Bass,
+                Fingering: new ScoreFingering(5)),
+        ];
+        var score = new Score(
+            "test",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure(notes.Take(noteCount).ToArray(), [])]);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+        GrandStaffNote[] renderedNotes = scene.Notes.ToArray();
+        var annotationLane = Assert.Single(scene.Bands);
+        double[] bassStaffLineYs = scene.Lines
+            .Where(line => line.Kind == GrandStaffLineKind.Staff)
+            .Skip(5)
+            .Take(2)
+            .Select(line => line.Y0)
+            .ToArray();
+        double renderedStaffSpace = bassStaffLineYs[1] - bassStaffLineYs[0];
+        double[] labelYs = renderedNotes
+            .Select(note => note.LabelY!.Value)
+            .OrderDescending()
+            .ToArray();
+
+        Assert.Single(renderedNotes.Select(note => note.X).Distinct());
+        Assert.Equal(noteCount, labelYs.Distinct().Count());
         Assert.All(
-            renderedNotes.Values,
-            note => Assert.InRange(note.LabelY!.Value, bassTopLineY, trebleBottomLineY));
+            labelYs.Zip(labelYs.Skip(1)),
+            pair => Assert.True(pair.First - pair.Second >= 2 * renderedStaffSpace));
+        Assert.All(
+            renderedNotes,
+            note => Assert.InRange(note.LabelY!.Value, annotationLane.Y0, annotationLane.Y1));
+        if (noteCount == 3)
+        {
+            double fingeringY = Assert.Single(renderedNotes, note => note.Fingering is not null).FingeringY!.Value;
+            Assert.True(fingeringY < renderedNotes.Min(note => note.LabelY));
+            Assert.InRange(fingeringY, annotationLane.Y0, annotationLane.Y1);
+        }
+    }
+
+    [Fact]
+    public void BuildScore_IvanovskayaThirdMeasureBassChord_StacksLabels()
+    {
+        string fixture = Path.Combine(
+            AppContext.BaseDirectory,
+            "Fixtures",
+            "mia_sebastians_theme_ivanovskaya_transcription.musicxml");
+        var score = new MusicXmlScoreReader().Read(fixture);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+        GrandStaffNote[] chordNotes = scene.Notes
+            .Where(note => note.Address?.MeasureIndex == 2 && note.Label is "A3" or "B3")
+            .ToArray();
+
+        Assert.Equal(2, chordNotes.Length);
+        Assert.Single(chordNotes.Select(note => note.X).Distinct());
+        Assert.Equal(2, chordNotes.Select(note => note.LabelY).Distinct().Count());
     }
 
     [Theory]
@@ -182,7 +287,7 @@ public sealed class GrandStaffSceneBuilderTests
     [Theory]
     [InlineData(Staff.Treble)]
     [InlineData(Staff.Bass)]
-    public void BuildScore_Fingering_PositionedInInterStaffLane(Staff staff)
+    public void BuildScore_Fingering_PositionedBelowNotationStaff(Staff staff)
     {
         var sourceNote = new ScoreNote(
             new Pitch(NoteLetter.C, 0, staff == Staff.Treble ? 4 : 3),
@@ -201,11 +306,12 @@ public sealed class GrandStaffSceneBuilderTests
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
         var renderedNote = Assert.Single(scene.Notes);
         var staffLines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Staff).ToArray();
-        double trebleBottomLineY = staffLines.Take(5).Min(line => line.Y0);
-        double bassTopLineY = staffLines.Skip(5).Max(line => line.Y0);
+        double staffBottomLineY = staff == Staff.Treble
+            ? staffLines.Take(5).Min(line => line.Y0)
+            : staffLines.Skip(5).Min(line => line.Y0);
 
         Assert.NotNull(renderedNote.FingeringY);
-        Assert.InRange(renderedNote.FingeringY.Value, bassTopLineY, trebleBottomLineY);
+        Assert.True(renderedNote.FingeringY < staffBottomLineY);
     }
 
     [Fact]
@@ -269,7 +375,7 @@ public sealed class GrandStaffSceneBuilderTests
     [Theory]
     [InlineData(Staff.Treble)]
     [InlineData(Staff.Bass)]
-    public void BuildScore_PitchSelectedNotationStaff_StaysOutsideInterStaffLane(Staff staff)
+    public void BuildScore_PitchSelectedNotationStaff_KeepsNoteAboveItsAnnotationLane(Staff staff)
     {
         // C4 on treble and C3 on bass both sit one ledger line below their own staff.
         var sourceNote = new ScoreNote(
@@ -294,9 +400,7 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.NotNull(renderedNote.FingeringY);
         Assert.InRange(renderedNote.LabelY.Value, annotationLane.Y0, annotationLane.Y1);
         Assert.InRange(renderedNote.FingeringY.Value, annotationLane.Y0, annotationLane.Y1);
-        Assert.True(staff == Staff.Treble
-            ? renderedNote.Y > annotationLane.Y1
-            : renderedNote.Y < annotationLane.Y0);
+        Assert.True(renderedNote.Y > annotationLane.Y1);
     }
 
     [Fact]
@@ -336,7 +440,7 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
-    public void BuildScore_NoteBelowTrebleStaff_LowersSharedAnnotationLane()
+    public void BuildScore_NoteBelowTrebleStaff_DoesNotMoveBassAnnotationLane()
     {
         ScoreNote[] notes =
         [
@@ -361,7 +465,7 @@ public sealed class GrandStaffSceneBuilderTests
         var bassLabelYAlone = GrandStaffSceneBuilder.BuildScore(scoreWithoutLowTreble, firstVisibleMeasure: 0)
             .Notes.Single(note => note.Label == "C3").LabelY;
 
-        Assert.True(bassLabelYWithLowTreble < bassLabelYAlone);
+        Assert.Equal(bassLabelYAlone, bassLabelYWithLowTreble);
     }
 
     [Fact]
@@ -396,7 +500,7 @@ public sealed class GrandStaffSceneBuilderTests
     [Theory]
     [InlineData(NoteLetter.F, 3)]
     [InlineData(NoteLetter.D, 3)]
-    public void BuildScore_LowPitchMarkedTreble_UsesBassNotationBelowInterStaffLane(
+    public void BuildScore_LowPitchMarkedTreble_UsesBassNotationAndAnnotationLane(
         NoteLetter letter,
         int octave)
     {
@@ -423,11 +527,11 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.NotNull(renderedNote.FingeringY);
         Assert.InRange(renderedNote.LabelY.Value, annotationLane.Y0, annotationLane.Y1);
         Assert.InRange(renderedNote.FingeringY.Value, annotationLane.Y0, annotationLane.Y1);
-        Assert.True(renderedNote.Y < annotationLane.Y0);
+        Assert.True(renderedNote.Y > annotationLane.Y1);
     }
 
     [Fact]
-    public void BuildScore_LowBassNote_AnnotationsStayInInterStaffLane()
+    public void BuildScore_LowBassNote_AnnotationsStayBelowBassStaff()
     {
         var sourceNote = new ScoreNote(
             new Pitch(NoteLetter.F, 0, 1),
@@ -448,16 +552,15 @@ public sealed class GrandStaffSceneBuilderTests
         GrandStaffLine[] staffLines = scene.Lines
             .Where(line => line.Kind == GrandStaffLineKind.Staff)
             .ToArray();
-        double trebleBottomLineY = staffLines.Take(5).Min(line => line.Y0);
-        double bassTopLineY = staffLines.Skip(5).Max(line => line.Y0);
+        double bassBottomLineY = staffLines.Skip(5).Min(line => line.Y0);
         var annotationLane = Assert.Single(scene.Bands);
 
         Assert.NotNull(renderedNote.LabelY);
         Assert.NotNull(renderedNote.FingeringY);
-        Assert.InRange(renderedNote.LabelY.Value, bassTopLineY, trebleBottomLineY);
-        Assert.InRange(renderedNote.FingeringY.Value, bassTopLineY, trebleBottomLineY);
+        Assert.True(renderedNote.LabelY < bassBottomLineY);
+        Assert.True(renderedNote.FingeringY < bassBottomLineY);
         Assert.True(renderedNote.FingeringY < renderedNote.LabelY);
-        Assert.True(renderedNote.Y < annotationLane.Y0);
+        Assert.True(renderedNote.Y > annotationLane.Y1);
     }
 
     [Fact]
@@ -564,7 +667,7 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
-    public void BuildScore_Annotations_UseSingleLaneBetweenStaves()
+    public void BuildScore_Annotations_UseSeparateLanesBelowEachPopulatedStaff()
     {
         ScoreNote[] notes =
         [
@@ -600,22 +703,32 @@ public sealed class GrandStaffSceneBuilderTests
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
-        var annotationLane = Assert.Single(scene.Bands);
+        Assert.Equal(2, scene.Bands.Count);
         GrandStaffLine[] staffLines = scene.Lines
             .Where(line => line.Kind == GrandStaffLineKind.Staff)
             .ToArray();
         double trebleBottomLineY = staffLines.Take(5).Min(line => line.Y0);
-        double bassTopLineY = staffLines.Skip(5).Max(line => line.Y0);
-        Assert.True(annotationLane.Y1 < trebleBottomLineY);
-        Assert.True(annotationLane.Y0 > bassTopLineY);
-        Assert.Single(scene.Notes.Select(note => note.LabelY).Distinct());
-        Assert.Single(scene.Notes.Select(note => note.FingeringY).Distinct());
-        Assert.All(scene.Notes, note => Assert.InRange(note.LabelY!.Value, annotationLane.Y0, annotationLane.Y1));
-        Assert.All(scene.Notes, note => Assert.InRange(note.FingeringY!.Value, annotationLane.Y0, annotationLane.Y1));
+        double bassBottomLineY = staffLines.Skip(5).Min(line => line.Y0);
+        GrandStaffNote[] trebleNotes = scene.Notes.Where(note => note.Label is "C4" or "D4").ToArray();
+        var bassNote = Assert.Single(scene.Notes, note => note.Label == "C3");
+        double trebleLabelY = Assert.Single(trebleNotes.Select(note => note.LabelY).Distinct())!.Value;
+        double trebleFingeringY = Assert.Single(trebleNotes.Select(note => note.FingeringY).Distinct())!.Value;
+        var trebleLane = Assert.Single(
+            scene.Bands,
+            band => trebleLabelY >= band.Y0 && trebleLabelY <= band.Y1);
+        var bassLane = Assert.Single(
+            scene.Bands,
+            band => bassNote.LabelY >= band.Y0 && bassNote.LabelY <= band.Y1);
+
+        Assert.True(trebleLane.Y1 < trebleBottomLineY);
+        Assert.True(bassLane.Y1 < bassBottomLineY);
+        Assert.NotEqual(trebleLabelY, bassNote.LabelY);
+        Assert.InRange(trebleFingeringY, trebleLane.Y0, trebleLane.Y1);
+        Assert.InRange(bassNote.FingeringY!.Value, bassLane.Y0, bassLane.Y1);
     }
 
     [Fact]
-    public void BuildScore_HighLeftHandNotes_UseTrebleNotationAboveInterStaffAnnotationLane()
+    public void BuildScore_HighLeftHandNotes_UseTrebleNotationAndStackSimultaneousLabels()
     {
         ScoreNote[] notes =
         [
@@ -676,7 +789,6 @@ public sealed class GrandStaffSceneBuilderTests
             .ToArray();
         double renderedStaffSpace = staffLines[1].Y0 - staffLines[0].Y0;
         double trebleBottomLineY = staffLines.Take(5).Min(line => line.Y0);
-        double bassTopLineY = staffLines.Skip(5).Max(line => line.Y0);
         var expectedNoteYs = new Dictionary<string, double>
         {
             ["C4"] = trebleBottomLineY - renderedStaffSpace,
@@ -704,9 +816,8 @@ public sealed class GrandStaffSceneBuilderTests
         lowestTrebleNotationY = Math.Min(lowestTrebleNotationY, lowestLedgerY);
         Assert.True(
             lowestTrebleNotationY - annotationLane.Y1 >= (renderedStaffSpace / 2) - 0.000001);
-        Assert.True(annotationLane.Y0 > bassTopLineY);
 
-        Assert.Single(scene.Notes.Select(note => note.LabelY).Distinct());
+        Assert.Equal(2, scene.Notes.Select(note => note.LabelY).Distinct().Count());
         Assert.Single(scene.Notes.Select(note => note.FingeringY).Distinct());
         Assert.All(scene.Notes, note => Assert.InRange(note.LabelY!.Value, annotationLane.Y0, annotationLane.Y1));
         Assert.All(scene.Notes, note => Assert.InRange(note.FingeringY!.Value, annotationLane.Y0, annotationLane.Y1));
@@ -864,6 +975,63 @@ public sealed class GrandStaffSceneBuilderTests
             Assert.Equal(expectedTimeSignatureX, glyph.X, precision: 6);
         });
         Assert.DoesNotContain(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Accidental);
+    }
+
+    [Fact]
+    public void BuildScore_ExplicitAccidentalInKeySignature_ReturnsCourtesyGlyph()
+    {
+        var note = new ScoreNote(
+            new Pitch(NoteLetter.F, 1, 4),
+            new NoteValue(4),
+            0,
+            0,
+            Staff.Treble,
+            Accidental: ScoreAccidental.Sharp);
+        var score = new Score(
+            "test",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            1,
+            [new ScoreMeasure([note], [])]);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        var renderedNote = Assert.Single(scene.Notes);
+        var accidental = Assert.Single(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Accidental);
+        Assert.Equal("♯", accidental.Text);
+        Assert.True(accidental.X < renderedNote.X);
+        Assert.Equal(renderedNote.Y, accidental.Y);
+    }
+
+    [Theory]
+    [InlineData(ScoreFermata.Upright, "𝄐", true)]
+    [InlineData(ScoreFermata.Inverted, "𝄑", false)]
+    public void BuildScore_Fermata_ReturnsOrientedGlyph(
+        ScoreFermata fermata,
+        string expectedGlyph,
+        bool isAboveNote)
+    {
+        var note = new ScoreNote(
+            new Pitch(NoteLetter.C, 0, 4),
+            new NoteValue(4),
+            0,
+            0,
+            Staff.Treble,
+            Fermata: fermata);
+        var score = new Score(
+            "test",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure([note], [])]);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        var renderedNote = Assert.Single(scene.Notes);
+        var renderedFermata = Assert.Single(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Fermata);
+        Assert.Equal(expectedGlyph, renderedFermata.Text);
+        Assert.Equal(renderedNote.X, renderedFermata.X);
+        Assert.Equal(isAboveNote, renderedFermata.Y > renderedNote.Y);
     }
 
     [Fact]

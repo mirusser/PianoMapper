@@ -16,7 +16,7 @@ const scoreCursorVisibleMeasureCount = 5;
 const defaultStaffSpace = 11;
 const noteHeadWidthInStaffSpaces = 1.2;
 const noteHeadHeightInStaffSpaces = 0.8;
-const ledgerLineWidthInStaffSpaces = 1.6;
+const ledgerLineWidthInStaffSpaces = 2;
 const noteHeadRotationRadians = -Math.PI / 8;
 const stemLengthInStaffSpaces = 3;
 const flagControlWidthInStaffSpaces = 1.2;
@@ -206,6 +206,7 @@ function draw(state) {
             state.selectedScoreNoteAddress);
         const scorePlaybackBeats = getScorePlaybackBeats(state);
         drawScorePlaybackHighlights(context, scene, width, height, scorePlaybackBeats);
+        drawLedgerLines(context, scene, width, height, getStaffSpace(scene, height));
         drawScoreCursor(context, state, width, height, scorePlaybackBeats);
     }
 
@@ -288,7 +289,7 @@ function drawGrandStaff(context, scene, width, height) {
     }
 
     for (const line of scene.lines) {
-        if (scene.shouldClipNotesAtClefs && line.kind === ledgerLineKind) {
+        if (line.kind === ledgerLineKind) {
             continue;
         }
 
@@ -317,14 +318,6 @@ function drawGrandStaff(context, scene, width, height) {
         context.clip();
     }
 
-    if (scene.shouldClipNotesAtClefs) {
-        for (const line of scene.lines) {
-            if (line.kind === ledgerLineKind) {
-                drawLine(context, line, width, height, staffSpace);
-            }
-        }
-    }
-
     for (const glyph of scene.glyphs) {
         if (glyph.kind !== 0) {
             drawGlyph(context, glyph, width, height);
@@ -348,9 +341,18 @@ function drawGrandStaff(context, scene, width, height) {
             drawNote(context, note, width, height, staffSpace);
         }
     }
+    drawLedgerLines(context, scene, width, height, staffSpace);
 
     if (shouldClipNoteElements) {
         context.restore();
+    }
+}
+
+function drawLedgerLines(context, scene, width, height, staffSpace) {
+    for (const line of scene.lines) {
+        if (line.kind === ledgerLineKind) {
+            drawLine(context, line, width, height, staffSpace);
+        }
     }
 }
 

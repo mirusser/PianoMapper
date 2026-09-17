@@ -25,7 +25,9 @@ public sealed class ScoreDocumentSerializerTests
                             TiesToNext: true,
                             BeamState: BeamState.Begin,
                             StemDirection: ScoreStemDirection.Up,
-                            Fingering: new ScoreFingering(3, ScoreFingeringPlacement.Above)),
+                            Fingering: new ScoreFingering(3, ScoreFingeringPlacement.Above),
+                            Accidental: ScoreAccidental.Sharp,
+                            Fermata: ScoreFermata.Upright),
                         new ScoreNote(
                             new Pitch(NoteLetter.B, -1, 2),
                             new NoteValue(16),
@@ -51,6 +53,46 @@ public sealed class ScoreDocumentSerializerTests
         Assert.Equal(expected.Measures[0].Rests, actual.Measures[0].Rests);
         Assert.DoesNotContain("midiNumber", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("frequency", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Deserialize_VersionOneWithoutNotationFields_DefaultsToAbsent()
+    {
+        const string json = """
+            {
+              "timeSignatureNumerator": 4,
+              "beatNoteValue": { "denominator": 4, "dots": 0 },
+              "tempoBeatsPerMinute": 120,
+              "keyFifths": 0,
+              "measures": [
+                {
+                  "notes": [
+                    {
+                      "pitch": { "letter": "c", "alter": 0, "octave": 4 },
+                      "noteValue": { "denominator": 4, "dots": 0 },
+                      "measureIndex": 0,
+                      "beatOffset": 0,
+                      "staff": "treble",
+                      "tiesToNext": false,
+                      "beamState": "none",
+                      "stemDirection": null,
+                      "fingering": null
+                    }
+                  ],
+                  "rests": []
+                }
+              ]
+            }
+            """;
+
+        Score score = ScoreDocumentSerializer.Deserialize(
+            "Version one",
+            json,
+            ScoreDocumentSerializer.CurrentVersion);
+
+        var note = Assert.Single(Assert.Single(score.Measures).Notes);
+        Assert.Null(note.Accidental);
+        Assert.Null(note.Fermata);
     }
 
     [Fact]

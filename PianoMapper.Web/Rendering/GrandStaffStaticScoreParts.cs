@@ -12,4 +12,5 @@ internal readonly record struct GrandStaffStaticScoreParts(
     IReadOnlyList<GrandStaffNote> Notes,
     IReadOnlyList<GrandStaffBeam> Beams,
     IReadOnlyList<GrandStaffBand> Bands,
-    double? AnnotationLabelY);
+    double? TrebleAnnotationLabelY,
+    double? BassAnnotationLabelY);

@@ -6,4 +6,5 @@ public enum GrandStaffGlyphKind
     Accidental,
     KeySignature,
     TimeSignature,
+    Fermata,
 }

@@ -8,12 +8,14 @@ namespace PianoMapper.Music;
 
 public sealed class MusicXmlScoreReader
 {
+    private const string AccidentalElementName = "accidental";
     private const string BeamElementName = "beam";
     private const string ChordElementName = "chord";
     private const string CompressedMusicXmlExtension = ".mxl";
     private const string ContainerEntryName = "META-INF/container.xml";
     private const string DotElementName = "dot";
     private const string DurationElementName = "duration";
+    private const string FermataElementName = "fermata";
     private const string FingeringElementName = "fingering";
     private const string NotationsElementName = "notations";
     private const string PitchElementName = "pitch";
@@ -64,6 +66,7 @@ public sealed class MusicXmlScoreReader
         NotationsElementName,
         BeamElementName,
         StemElementName,
+        AccidentalElementName,
     }.ToFrozenSet(StringComparer.Ordinal);
 
     public Score Read(string path)
@@ -391,7 +394,9 @@ public sealed class MusicXmlScoreReader
                 TiesToNext: HasTieStart(noteElement),
                 BeamState: ParseBeamState(noteElement),
                 StemDirection: stemDirection,
-                Fingering: ParseFingering(noteElement)));
+                Fingering: ParseFingering(noteElement),
+                Accidental: ParseAccidental(noteElement),
+                Fermata: ParseFermata(noteElement)));
         }
 
         if (!isChord)
@@ -463,7 +468,7 @@ public sealed class MusicXmlScoreReader
                 continue;
             }
 
-            if (name == TechnicalElementName)
+            if (name is TechnicalElementName or FermataElementName)
             {
                 continue;
             }
@@ -485,6 +490,62 @@ public sealed class MusicXmlScoreReader
         }
 
         return hasStart;
+    }
+
+    private static ScoreAccidental? ParseAccidental(XElement noteElement)
+    {
+        var accidental = FindChild(noteElement, AccidentalElementName);
+        if (accidental is null)
+        {
+            return null;
+        }
+
+        string value = accidental.Value.Trim();
+        return value switch
+        {
+            "natural" => ScoreAccidental.Natural,
+            "sharp" => ScoreAccidental.Sharp,
+            "flat" => ScoreAccidental.Flat,
+            "double-sharp" => ScoreAccidental.DoubleSharp,
+            "sharp-sharp" => ScoreAccidental.SharpSharp,
+            "flat-flat" => ScoreAccidental.DoubleFlat,
+            _ => throw new NotSupportedException(
+                $"Unsupported MusicXML <{AccidentalElementName}> value '{value}'."),
+        };
+    }
+
+    private static ScoreFermata? ParseFermata(XElement noteElement)
+    {
+        var fermatas = FindChild(noteElement, NotationsElementName)?
+            .Elements()
+            .Where(element => element.Name.LocalName == FermataElementName)
+            .ToArray() ?? [];
+        if (fermatas.Length == 0)
+        {
+            return null;
+        }
+
+        if (fermatas.Length > 1)
+        {
+            throw new NotSupportedException(
+                $"Unsupported MusicXML <{FermataElementName}>: exactly one fermata per note is required.");
+        }
+
+        var fermata = fermatas[0];
+        string shape = fermata.Value.Trim();
+        if (shape is not ("" or "normal"))
+        {
+            throw new NotSupportedException(
+                $"Unsupported MusicXML <{FermataElementName}> value '{shape}'.");
+        }
+
+        return fermata.Attribute("type")?.Value switch
+        {
+            null or "upright" => ScoreFermata.Upright,
+            "inverted" => ScoreFermata.Inverted,
+            var value => throw new InvalidDataException(
+                $"Invalid MusicXML <{FermataElementName}> type '{value}'."),
+        };
     }
 
     private static ScoreFingering? ParseFingering(XElement noteElement)

@@ -73,7 +73,9 @@ internal static class ScoreDocumentSerializer
             note.StemDirection,
             note.Fingering is null
                 ? null
-                : new ScoreFingeringDocument(note.Fingering.Number, note.Fingering.Placement));
+                : new ScoreFingeringDocument(note.Fingering.Number, note.Fingering.Placement),
+            note.Accidental,
+            note.Fermata);
 
     private static ScoreRestDocument ToDocument(ScoreRest rest) =>
         new(
@@ -99,7 +101,9 @@ internal static class ScoreDocumentSerializer
             note.StemDirection,
             note.Fingering is null
                 ? null
-                : new ScoreFingering(note.Fingering.Number, note.Fingering.Placement));
+                : new ScoreFingering(note.Fingering.Number, note.Fingering.Placement),
+            note.Accidental,
+            note.Fermata);
 
     private static ScoreRest FromDocument(ScoreRestDocument rest) =>
         new(
@@ -131,7 +135,9 @@ internal static class ScoreDocumentSerializer
         bool TiesToNext,
         BeamState BeamState,
         ScoreStemDirection? StemDirection,
-        ScoreFingeringDocument? Fingering);
+        ScoreFingeringDocument? Fingering,
+        ScoreAccidental? Accidental,
+        ScoreFermata? Fermata);
 
     private sealed record ScoreRestDocument(
         NoteValueDocument NoteValue,

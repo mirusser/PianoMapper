@@ -9,4 +9,6 @@ public sealed record ScoreNote(
     bool TiesToNext = false,
     BeamState BeamState = BeamState.None,
     ScoreStemDirection? StemDirection = null,
-    ScoreFingering? Fingering = null);
+    ScoreFingering? Fingering = null,
+    ScoreAccidental? Accidental = null,
+    ScoreFermata? Fermata = null);

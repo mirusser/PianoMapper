@@ -172,6 +172,23 @@
                 </details>
             </section>
 
+            <SightReadingExercisePanel SelectedStaff="@sightReadingStaff"
+                                       Difficulty="@sightReadingDifficulty"
+                                       MeasureCount="@sightReadingMeasureCount"
+                                       IsActive="@(sightReadingExerciseScore is not null)"
+                                       IsComplete="@noteReadingSession.IsComplete"
+                                       PromptCount="@noteReadingSession.PromptCount"
+                                       CompletedPromptCount="@noteReadingSession.CompletedPromptCount"
+                                       WrongAttemptCount="@noteReadingSession.WrongAttemptCount"
+                                       FirstTryAccuracyPercent="@noteReadingSession.FirstTryAccuracyPercent"
+                                       ElapsedTime="@noteReadingSession.ElapsedTime"
+                                       SelectedStaffChanged="SetSightReadingStaff"
+                                       DifficultyChanged="SetSightReadingDifficulty"
+                                       MeasureCountChanged="SetSightReadingMeasureCount"
+                                       Generate="GenerateSightReadingExerciseAsync"
+                                       Retry="RetrySightReadingExerciseAsync"
+                                       End="EndSightReadingExerciseAsync" />
+
             <section class="score-card control-card-wide" aria-label="Imported score">
                 <ScoreFilePicker ScoreLoaded="HandleImportedScoreLoadedAsync"
                                  ScoreUnloaded="HandleScoreUnloadedAsync"
@@ -261,7 +278,10 @@
                             <button type="button" @onclick="PlayRandomMeasureAsync" disabled="@(!AudioSession.IsInitialized)">
                                 Random measure <kbd>M</kbd>
                             </button>
-                            <button class="button-quiet" type="button" @onclick="ToggleViewAsync">
+                            <button class="button-quiet"
+                                    type="button"
+                                    @onclick="ToggleViewAsync"
+                                    disabled="@IsSightReadingExerciseActive">
                                 Show @(showPianoRoll ? "staff" : "piano roll") <kbd>V</kbd>
                             </button>
                         </div>
@@ -298,17 +318,21 @@
                         <span class="control-group-label" id="notation-heading">Notation</span>
                         <div class="controls">
                             <label class="control-checkbox">
-                                <input type="checkbox" checked="@showNoteLabels" @onchange="SetShowNoteLabelsAsync" />
+                                <input type="checkbox"
+                                       checked="@showNoteLabels"
+                                       disabled="@IsSightReadingExerciseActive"
+                                       @onchange="SetShowNoteLabelsAsync" />
                                 Note names
                             </label>
                             <label class="control-checkbox">
                                 <input type="checkbox"
                                        checked="@showFingerings"
-                                       disabled="@isFingeringEditing"
+                                       disabled="@(isFingeringEditing || IsSightReadingExerciseActive)"
                                        @onchange="SetShowFingeringsAsync" />
                                 Fingering
                             </label>
-                            @if (loadedScore is not null && selectedScore is not null && !showPianoRoll)
+                            @if (loadedScore is not null && selectedScore is not null &&
+                                sightReadingExerciseScore is null && !showPianoRoll)
                             {
                                 <label class="control-checkbox">
                                     <input type="checkbox"
@@ -405,7 +429,7 @@
         <PianoCanvas Scene="@canvasScene"
                      SecondaryScene="@secondaryCanvasScene"
                      SelectedOctave="@keyboardState.CurrentOctave"
-                     IsScoreView="@(selectedScore is not null && !showPianoRoll)"
+                     IsScoreView="@(NotationScore is not null && !showPianoRoll)"
                      CanResetScoreHighlights="@CanResetHighlights"
                      ResetScoreHighlights="ResetScoreHighlightsAsync"
                      CanSelectScoreNotes="@isFingeringEditing"
@@ -440,7 +464,7 @@
     private readonly BrowserMidiInputState midiInputState;
     private readonly GrandStaffSceneCache upperGrandStaffSceneCache = new();
     private readonly GrandStaffSceneCache lowerGrandStaffSceneCache = new();
-    private readonly IdlePracticeNoteChecker idlePracticeNoteChecker = new();
+    private readonly NoteReadingSession noteReadingSession = new();
     private readonly HashSet<PerformedNote> wrongScoreInputNotes = new(ReferenceEqualityComparer.Instance);
     private ElementReference playSurface;
     private AudioClockAnchor? audioClockAnchor;
@@ -456,6 +480,7 @@
     private Score? importedScore;
     private Score? loadedScore;
     private Score? selectedScore;
+    private Score? sightReadingExerciseScore;
     private Guid? loadedSavedScoreId;
     private int selectedFirstMeasure;
     private int selectedLastMeasure;
@@ -482,6 +507,9 @@
     private bool isFingeringEditing;
     private bool isFingeringGenerating;
     private bool checkNotesWhileIdle = true;
+    private Staff sightReadingStaff = Staff.Treble;
+    private SightReadingDifficulty sightReadingDifficulty = SightReadingDifficulty.Starter;
+    private int sightReadingMeasureCount = 2;
     private TimeSignature displayTimeSignature = new(4, new NoteValue(4));
     private Tempo displayTempo = new(120);
     private TimeSpan onTimeTolerance = TimeSpan.FromMilliseconds(NormalToleranceMilliseconds);
@@ -514,18 +542,26 @@
         ? $"measure {selectedFirstMeasure + 1}"
         : $"measures {selectedFirstMeasure + 1}–{selectedLastMeasure + 1}";
 
+    private Score? NotationScore => sightReadingExerciseScore ?? selectedScore;
+
+    private bool IsSightReadingExerciseActive => sightReadingExerciseScore is not null;
+
+    private bool IsNoteCheckingEnabled => IsSightReadingExerciseActive || checkNotesWhileIdle;
+
+    private int NotationMeasureNumberOffset => IsSightReadingExerciseActive ? 0 : selectedFirstMeasure;
+
     private int ActiveScoreFirstMeasure => scoreWindowPair is { } pair
         ? pair.ActivePageIndex * GrandStaffLayout.VisibleMeasureCount
         : 0;
 
-    private bool CanShowPreviousMeasures => selectedScore is { } score && CanChangeScorePage(
+    private bool CanShowPreviousMeasures => !IsSightReadingExerciseActive && selectedScore is { } score && CanChangeScorePage(
         score.Measures.Count,
         scoreWindowPair?.ActivePageIndex ?? 0,
         pageDelta: -1,
         ScorePlaybackSession.IsActive,
         practiceCoordinator.IsActive);
 
-    private bool CanShowNextMeasures => selectedScore is { } score && CanChangeScorePage(
+    private bool CanShowNextMeasures => !IsSightReadingExerciseActive && selectedScore is { } score && CanChangeScorePage(
         score.Measures.Count,
         scoreWindowPair?.ActivePageIndex ?? 0,
         pageDelta: 1,
@@ -535,14 +571,14 @@
     private bool CanResetHighlights =>
         !isFingeringEditing &&
         CanResetScoreHighlights(
-            selectedScore is not null,
-            checkNotesWhileIdle,
+            NotationScore is not null,
+            IsNoteCheckingEnabled,
             ScorePlaybackSession.IsActive,
             practiceCoordinator.State != PracticeSessionState.Idle);
 
-    private bool IsIdleNoteCheckingActive =>
-        checkNotesWhileIdle &&
-        selectedScore is not null &&
+    private bool IsSelfPacedNoteCheckingActive =>
+        IsNoteCheckingEnabled &&
+        NotationScore is not null &&
         !showPianoRoll &&
         !isFingeringEditing &&
         practiceCoordinator.State == PracticeSessionState.Idle &&
@@ -576,7 +612,7 @@
 
     private string? FormatScoreRowRange(int? firstMeasure)
     {
-        if (selectedScore is not { } score || !firstMeasure.HasValue)
+        if (NotationScore is not { } score || !firstMeasure.HasValue)
         {
             return null;
         }
@@ -584,7 +620,7 @@
         int lastMeasure = Math.Min(
             firstMeasure.Value + GrandStaffLayout.VisibleMeasureCount,
             score.Measures.Count);
-        return $"Measures {selectedFirstMeasure + firstMeasure.Value + 1}–{selectedFirstMeasure + lastMeasure}";
+        return $"Measures {NotationMeasureNumberOffset + firstMeasure.Value + 1}–{NotationMeasureNumberOffset + lastMeasure}";
     }
 
     private string? GetScoreRowStatus(int? firstMeasure)
@@ -863,6 +899,7 @@
     private async Task HandleScoreLoadedAsync(Score score)
     {
         ExitFingeringEditMode();
+        sightReadingExerciseScore = null;
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
         bool metronomeWasRunning = Metronome.IsRunning;
@@ -878,7 +915,7 @@
         selectedScore = score.Measures.Count == 0
             ? score
             : ScoreMeasureRange.Create(score, selectedFirstMeasure, selectedLastMeasure);
-        ResetIdlePracticeNoteChecker();
+        ResetNoteReadingSession();
         displayTimeSignature = score.TimeSignature;
         displayTempo = score.Tempo;
         if (metronomeWasRunning)
@@ -920,13 +957,14 @@
     private async Task HandleScoreUnloadedAsync()
     {
         ExitFingeringEditMode();
+        sightReadingExerciseScore = null;
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
         importedScore = null;
         loadedScore = null;
         selectedScore = null;
         loadedSavedScoreId = null;
-        ResetIdlePracticeNoteChecker();
+        ResetNoteReadingSession();
         selectedFirstMeasure = 0;
         selectedLastMeasure = 0;
         scoreWindowPair = null;
@@ -979,11 +1017,12 @@
 
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
+        sightReadingExerciseScore = null;
         selectedFirstMeasure = firstMeasure;
         selectedLastMeasure = lastMeasure;
         selectedScoreNoteAddress = null;
         selectedScore = ScoreMeasureRange.Create(score, firstMeasure, lastMeasure);
-        ResetIdlePracticeNoteChecker();
+        ResetNoteReadingSession();
         ResetScoreWindowPair();
         TimeSpan currentTime = AudioSession.IsInitialized
             ? await AudioSession.GetCurrentTimeAsync()
@@ -1000,10 +1039,11 @@
         }
 
         ExitFingeringEditMode();
+        sightReadingExerciseScore = null;
         await AbortPracticeAsync(updateStatus: false);
         await CancelVisualizationRefreshAsync();
         await CancelPlaybackRefreshAsync();
-        ResetIdlePracticeNoteChecker();
+        ResetNoteReadingSession();
         ResetScoreWindowPair();
         await ScorePlaybackSession.StartAsync(score);
         displayTimeSignature = score.TimeSignature;
@@ -1023,6 +1063,7 @@
         }
 
         ExitFingeringEditMode();
+        sightReadingExerciseScore = null;
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
         var measure = RandomMeasureComposer.Compose(
@@ -1045,6 +1086,75 @@
         audioStatus = $"Playing a random measure at {TimingLabel}.";
     }
 
+    private void SetSightReadingStaff(Staff staff) => sightReadingStaff = staff;
+
+    private void SetSightReadingDifficulty(SightReadingDifficulty difficulty) =>
+        sightReadingDifficulty = difficulty;
+
+    private void SetSightReadingMeasureCount(int measureCount) =>
+        sightReadingMeasureCount = measureCount;
+
+    private async Task GenerateSightReadingExerciseAsync()
+    {
+        ExitFingeringEditMode();
+        await AbortPracticeAsync(updateStatus: false);
+        await StopScorePlaybackAsync();
+        await CancelVisualizationRefreshAsync();
+        if (Metronome.IsRunning)
+        {
+            await StopMetronomeAsync();
+        }
+
+        var options = new SightReadingExerciseOptions(
+            sightReadingStaff,
+            sightReadingDifficulty,
+            sightReadingMeasureCount);
+        sightReadingExerciseScore = SightReadingExerciseComposer.Compose(options, Random.Shared);
+        showPianoRoll = false;
+        ResetNoteReadingSession();
+        ResetScoreWindowPair();
+        TimeSpan currentTime = AudioSession.IsInitialized
+            ? await AudioSession.GetCurrentTimeAsync()
+            : TimeSpan.Zero;
+        RefreshCanvasScene(currentTime);
+        audioStatus = "Note reading exercise ready. Play the highlighted note.";
+    }
+
+    private async Task RetrySightReadingExerciseAsync()
+    {
+        if (!IsSightReadingExerciseActive)
+        {
+            return;
+        }
+
+        ResetNoteReadingSession();
+        ResetScoreWindowPair();
+        TimeSpan currentTime = AudioSession.IsInitialized
+            ? await AudioSession.GetCurrentTimeAsync()
+            : TimeSpan.Zero;
+        RefreshCanvasScene(currentTime);
+        audioStatus = "Note reading exercise restarted. Play the highlighted note.";
+    }
+
+    private async Task EndSightReadingExerciseAsync()
+    {
+        if (!IsSightReadingExerciseActive)
+        {
+            return;
+        }
+
+        sightReadingExerciseScore = null;
+        ResetNoteReadingSession();
+        ResetScoreWindowPair();
+        TimeSpan currentTime = AudioSession.IsInitialized
+            ? await AudioSession.GetCurrentTimeAsync()
+            : TimeSpan.Zero;
+        RefreshCanvasScene(currentTime);
+        audioStatus = selectedScore is null
+            ? "Note reading exercise ended."
+            : "Returned to the loaded score.";
+    }
+
     private async Task StartPracticeAsync()
     {
         if (selectedScore is not { } score || !AudioSession.IsInitialized)
@@ -1053,6 +1163,7 @@
         }
 
         ExitFingeringEditMode();
+        sightReadingExerciseScore = null;
         if (Metronome.IsRunning)
         {
             await StopMetronomeAsync();
@@ -1095,7 +1206,7 @@
             await ScorePlaybackSession.StopAsync();
         }
 
-        if (selectedScore is not null)
+        if (NotationScore is not null)
         {
             RefreshCanvasScene(GetAnchorTime());
         }
@@ -1174,7 +1285,7 @@
 
     private void ResetScoreWindowPair()
     {
-        scoreWindowPair = selectedScore is { Measures.Count: > 0 } score
+        scoreWindowPair = NotationScore is { Measures.Count: > 0 } score
             ? ScoreGrandStaffWindowPair.FromPageIndex(score.Measures.Count, activePageIndex: 0)
             : null;
         UpdateScoreCursorStates();
@@ -1182,7 +1293,7 @@
 
     private bool UpdateScoreWindowPairFromCursor(double cursorBeats)
     {
-        if (selectedScore is not { Measures.Count: > 0 } score)
+        if (NotationScore is not { Measures.Count: > 0 } score)
         {
             return false;
         }
@@ -1299,7 +1410,7 @@
             selectedScore = loadedScore.Measures.Count == 0
                 ? loadedScore
                 : ScoreMeasureRange.Create(loadedScore, selectedFirstMeasure, selectedLastMeasure);
-            ResetIdlePracticeNoteChecker();
+            ResetNoteReadingSession();
         }
 
         TimeSpan currentTime = AudioSession.IsInitialized
@@ -1375,7 +1486,7 @@
             audioStatus = "Fingering edit mode closed.";
         }
 
-        ResetIdlePracticeNoteChecker();
+        ResetNoteReadingSession();
         TimeSpan currentTime = AudioSession.IsInitialized
             ? await AudioSession.GetCurrentTimeAsync()
             : TimeSpan.Zero;
@@ -1495,7 +1606,7 @@
         selectedScore = loadedScore.Measures.Count == 0
             ? loadedScore
             : ScoreMeasureRange.Create(loadedScore, selectedFirstMeasure, selectedLastMeasure);
-        ResetIdlePracticeNoteChecker();
+        ResetNoteReadingSession();
         TimeSpan currentTime = AudioSession.IsInitialized
             ? await AudioSession.GetCurrentTimeAsync()
             : TimeSpan.Zero;
@@ -1511,14 +1622,16 @@
     private async Task SetCheckNotesWhileIdleAsync(bool isEnabled)
     {
         checkNotesWhileIdle = isEnabled;
-        ResetIdlePracticeNoteChecker();
+        ResetNoteReadingSession();
         TimeSpan currentTime = AudioSession.IsInitialized
             ? await AudioSession.GetCurrentTimeAsync()
             : TimeSpan.Zero;
         RefreshCanvasScene(currentTime);
-        audioStatus = isEnabled
-            ? "Idle note checking enabled. Play the highlighted score note."
-            : "Idle note checking disabled.";
+        audioStatus = IsSightReadingExerciseActive
+            ? "The note reading exercise remains active. Play the highlighted note."
+            : isEnabled
+                ? "Idle note checking enabled. Play the highlighted score note."
+                : "Idle note checking disabled.";
     }
 
     private async Task ResetScoreHighlightsAsync()
@@ -1528,13 +1641,15 @@
             return;
         }
 
-        ResetIdlePracticeNoteChecker();
+        ResetNoteReadingSession();
         ResetScoreWindowPair();
         TimeSpan currentTime = AudioSession.IsInitialized
             ? await AudioSession.GetCurrentTimeAsync()
             : TimeSpan.Zero;
         RefreshCanvasScene(currentTime);
-        audioStatus = "Score highlights reset. Play the first highlighted note.";
+        audioStatus = IsSightReadingExerciseActive
+            ? "Note reading exercise restarted. Play the highlighted note."
+            : "Score highlights reset. Play the first highlighted note.";
     }
 
     private async Task RefreshNotationVisibilityAsync()
@@ -1665,15 +1780,15 @@
                     command.EventTime,
                     velocity: command.Velocity);
                 tempoFeedbackTracker.Record(command.EventTime, Metronome.Grid, onTimeTolerance);
-                if (IsIdleNoteCheckingActive)
+                if (IsSelfPacedNoteCheckingActive)
                 {
-                    IdlePracticeNoteChecker.Result result = idlePracticeNoteChecker.Check(command.Pitch.Value);
-                    if (!result.IsCorrect && command.Note is { } wrongNote)
+                    NoteReadingSession.CheckResult result = noteReadingSession.Check(command.Pitch.Value);
+                    if (!result.IsCorrect && !result.IsComplete && command.Note is { } wrongNote)
                     {
                         wrongScoreInputNotes.Add(wrongNote);
                     }
 
-                    audioStatus = GetIdlePracticeStatus(command.Pitch.Value, result);
+                    audioStatus = GetNoteReadingStatus(command.Pitch.Value, result);
                 }
                 else
                 {
@@ -1687,7 +1802,7 @@
                     wrongScoreInputNotes.Remove(releasedNote);
                 }
 
-                if (!IsIdleNoteCheckingActive)
+                if (!IsSelfPacedNoteCheckingActive)
                 {
                     audioStatus = "Audio is ready.";
                 }
@@ -1876,7 +1991,7 @@
         }
 
         await practiceCoordinator.AbortAsync();
-        ResetIdlePracticeNoteChecker();
+        ResetNoteReadingSession();
         if (AudioSession.IsInitialized)
         {
             TimeSpan releaseTime = eventTime ?? await AudioSession.GetCurrentTimeAsync();
@@ -1884,7 +1999,7 @@
             await AudioSession.ClearAsync(releaseTime);
         }
 
-        if (selectedScore is not null)
+        if (NotationScore is not null)
         {
             RefreshCanvasScene(eventTime ?? GetAnchorTime());
         }
@@ -1916,6 +2031,11 @@
 
     private async Task SetViewAsync(TimeSpan currentTime)
     {
+        if (IsSightReadingExerciseActive)
+        {
+            return;
+        }
+
         showPianoRoll = !showPianoRoll;
         if (showPianoRoll)
         {
@@ -1926,7 +2046,7 @@
         UpdateScoreCursorStates();
         if (ShouldContinueVisualizationRefresh(
             showPianoRoll,
-            selectedScore is not null,
+            NotationScore is not null,
             canvasScene,
             midiInputState.ActiveNoteCount,
             scheduledKeyboardNotes.Count > 0))
@@ -1956,7 +2076,8 @@
             return;
         }
 
-        if (selectedScore is null)
+        Score? notationScore = NotationScore;
+        if (notationScore is null)
         {
             canvasScene = GrandStaffSceneBuilder.Build(
                 noteTimeline.Snapshot(currentTime),
@@ -1978,9 +2099,9 @@
             ResetScoreWindowPair();
         }
 
-        bool isIdleNoteCheckingActive = IsIdleNoteCheckingActive;
-        double? effectiveCursorBeats = cursorBeats ?? (isIdleNoteCheckingActive
-            ? idlePracticeNoteChecker.CurrentOnsetBeats
+        bool isSelfPacedNoteCheckingActive = IsSelfPacedNoteCheckingActive;
+        double? effectiveCursorBeats = cursorBeats ?? (isSelfPacedNoteCheckingActive
+            ? noteReadingSession.CurrentOnsetBeats
             : null);
         if (!cursorBeats.HasValue && effectiveCursorBeats.HasValue)
         {
@@ -1988,9 +2109,9 @@
         }
 
         IReadOnlyDictionary<ScoreNote, Verdict>? effectiveVerdicts = verdicts ??
-            (isIdleNoteCheckingActive ? idlePracticeNoteChecker.Verdicts : null);
-        IReadOnlySet<ScoreNote>? expectedNotes = isIdleNoteCheckingActive
-            ? idlePracticeNoteChecker.ExpectedNotes
+            (isSelfPacedNoteCheckingActive ? noteReadingSession.Verdicts : null);
+        IReadOnlySet<ScoreNote>? expectedNotes = isSelfPacedNoteCheckingActive
+            ? noteReadingSession.ExpectedNotes
             : null;
 
         double? performedNoteBeats = effectiveCursorBeats;
@@ -2000,7 +2121,7 @@
         }
 
         var performedNotes = noteTimeline.Snapshot(currentTime);
-        IReadOnlySet<PerformedNote>? performedNotesToInclude = isIdleNoteCheckingActive
+        IReadOnlySet<PerformedNote>? performedNotesToInclude = isSelfPacedNoteCheckingActive
             ? wrongScoreInputNotes
             : null;
         int upperFirstMeasure = scoreWindowPair?.UpperFirstMeasure ?? 0;
@@ -2014,18 +2135,18 @@
                 ? performedNotes
                 : performedNotes.Where(performedNotesToInclude.Contains).ToArray();
         canvasScene = upperGrandStaffSceneCache.BuildScore(
-            selectedScore,
+            notationScore,
             upperFirstMeasure,
             effectiveCursorBeats,
             effectiveVerdicts,
             upperPerformedNotes,
             performedNoteBeats,
-            showNoteLabels,
-            showFingerings,
+            showNoteLabels && !IsSightReadingExerciseActive,
+            showFingerings && !IsSightReadingExerciseActive,
             expectedNotes);
         secondaryCanvasScene = scoreWindowPair?.LowerFirstMeasure is { } lowerFirstMeasure
             ? lowerGrandStaffSceneCache.BuildScore(
-                selectedScore,
+                notationScore,
                 lowerFirstMeasure,
                 effectiveCursorBeats,
                 effectiveVerdicts,
@@ -2035,8 +2156,8 @@
                     ScoreGrandStaffWindowPair.PhysicalRow.Lower,
                     performedNotesToInclude),
                 performedNoteBeats,
-                showNoteLabels,
-                showFingerings,
+                showNoteLabels && !IsSightReadingExerciseActive,
+                showFingerings && !IsSightReadingExerciseActive,
                 expectedNotes)
             : null;
     }
@@ -2058,16 +2179,30 @@
             : performedNotes.Where(performedNotesToInclude.Contains).ToArray();
     }
 
-    private void ResetIdlePracticeNoteChecker()
+    private void ResetNoteReadingSession()
     {
-        idlePracticeNoteChecker.Reset(checkNotesWhileIdle ? selectedScore : null);
+        noteReadingSession.Reset(IsNoteCheckingEnabled ? NotationScore : null);
         wrongScoreInputNotes.Clear();
     }
 
-    private static string GetIdlePracticeStatus(
+    private string GetNoteReadingStatus(
         Pitch pitch,
-        IdlePracticeNoteChecker.Result result)
+        NoteReadingSession.CheckResult result)
     {
+        if (IsSightReadingExerciseActive)
+        {
+            if (!result.IsCorrect)
+            {
+                return result.IsComplete
+                    ? "Note reading exercise complete. Generate a new exercise or retry these notes."
+                    : $"{pitch} is not the highlighted exercise note. Try again.";
+            }
+
+            return result.IsComplete
+                ? "Correct. Note reading exercise complete."
+                : "Correct. Play the next highlighted note.";
+        }
+
         if (!result.IsCorrect)
         {
             return result.IsComplete
@@ -2161,7 +2296,7 @@
             visualizationRefreshTask is { IsCompleted: false } ||
             !ShouldContinueVisualizationRefresh(
                 showPianoRoll,
-                selectedScore is not null,
+                NotationScore is not null,
                 canvasScene,
                 midiInputState.ActiveNoteCount,
                 scheduledKeyboardNotes.Count > 0))
@@ -2185,7 +2320,7 @@
                 await InvokeAsync(StateHasChanged);
                 if (!ShouldContinueVisualizationRefresh(
                     showPianoRoll,
-                    selectedScore is not null,
+                    NotationScore is not null,
                     canvasScene,
                     midiInputState.ActiveNoteCount,
                     scheduledKeyboardNotes.Count > 0))

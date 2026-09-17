@@ -23,6 +23,9 @@
 
     <ItemGroup>
         <Content Include="Fixtures\*.musicxml" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="..\mia_sebastians_theme_ivanovskaya_transcription.musicxml"
+                 Link="Fixtures\mia_sebastians_theme_ivanovskaya_transcription.musicxml"
+                 CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
 </Project>

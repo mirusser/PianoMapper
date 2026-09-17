@@ -15,6 +15,39 @@ public sealed class GrandStaffLayoutTests
         Assert.Equal([-2], position.LedgerLineOffsets);
     }
 
+    [Theory]
+    [InlineData("E4", (int)Staff.Treble, 0)]
+    [InlineData("F4", (int)Staff.Treble, 1)]
+    [InlineData("G4", (int)Staff.Treble, 2)]
+    [InlineData("A4", (int)Staff.Treble, 3)]
+    [InlineData("B4", (int)Staff.Treble, 4)]
+    [InlineData("C5", (int)Staff.Treble, 5)]
+    [InlineData("D5", (int)Staff.Treble, 6)]
+    [InlineData("E5", (int)Staff.Treble, 7)]
+    [InlineData("F5", (int)Staff.Treble, 8)]
+    [InlineData("G2", (int)Staff.Bass, 0)]
+    [InlineData("A2", (int)Staff.Bass, 1)]
+    [InlineData("B2", (int)Staff.Bass, 2)]
+    [InlineData("C3", (int)Staff.Bass, 3)]
+    [InlineData("D3", (int)Staff.Bass, 4)]
+    [InlineData("E3", (int)Staff.Bass, 5)]
+    [InlineData("F3", (int)Staff.Bass, 6)]
+    [InlineData("G3", (int)Staff.Bass, 7)]
+    [InlineData("A3", (int)Staff.Bass, 8)]
+    public void GetStaffPosition_StandardLineOrSpacePitch_ReturnsConventionalBottomToTopOffset(
+        string pitchName,
+        int staffValue,
+        int expectedOffset)
+    {
+        var staff = (Staff)staffValue;
+        Assert.True(Pitch.TryParse(pitchName, out var pitch));
+
+        var position = GrandStaffLayout.GetStaffPosition(pitch, staff);
+
+        Assert.Equal(expectedOffset, position.DiatonicOffset);
+        Assert.Empty(position.LedgerLineOffsets);
+    }
+
     [Fact]
     public void GetPosition_BottomTrebleLine_ReturnsTrebleLineWithoutLedgers()
     {
