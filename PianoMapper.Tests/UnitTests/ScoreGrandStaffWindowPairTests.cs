@@ -6,17 +6,6 @@ namespace PianoMapper.Tests.UnitTests;
 public sealed class ScoreGrandStaffWindowPairTests
 {
     [Fact]
-    public void FromPageIndex_InitialPage_ReturnsUpperPageAndLowerLookAhead()
-    {
-        var state = ScoreGrandStaffWindowPair.FromPageIndex(measureCount: 20, activePageIndex: 0);
-
-        Assert.Equal(0, state.ActivePageIndex);
-        Assert.Equal(0, state.UpperFirstMeasure);
-        Assert.Equal(GrandStaffLayout.VisibleMeasureCount, state.LowerFirstMeasure);
-        Assert.Equal(ScoreGrandStaffWindowPair.PhysicalRow.Upper, state.ActiveRow);
-    }
-
-    [Fact]
     public void FromCursorBeats_ExactPageBoundary_SelectsIncomingLowerPage()
     {
         int beatsPerMeasure = 4;
@@ -45,6 +34,7 @@ public sealed class ScoreGrandStaffWindowPairTests
     {
         var state = ScoreGrandStaffWindowPair.FromPageIndex(measureCount: 20, activePageIndex);
 
+        Assert.Equal(activePageIndex, state.ActivePageIndex);
         Assert.Equal(expectedUpperFirstMeasure, state.UpperFirstMeasure);
         Assert.Equal(expectedLowerFirstMeasure, state.LowerFirstMeasure);
         Assert.Equal((ScoreGrandStaffWindowPair.PhysicalRow)expectedActiveRow, state.ActiveRow);

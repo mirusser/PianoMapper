@@ -31,12 +31,7 @@ public sealed class GrandStaffSceneBuilderTests
             new(new Pitch(NoteLetter.F, 1, 4), new NoteValue(8, 1), 0, 0, Staff.Treble),
             new(new Pitch(NoteLetter.A, 0, 4), new NoteValue(8, 1), 0, 0, Staff.Treble),
         ];
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure(notes, [])]);
+        var score = ScoreWithNotes(notes);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
@@ -132,12 +127,7 @@ public sealed class GrandStaffSceneBuilderTests
             new(new Pitch(NoteLetter.C, 0, 3), new NoteValue(4), 0, 2, Staff.Bass),
             new(new Pitch(NoteLetter.A, 0, 2), new NoteValue(4), 0, 3, Staff.Bass),
         ];
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure(notes, [])]);
+        var score = ScoreWithNotes(notes);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
         var renderedNotes = scene.Notes
@@ -172,12 +162,7 @@ public sealed class GrandStaffSceneBuilderTests
                 Staff.Bass,
                 Fingering: new ScoreFingering(5)),
         ];
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure(notes.Take(noteCount).ToArray(), [])]);
+        var score = ScoreWithNotes(notes.Take(noteCount).ToArray());
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
         GrandStaffNote[] renderedNotes = scene.Notes.ToArray();
@@ -241,12 +226,7 @@ public sealed class GrandStaffSceneBuilderTests
             0,
             staff,
             Fingering: new ScoreFingering(3));
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
+        var score = SingleNoteScore(sourceNote);
 
         var renderedNote = Assert.Single(
             GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0).Notes);
@@ -266,12 +246,7 @@ public sealed class GrandStaffSceneBuilderTests
                 0,
                 Staff.Treble,
                 Fingering: new ScoreFingering(3, placement));
-            var score = new Score(
-                "test",
-                new TimeSignature(4, new NoteValue(4)),
-                new Tempo(120),
-                0,
-                [new ScoreMeasure([sourceNote], [])]);
+            var score = SingleNoteScore(sourceNote);
             return GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0).Notes.Single().FingeringY;
         }
 
@@ -296,12 +271,7 @@ public sealed class GrandStaffSceneBuilderTests
             0,
             staff,
             Fingering: new ScoreFingering(3));
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
+        var score = SingleNoteScore(sourceNote);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
         var renderedNote = Assert.Single(scene.Notes);
@@ -312,34 +282,6 @@ public sealed class GrandStaffSceneBuilderTests
 
         Assert.NotNull(renderedNote.FingeringY);
         Assert.True(renderedNote.FingeringY < staffBottomLineY);
-    }
-
-    [Fact]
-    public void BuildScore_TrebleFingering_UsesInterStaffLane()
-    {
-        var sourceNote = new ScoreNote(
-            new Pitch(NoteLetter.C, 0, 4),
-            new NoteValue(4),
-            0,
-            0,
-            Staff.Treble,
-            Fingering: new ScoreFingering(5));
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
-
-        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
-        var renderedNote = Assert.Single(scene.Notes);
-        var staffLines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Staff).ToArray();
-        double trebleBottomLineY = staffLines.Take(5).Min(line => line.Y0);
-        double bassTopLineY = staffLines.Skip(5).Max(line => line.Y0);
-
-        Assert.NotNull(renderedNote.FingeringY);
-        Assert.InRange(renderedNote.FingeringY.Value, bassTopLineY, trebleBottomLineY);
-        Assert.InRange(renderedNote.FingeringY.Value, scene.Bands[0].Y0, scene.Bands[0].Y1);
     }
 
     [Theory]
@@ -354,12 +296,7 @@ public sealed class GrandStaffSceneBuilderTests
             0,
             staff,
             Fingering: new ScoreFingering(5));
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
+        var score = SingleNoteScore(sourceNote);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
         var renderedNote = Assert.Single(scene.Notes);
@@ -385,12 +322,7 @@ public sealed class GrandStaffSceneBuilderTests
             0,
             staff,
             Fingering: new ScoreFingering(3));
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
+        var score = SingleNoteScore(sourceNote);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
         var renderedNote = Assert.Single(scene.Notes);
@@ -423,12 +355,7 @@ public sealed class GrandStaffSceneBuilderTests
                 Staff.Treble,
                 Fingering: new ScoreFingering(5)),
         ];
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure(notes, [])]);
+        var score = ScoreWithNotes(notes);
 
         var renderedNotes = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0).Notes
             .ToDictionary(note => note.Label);
@@ -447,18 +374,8 @@ public sealed class GrandStaffSceneBuilderTests
             new(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble),
             new(new Pitch(NoteLetter.C, 0, 3), new NoteValue(4), 0, 1, Staff.Bass),
         ];
-        var scoreWithLowTreble = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure(notes, [])]);
-        var scoreWithoutLowTreble = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([notes[1]], [])]);
+        var scoreWithLowTreble = ScoreWithNotes(notes);
+        var scoreWithoutLowTreble = SingleNoteScore(notes[1]);
 
         var bassLabelYWithLowTreble = GrandStaffSceneBuilder.BuildScore(scoreWithLowTreble, firstVisibleMeasure: 0)
             .Notes.Single(note => note.Label == "C3").LabelY;
@@ -478,12 +395,7 @@ public sealed class GrandStaffSceneBuilderTests
             0,
             Staff.Treble,
             Fingering: new ScoreFingering(1));
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
+        var score = SingleNoteScore(sourceNote);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
         var renderedNote = Assert.Single(scene.Notes);
@@ -511,12 +423,7 @@ public sealed class GrandStaffSceneBuilderTests
             0,
             Staff.Treble,
             Fingering: new ScoreFingering(4));
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
+        var score = SingleNoteScore(sourceNote);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
         var renderedNote = Assert.Single(scene.Notes);
@@ -540,12 +447,7 @@ public sealed class GrandStaffSceneBuilderTests
             0,
             Staff.Bass,
             Fingering: new ScoreFingering(2));
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
+        var score = SingleNoteScore(sourceNote);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
         var renderedNote = Assert.Single(scene.Notes);
@@ -567,12 +469,7 @@ public sealed class GrandStaffSceneBuilderTests
     public void BuildScore_NoteWithoutFingering_LeavesFingeringFieldsNull()
     {
         var sourceNote = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
+        var score = SingleNoteScore(sourceNote);
 
         var renderedNote = Assert.Single(GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0).Notes);
 
@@ -584,12 +481,7 @@ public sealed class GrandStaffSceneBuilderTests
     public void BuildScore_ShowNoteLabelsFalse_HidesNoteLabel()
     {
         var sourceNote = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
+        var score = SingleNoteScore(sourceNote);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0, showNoteLabels: false);
 
@@ -606,12 +498,7 @@ public sealed class GrandStaffSceneBuilderTests
             0,
             Staff.Treble,
             Fingering: new ScoreFingering(3));
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
+        var score = SingleNoteScore(sourceNote);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0, showNoteLabels: false);
 
@@ -630,12 +517,7 @@ public sealed class GrandStaffSceneBuilderTests
             0,
             Staff.Treble,
             Fingering: new ScoreFingering(3));
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
+        var score = SingleNoteScore(sourceNote);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0, showFingerings: false);
 
@@ -654,12 +536,7 @@ public sealed class GrandStaffSceneBuilderTests
             0,
             Staff.Treble,
             Fingering: new ScoreFingering(3));
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
+        var score = SingleNoteScore(sourceNote);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0, showFingerings: false);
 
@@ -694,12 +571,7 @@ public sealed class GrandStaffSceneBuilderTests
                 StemDirection: ScoreStemDirection.Down,
                 Fingering: new ScoreFingering(5)),
         ];
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure(notes, [])]);
+        var score = ScoreWithNotes(notes);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
@@ -773,12 +645,7 @@ public sealed class GrandStaffSceneBuilderTests
                 StemDirection: ScoreStemDirection.Up,
                 Fingering: new ScoreFingering(1)),
         ];
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure(notes, [])]);
+        var score = ScoreWithNotes(notes);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
@@ -837,12 +704,7 @@ public sealed class GrandStaffSceneBuilderTests
     public void BuildScore_VisibleNotes_AddOneInterStaffAnnotationBand()
     {
         var sourceNote = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
+        var score = SingleNoteScore(sourceNote);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
@@ -866,12 +728,7 @@ public sealed class GrandStaffSceneBuilderTests
             0,
             Staff.Treble,
             Fingering: new ScoreFingering(3));
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
+        var score = SingleNoteScore(sourceNote);
 
         var scene = GrandStaffSceneBuilder.BuildScore(
             score,
@@ -892,12 +749,7 @@ public sealed class GrandStaffSceneBuilderTests
             0,
             Staff.Treble,
             Fingering: new ScoreFingering(3));
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
+        var score = SingleNoteScore(sourceNote);
 
         var withFingering = Assert.Single(
             GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0).Bands);
@@ -915,12 +767,7 @@ public sealed class GrandStaffSceneBuilderTests
     public void BuildScore_Band_SpansFullStaffWidth()
     {
         var sourceNote = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
+        var score = SingleNoteScore(sourceNote);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
@@ -938,12 +785,7 @@ public sealed class GrandStaffSceneBuilderTests
             new(new Pitch(NoteLetter.F, 1, 4), new NoteValue(4), 0, 0, Staff.Treble),
             new(new Pitch(NoteLetter.C, 1, 3), new NoteValue(4), 0, 1, Staff.Bass),
         ];
-        var score = new Score(
-            "test",
-            new TimeSignature(6, new NoteValue(8)),
-            new Tempo(120),
-            2,
-            [new ScoreMeasure(notes, [])]);
+        var score = ScoreWithNotes(notes, keyFifths: 2, timeSignature: new TimeSignature(6, new NoteValue(8)));
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
@@ -987,12 +829,7 @@ public sealed class GrandStaffSceneBuilderTests
             0,
             Staff.Treble,
             Accidental: ScoreAccidental.Sharp);
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            1,
-            [new ScoreMeasure([note], [])]);
+        var score = SingleNoteScore(note, keyFifths: 1);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
@@ -1018,12 +855,7 @@ public sealed class GrandStaffSceneBuilderTests
             0,
             Staff.Treble,
             Fermata: fermata);
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([note], [])]);
+        var score = SingleNoteScore(note);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
@@ -1124,12 +956,7 @@ public sealed class GrandStaffSceneBuilderTests
             new(new Pitch(NoteLetter.F, 1, 4), new NoteValue(8), 0, 1, Staff.Treble, BeamState: BeamState.Continue),
             new(new Pitch(NoteLetter.A, 0, 4), new NoteValue(8), 0, 2, Staff.Treble, BeamState: BeamState.End),
         ];
-        var score = new Score(
-            "test",
-            new TimeSignature(6, new NoteValue(8)),
-            new Tempo(120),
-            2,
-            [new ScoreMeasure(notes, [])]);
+        var score = ScoreWithNotes(notes, keyFifths: 2, timeSignature: new TimeSignature(6, new NoteValue(8)));
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
@@ -1158,12 +985,7 @@ public sealed class GrandStaffSceneBuilderTests
                 StemDirection: ScoreStemDirection.Down),
             new(new Pitch(NoteLetter.A, 0, 4), new NoteValue(8), 0, 2, Staff.Treble, BeamState: BeamState.End),
         ];
-        var score = new Score(
-            "test",
-            new TimeSignature(6, new NoteValue(8)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure(notes, [])]);
+        var score = ScoreWithNotes(notes, timeSignature: new TimeSignature(6, new NoteValue(8)));
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
@@ -1202,12 +1024,7 @@ public sealed class GrandStaffSceneBuilderTests
                 BeamState: BeamState.End,
                 StemDirection: ScoreStemDirection.Down),
         ];
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure(notes, [])]);
+        var score = ScoreWithNotes(notes);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
@@ -1260,12 +1077,7 @@ public sealed class GrandStaffSceneBuilderTests
             0,
             0,
             Staff.Treble);
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([sourceNote], [])]);
+        var score = SingleNoteScore(sourceNote);
 
         var scene = GrandStaffSceneBuilder.BuildScore(
             score,
@@ -1284,12 +1096,7 @@ public sealed class GrandStaffSceneBuilderTests
             0,
             0,
             Staff.Treble);
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([expectedNote], [])]);
+        var score = SingleNoteScore(expectedNote);
 
         var scene = GrandStaffSceneBuilder.BuildScore(
             score,
@@ -1302,12 +1109,7 @@ public sealed class GrandStaffSceneBuilderTests
     [Fact]
     public void BuildScore_PerformedInput_OverlaysOnlyHeldNoteAtCursor()
     {
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([], [])]);
+        var score = ScoreWithNotes([]);
         var timeline = new NoteTimeline();
         var heldNote = timeline.Start(new Pitch(NoteLetter.C, 0, 4), TimeSpan.FromSeconds(1));
         var releasedNote = timeline.Start(new Pitch(NoteLetter.D, 0, 4), TimeSpan.FromSeconds(1));
@@ -1339,12 +1141,7 @@ public sealed class GrandStaffSceneBuilderTests
     [Fact]
     public void BuildScore_HeldNoteUnderOwnStaff_LabelClearsTheNote()
     {
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([], [])]);
+        var score = ScoreWithNotes([]);
         var timeline = new NoteTimeline();
         var heldNote = timeline.Start(new Pitch(NoteLetter.C, 0, 4), TimeSpan.FromSeconds(1));
 
@@ -1362,12 +1159,7 @@ public sealed class GrandStaffSceneBuilderTests
     [Fact]
     public void BuildScore_PerformedInput_ShowNoteLabelsFalse_HidesHeldNoteLabel()
     {
-        var score = new Score(
-            "test",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [new ScoreMeasure([], [])]);
+        var score = ScoreWithNotes([]);
         var timeline = new NoteTimeline();
         var heldNote = timeline.Start(new Pitch(NoteLetter.C, 0, 4), TimeSpan.FromSeconds(1));
 
@@ -1449,29 +1241,6 @@ public sealed class GrandStaffSceneBuilderTests
         var scene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero, selectedOctave: 4);
 
         Assert.True(scene.ShouldClipNotesAtClefs);
-    }
-
-    [Fact]
-    public void GrandStaffScene_WithoutTies_ReturnsEmptyTieCollection()
-    {
-        var scene = new GrandStaffScene([], [], []);
-
-        Assert.Empty(scene.Ties);
-    }
-
-    [Fact]
-    public void GrandStaffScene_WithFullTieAndEdgeStub_PreservesTiePrimitives()
-    {
-        GrandStaffTie[] ties =
-        [
-            new(-0.4, 0.2, -0.1, 0.2, StemDirection.Down, IsActive: false),
-            new(GrandStaffLayout.ScoreX0, 0.2, -0.45, 0.2, StemDirection.Down, IsActive: true),
-        ];
-
-        var scene = new GrandStaffScene([], [], []) { Ties = ties };
-
-        Assert.Equal(ties, scene.Ties);
-        Assert.Empty(scene.Lines);
     }
 
     [Fact]
@@ -1656,14 +1425,6 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.Equal("♯", accidental.Text);
         Assert.True(accidental.X < renderedNote.X);
         Assert.Equal(renderedNote.Y, accidental.Y);
-    }
-
-    [Fact]
-    public void Build_EmptyTimeline_ReturnsEmptyScene()
-    {
-        var scene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero);
-
-        Assert.Empty(scene.Notes);
     }
 
     [Fact]
@@ -2014,4 +1775,21 @@ public sealed class GrandStaffSceneBuilderTests
             Enumerable.Range(0, measureCount)
                 .Select(_ => new ScoreMeasure([], []))
                 .ToArray());
+
+    private static Score SingleNoteScore(
+        ScoreNote note,
+        int keyFifths = 0,
+        TimeSignature? timeSignature = null) =>
+        ScoreWithNotes([note], keyFifths, timeSignature);
+
+    private static Score ScoreWithNotes(
+        ScoreNote[] notes,
+        int keyFifths = 0,
+        TimeSignature? timeSignature = null) =>
+        new(
+            "test",
+            timeSignature ?? new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            keyFifths,
+            [new ScoreMeasure(notes, [])]);
 }

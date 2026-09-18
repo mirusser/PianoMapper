@@ -4,12 +4,11 @@ namespace PianoMapper.Tests.UnitTests;
 
 public sealed class BrowserKeyboardStateTests
 {
+    // The full code-to-action table is BrowserKeyBindings's own responsibility and is
+    // exhaustively covered by BrowserKeyBindingsTests; these cases just prove HandleKeyDown
+    // delegates to it and translates the result into a BrowserInputCommandKind.
     [Theory]
     [InlineData("BracketLeft", (int)BrowserInputCommandKind.PreviousMeasures)]
-    [InlineData("BracketRight", (int)BrowserInputCommandKind.NextMeasures)]
-    [InlineData("KeyP", (int)BrowserInputCommandKind.StartScorePlayback)]
-    [InlineData("KeyT", (int)BrowserInputCommandKind.StartPractice)]
-    [InlineData("KeyV", (int)BrowserInputCommandKind.ToggleView)]
     [InlineData("KeyM", (int)BrowserInputCommandKind.PlayRandomMeasure)]
     public void HandleKeyDown_ControlCode_ReturnsCommand(
         string code,
@@ -34,12 +33,9 @@ public sealed class BrowserKeyboardStateTests
         Assert.Equal(BrowserInputCommandKind.None, command.Kind);
     }
 
+    // See BrowserKeyBindingsTests for the exhaustive unmapped-code table.
     [Theory]
     [InlineData("KeyA")]
-    [InlineData("KeyW")]
-    [InlineData("Semicolon")]
-    [InlineData("KeyZ")]
-    [InlineData("KeyX")]
     [InlineData("Digit4")]
     public void HandleKeyDown_RemovedPianoMapping_IsNotHandled(string code)
     {

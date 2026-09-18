@@ -35,37 +35,6 @@ public class OscilloscopeLayoutTests
     }
 
     [Fact]
-    public void BuildPolyline_ZeroAmplitude_SitsAtPanelVerticalCenter()
-    {
-        short[] window = [0];
-
-        var points = OscilloscopeLayout.BuildPolyline(window);
-
-        var expectedCenter = (OscilloscopeLayout.PanelY0 + OscilloscopeLayout.PanelY1) / 2f;
-        Assert.Equal(expectedCenter, points[0].Y, 3);
-    }
-
-    [Fact]
-    public void BuildPolyline_MaxPositiveAmplitude_ReachesPanelTop()
-    {
-        short[] window = [short.MaxValue];
-
-        var points = OscilloscopeLayout.BuildPolyline(window);
-
-        Assert.Equal(OscilloscopeLayout.PanelY1, points[0].Y, 3);
-    }
-
-    [Fact]
-    public void BuildPolyline_MaxNegativeAmplitude_ReachesPanelBottom()
-    {
-        short[] window = [short.MinValue];
-
-        var points = OscilloscopeLayout.BuildPolyline(window);
-
-        Assert.Equal(OscilloscopeLayout.PanelY0, points[0].Y, 3);
-    }
-
-    [Fact]
     public void BuildPolyline_MultipleSamples_MapsEachSampleToItsOwnAmplitude()
     {
         short[] window = [short.MaxValue, 0, short.MinValue];

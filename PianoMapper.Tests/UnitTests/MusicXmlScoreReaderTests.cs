@@ -310,16 +310,18 @@ public sealed class MusicXmlScoreReaderTests
     }
 
     [Theory]
-    [InlineData("none", false)]
-    [InlineData("double", false)]
-    [InlineData("none", true)]
-    [InlineData("double", true)]
-    public void Read_UnsupportedStemValue_ThrowsReadableError(string stemValue, bool isRest)
+    [InlineData("none", false, typeof(NotSupportedException))]
+    [InlineData("double", false, typeof(NotSupportedException))]
+    [InlineData("none", true, typeof(NotSupportedException))]
+    [InlineData("double", true, typeof(NotSupportedException))]
+    [InlineData("sideways", false, typeof(InvalidDataException))]
+    [InlineData("sideways", true, typeof(InvalidDataException))]
+    public void Read_BadStemValue_ThrowsReadableError(string stemValue, bool isRest, Type expectedExceptionType)
     {
         string noteKind = isRest
             ? "<rest />"
             : "<pitch><step>C</step><octave>4</octave></pitch>";
-        var exception = Assert.Throws<NotSupportedException>(() => ReadNotes($$"""
+        var exception = Assert.Throws(expectedExceptionType, () => ReadNotes($$"""
             <note>
               {{noteKind}}
               <duration>1</duration><type>eighth</type><stem>{{stemValue}}</stem>
@@ -328,25 +330,6 @@ public sealed class MusicXmlScoreReaderTests
 
         Assert.Contains("<stem>", exception.Message);
         Assert.Contains(stemValue, exception.Message);
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Read_InvalidStemValue_ThrowsReadableError(bool isRest)
-    {
-        string noteKind = isRest
-            ? "<rest />"
-            : "<pitch><step>C</step><octave>4</octave></pitch>";
-        var exception = Assert.Throws<InvalidDataException>(() => ReadNotes($$"""
-            <note>
-              {{noteKind}}
-              <duration>1</duration><type>eighth</type><stem>sideways</stem>
-            </note>
-            """));
-
-        Assert.Contains("<stem>", exception.Message);
-        Assert.Contains("sideways", exception.Message);
     }
 
     [Theory]

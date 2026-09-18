@@ -70,9 +70,8 @@ public sealed class WebAudioSessionTests
         Assert.Equal(WebAudioSession.DefaultNoteVelocity, module.Arguments["noteOn"]![4]);
         var scheduleArguments = Assert.Single(module.Arguments["scheduleScore"]!);
         var scheduleBatch = Assert.IsAssignableFrom<Array>(scheduleArguments);
-        var command = Assert.Single(scheduleBatch.Cast<object>());
-        var velocity = command.GetType().GetProperty("Velocity")?.GetValue(command);
-        Assert.Equal(WebAudioSession.DefaultNoteVelocity, velocity);
+        dynamic command = Assert.Single(scheduleBatch.Cast<object>());
+        Assert.Equal(WebAudioSession.DefaultNoteVelocity, (int)command.Velocity);
     }
 
     [Theory]

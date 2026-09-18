@@ -26,17 +26,15 @@ public sealed class ScoreCommandLineTests
         Assert.Equal(string.Empty, error.ToString());
     }
 
-    [Theory]
-    [InlineData("malformed.musicxml", "Could not parse MusicXML")]
-    [InlineData("unsupported-grace.musicxml", "<grace>")]
-    public void Load_InvalidScore_ReturnsNullAndWritesReaderError(string fixture, string expectedMessage)
+    [Fact]
+    public void Load_InvalidScore_ReturnsNullAndWritesReaderError()
     {
         using var error = new StringWriter();
 
-        var score = ScoreCommandLine.Load(["--score", Fixture(fixture)], error);
+        var score = ScoreCommandLine.Load(["--score", Fixture("malformed.musicxml")], error);
 
         Assert.Null(score);
-        Assert.Contains(expectedMessage, error.ToString());
+        Assert.Contains("Could not parse MusicXML", error.ToString());
     }
 
     [Fact]

@@ -80,6 +80,17 @@ public sealed class PcmWaveformTests
             $"Expected late-window RMS ({lateRms:F1}) well below early-window RMS ({earlyRms:F1}) for {frequency} Hz.");
     }
 
+    [Theory]
+    [InlineData(440.0, 3.0)]
+    [InlineData(27.5, 9.094)]
+    [InlineData(7040.0, 0.990)]
+    public void NaturalDecaySeconds_Frequency_UsesUnclampedDecay(double frequency, double expectedSeconds)
+    {
+        double duration = PCM.NaturalDecaySeconds(frequency);
+
+        Assert.Equal(expectedSeconds, duration, 3);
+    }
+
     private static double Rms(short[] buffer, int start, int length)
     {
         double sumOfSquares = 0;

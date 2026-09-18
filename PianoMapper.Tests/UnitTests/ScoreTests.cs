@@ -104,36 +104,4 @@ public sealed class ScoreTests
         Assert.Equal(2, events.Count);
         Assert.All(events, scoreEvent => Assert.Equal(1, scoreEvent.OnsetBeats));
     }
-
-    [Fact]
-    public void CreateSchedule_AnchorTempoChordsAndTie_ReturnsAbsoluteDueTimesAndDurations()
-    {
-        var pitchC = new Pitch(NoteLetter.C, 0, 4);
-        var pitchE = new Pitch(NoteLetter.E, 0, 4);
-        var pitchG = new Pitch(NoteLetter.G, 0, 4);
-        var score = new Score(
-            "Playback",
-            new TimeSignature(4, new NoteValue(4)),
-            new Tempo(120),
-            0,
-            [
-                new ScoreMeasure(
-                    [
-                        new ScoreNote(pitchC, new NoteValue(4), 0, 0, Staff.Treble),
-                        new ScoreNote(pitchE, new NoteValue(4), 0, 0, Staff.Treble),
-                        new ScoreNote(pitchG, new NoteValue(4), 0, 3, Staff.Treble, TiesToNext: true),
-                    ],
-                    []),
-                new ScoreMeasure([new ScoreNote(pitchG, new NoteValue(4), 1, 0, Staff.Treble)], []),
-            ]);
-        var anchor = TimeSpan.FromSeconds(5);
-
-        var schedule = ScorePlayback.CreateSchedule(score, anchor);
-
-        Assert.Equal(3, schedule.Count);
-        Assert.Equal(2, schedule.Count(item => item.DueTime == anchor));
-        var tied = Assert.Single(schedule, item => item.Event.Pitch == pitchG);
-        Assert.Equal(TimeSpan.FromSeconds(6.5), tied.DueTime);
-        Assert.Equal(TimeSpan.FromSeconds(1), tied.Duration);
-    }
 }

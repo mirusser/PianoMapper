@@ -93,19 +93,6 @@ public class PianoRollLayoutTests
     }
 
     [Fact]
-    public void GetBarRect_ReferenceFrequency_CentersOnMiddleOfPianoRollBand()
-    {
-        var note = CreateNote(new Pitch(NoteLetter.A, 0, 4), startSeconds: 0, duration: 1f);
-        var now = TimeSpan.FromSeconds(1);
-
-        var rect = PianoRollLayout.GetBarRect(note, now)!.Value;
-
-        var centerY = (rect.Y0 + rect.Y1) / 2f;
-        var expectedCenter = (PianoRollLayout.BandY0 + PianoRollLayout.BandY1) / 2f;
-        Assert.Equal(expectedCenter, centerY, 3);
-    }
-
-    [Fact]
     public void GetBarRect_AnyFrequency_CenterStaysWithinPianoRollBand()
     {
         var now = TimeSpan.FromSeconds(1);

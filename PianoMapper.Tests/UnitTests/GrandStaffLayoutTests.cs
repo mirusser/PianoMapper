@@ -283,9 +283,10 @@ public sealed class GrandStaffLayoutTests
         var signature = new TimeSignature(4, new NoteValue(4));
 
         float cursorX = GrandStaffLayout.MapAbsoluteBeatToScoreX(5, signature, firstVisibleMeasure: 0);
-        float expectedX = GrandStaffLayout.MapScoreOnsetToX(1, 1, signature, firstVisibleMeasure: 0);
 
-        Assert.Equal(expectedX, cursorX);
+        // Beat 5 in 4/4 time is measure 1, beat offset 1 (1.25 measures into a 5-measure window):
+        // ScoreX0 + (1.25 / 5) * (ScoreX1 - ScoreX0).
+        Assert.Equal(-0.18f, cursorX, 5);
     }
 
     [Fact]
@@ -369,7 +370,7 @@ public sealed class GrandStaffLayoutTests
     }
 
     [Fact]
-    public void GetLiveNoteSegmentLayouts_NoteWithinMeasure_ReturnsUntiedFragmentMatchingLegacyLayout()
+    public void GetLiveNoteSegmentLayouts_NoteWithinMeasure_ReturnsUntiedFragmentAtMappedBeatPositions()
     {
         var signature = new TimeSignature(4, new NoteValue(4));
         var tempo = new Tempo(120);
@@ -384,17 +385,11 @@ public sealed class GrandStaffLayoutTests
             endTime,
             signature,
             tempo));
-        var legacyLayout = GrandStaffLayout.GetLiveNoteLayout(
-            pitch,
-            startTime,
-            endTime,
-            endTime,
-            signature,
-            tempo);
 
-        Assert.NotNull(legacyLayout);
-        Assert.Equal(legacyLayout.Value.X, segment.X);
-        Assert.Equal(legacyLayout.Value.DurationEndX, segment.DurationEndX);
+        Assert.Equal(GrandStaffLayout.MapAbsoluteBeatToScoreX(1, signature, firstVisibleMeasure: 0), segment.X);
+        Assert.Equal(
+            GrandStaffLayout.MapAbsoluteBeatToScoreX(3, signature, firstVisibleMeasure: 0),
+            segment.DurationEndX);
         Assert.Equal(1, segment.StartBeat);
         Assert.Equal(3, segment.EndBeat);
         Assert.False(segment.HasIncomingTie);

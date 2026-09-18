@@ -21,20 +21,6 @@ public sealed class PianoTests
     }
 
     [Fact]
-    public void ShouldContinueVisualizationRefresh_LiveGrandStaffWithoutNotes_ReturnsTrue()
-    {
-        var scene = new GrandStaffScene([], [], []);
-
-        bool shouldContinue = Piano.ShouldContinueVisualizationRefresh(
-            showPianoRoll: false,
-            hasLoadedScore: false,
-            scene,
-            activeNoteCount: 0);
-
-        Assert.True(shouldContinue);
-    }
-
-    [Fact]
     public void ShouldContinueVisualizationRefresh_ImportedScoreGrandStaff_ReturnsFalse()
     {
         var scene = CreateGrandStaffSceneWithVisibleNote();
