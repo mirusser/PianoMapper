@@ -116,7 +116,14 @@ internal static class GrandStaffSceneBuilder
         int clampedMeasure = ClampFirstVisibleMeasure(score, firstVisibleMeasure);
         var visibleNotes = new List<(ScoreNote Note, ScoreNoteLayout Layout)>();
         var visibleNoteAddresses = new List<ScoreNoteAddress>();
-        for (int measureIndex = 0; measureIndex < score.Measures.Count; measureIndex++)
+        // GetScoreNoteLayout below culls any note whose MeasureIndex falls outside
+        // [clampedMeasure, clampedMeasure + VisibleMeasureCount), so only that range can ever
+        // contribute a note — bound the loop to it instead of scanning the whole score, which
+        // otherwise makes every measure-window advance cost O(notes in the entire piece).
+        int lastMeasureIndexExclusive = Math.Min(
+            score.Measures.Count,
+            clampedMeasure + GrandStaffLayout.VisibleMeasureCount);
+        for (int measureIndex = clampedMeasure; measureIndex < lastMeasureIndexExclusive; measureIndex++)
         {
             ScoreMeasure measure = score.Measures[measureIndex];
             for (int noteIndex = 0; noteIndex < measure.Notes.Count; noteIndex++)
