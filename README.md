@@ -13,6 +13,7 @@ PianoMapper captures piano performances and renders them as notation. The reposi
 - A shared PostgreSQL score library that saves the current imported score and loads it again without repeating MusicXML parsing or image recognition.
 - Scheduled score playback, measure navigation, a tempo cursor, and random-measure playback. In the browser, imported scores keep the current five-measure grand-staff page and the next page visible together; playback and Practice alternate between those rows without replacing the row being played.
 - Count-in practice with pitch/timing/duration verdicts and an accuracy summary.
+- Selectable idle score checking for pitch/order only, written hold duration, or hold duration plus tempo-relative rhythm.
 - Generated, self-paced note-reading exercises with treble or bass ranges, highlighted prompts, first-try accuracy, and mistake counts.
 - Optional browser metronome with accented downbeats, on-tempo feedback, and adjustable timing tolerance.
 - Piano-style multi-harmonic synthesis, oscilloscope, and spectrum.
@@ -137,6 +138,7 @@ The manual browser checklist and current evidence are in [docs/browser-test-matr
 - OMR output depends on scan quality and Audiveris recognition. The image importer corrects the narrow beginner-score case where an isolated fingering `3` is exported as an unbeamed quarter-note triplet. Fingering mistakes can be corrected on the grand staff; pitch, rhythm, and other recognition mistakes still require an external score editor.
 - A touch piano, accounts, backend synchronization, and mobile-specific layout are outside the current browser release.
 - Web MIDI input and FP-10 output depend on browser support, MIDI permission, and a secure context; the browser app reports when any of these prevent connection.
+- Web MIDI sustain-pedal control changes are not interpreted; hold-duration checking ends a note when its key sends note-off.
 - The desktop app uses OpenAL PCM synthesis. The browser's Synth and PC piano sources use Web Audio with equivalent note lifecycle; the FP-10 source sends MIDI rather than browser audio.
 - Desktop note-off stops its source immediately and can produce a small click. The browser applies a short release envelope.
 

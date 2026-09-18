@@ -6,12 +6,16 @@
         <button type="button" @onclick="Abort" disabled="@(!IsActive)">
             Abort practice (C)
         </button>
-        <label class="control-checkbox">
-            <input type="checkbox"
-                   checked="@CheckNotesWhileIdle"
-                   @onchange="SetCheckNotesWhileIdleAsync"
-                   disabled="@(State != PracticeSessionState.Idle)" />
-            Check notes while idle
+        <label class="octave-picker">
+            Idle note checking
+            <select value="@IdleNoteReadingMode"
+                    @onchange="SetIdleNoteReadingModeAsync"
+                    disabled="@(State != PracticeSessionState.Idle)">
+                <option value="@NoteReadingMode.Off">Off</option>
+                <option value="@NoteReadingMode.PitchAndOrder">Pitch &amp; order</option>
+                <option value="@NoteReadingMode.PitchAndHold">Pitch, order &amp; holds</option>
+                <option value="@NoteReadingMode.PitchHoldAndRhythm">Pitch, holds &amp; rhythm</option>
+            </select>
         </label>
     </div>
     <p role="status">
@@ -38,12 +42,21 @@
         <summary>How practice feedback works</summary>
         <p>
             The count-in gives you one measure of beats before playing starts. Accuracy is the percentage of expected
-            notes graded correct.
+            notes graded correct. Its verdict definitions are listed below.
+        </p>
+        <p>
+            While Practice is idle, <strong>Pitch &amp; order</strong> advances when the highlighted pitches are pressed.
+            <strong>Pitch, order &amp; holds</strong> also checks releases against written note values while leaving note
+            starts self-paced. <strong>Pitch, holds &amp; rhythm</strong> additionally checks later note starts against the
+            score tempo, anchored by your first correct pitch.
         </p>
         <dl class="music-term-grid practice-term-grid">
             <div>
                 <dt>Correct</dt>
-                <dd>You played the expected pitch close enough to the score's start time and duration.</dd>
+                <dd>
+                    In count-in Practice or the full rhythm idle mode, you played the expected pitch close enough to its
+                    start time and duration. Pitch/order mode ignores timing; hold mode ignores onset timing.
+                </dd>
             </div>
             <div>
                 <dt>Wrong pitch</dt>
@@ -93,7 +106,7 @@
     public bool IsActive { get; set; }
 
     [Parameter]
-    public bool CheckNotesWhileIdle { get; set; }
+    public NoteReadingMode IdleNoteReadingMode { get; set; }
 
     [Parameter]
     public EventCallback Start { get; set; }
@@ -102,8 +115,10 @@
     public EventCallback Abort { get; set; }
 
     [Parameter]
-    public EventCallback<bool> CheckNotesWhileIdleChanged { get; set; }
+    public EventCallback<NoteReadingMode> IdleNoteReadingModeChanged { get; set; }
 
-    private Task SetCheckNotesWhileIdleAsync(ChangeEventArgs eventArgs) =>
-        CheckNotesWhileIdleChanged.InvokeAsync(eventArgs.Value is true);
+    private Task SetIdleNoteReadingModeAsync(ChangeEventArgs eventArgs) =>
+        Enum.TryParse(eventArgs.Value?.ToString(), out NoteReadingMode mode) && Enum.IsDefined(mode)
+            ? IdleNoteReadingModeChanged.InvokeAsync(mode)
+            : Task.CompletedTask;
 }

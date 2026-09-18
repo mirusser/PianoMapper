@@ -120,6 +120,34 @@ public sealed class GrandStaffSceneCacheTests
     }
 
     [Fact]
+    public void BuildScore_NoteReadingVerdictChanges_RebuildsNotesWithReleasedHoldVerdict()
+    {
+        var cache = new GrandStaffSceneCache();
+        var sourceNote = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
+        var score = new Score(
+            "test",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure([sourceNote], [])]);
+        var session = new NoteReadingSession();
+        session.Reset(
+            score,
+            NoteReadingMode.PitchAndHold,
+            TimeSpan.FromMilliseconds(60));
+
+        cache.BuildScore(score, firstVisibleMeasure: 0, verdicts: session.Verdicts);
+        session.Check(sourceNote.Pitch, TimeSpan.Zero);
+        session.Release(sourceNote.Pitch, TimeSpan.FromMilliseconds(100));
+        var released = cache.BuildScore(
+            score,
+            firstVisibleMeasure: 0,
+            verdicts: session.Verdicts);
+
+        Assert.Equal(Verdict.TooShort, Assert.Single(released.Notes).Verdict);
+    }
+
+    [Fact]
     public void BuildScore_ExpectedNotesChange_RebuildsActiveScoreNote()
     {
         var cache = new GrandStaffSceneCache();

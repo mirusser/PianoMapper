@@ -158,7 +158,8 @@
                             <dt>On-time tolerance</dt>
                             <dd>
                                 With Normal selected, PianoMapper marks onsets within 60 ms of their expected time as on
-                                time. Larger deviations are early or late.
+                                time. Larger deviations are early or late. Hold-aware idle checking uses the same tolerance
+                                around each expected release time.
                             </dd>
                         </div>
                     </dl>
@@ -256,10 +257,10 @@
                                    TotalCountInTicks="@loadedScore.TimeSignature.Numerator"
                                    CanStart="@AudioSession.IsInitialized"
                                    IsActive="@practiceCoordinator.IsActive"
-                                   CheckNotesWhileIdle="@checkNotesWhileIdle"
+                                   IdleNoteReadingMode="@idleNoteReadingMode"
                                    Start="StartPracticeAsync"
                                    Abort="AbortPracticeFromControlAsync"
-                                   CheckNotesWhileIdleChanged="SetCheckNotesWhileIdleAsync" />
+                                   IdleNoteReadingModeChanged="SetIdleNoteReadingModeAsync" />
                 }
             </section>
 
@@ -506,7 +507,7 @@
     private bool showFingerings = true;
     private bool isFingeringEditing;
     private bool isFingeringGenerating;
-    private bool checkNotesWhileIdle = true;
+    private NoteReadingMode idleNoteReadingMode = NoteReadingMode.PitchAndOrder;
     private Staff sightReadingStaff = Staff.Treble;
     private SightReadingDifficulty sightReadingDifficulty = SightReadingDifficulty.Starter;
     private int sightReadingMeasureCount = 2;
@@ -546,7 +547,12 @@
 
     private bool IsSightReadingExerciseActive => sightReadingExerciseScore is not null;
 
-    private bool IsNoteCheckingEnabled => IsSightReadingExerciseActive || checkNotesWhileIdle;
+    private bool IsNoteCheckingEnabled =>
+        IsSightReadingExerciseActive || idleNoteReadingMode != NoteReadingMode.Off;
+
+    private NoteReadingMode ActiveNoteReadingMode => IsSightReadingExerciseActive
+        ? NoteReadingMode.PitchAndOrder
+        : idleNoteReadingMode;
 
     private int NotationMeasureNumberOffset => IsSightReadingExerciseActive ? 0 : selectedFirstMeasure;
 
@@ -576,7 +582,7 @@
             ScorePlaybackSession.IsActive,
             practiceCoordinator.State != PracticeSessionState.Idle);
 
-    private bool IsSelfPacedNoteCheckingActive =>
+    private bool IsIdleNoteCheckingActive =>
         IsNoteCheckingEnabled &&
         NotationScore is not null &&
         !showPianoRoll &&
@@ -1176,6 +1182,7 @@
         TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync();
         midiInputState.Clear(currentTime);
         await AudioSession.ClearAsync(currentTime);
+        ResetNoteReadingSession();
         await practiceCoordinator.StartAsync(
             score,
             new GradingOptions { OnTimeTolerance = onTimeTolerance });
@@ -1354,13 +1361,21 @@
         return ApplyTimingAsync(displayTimeSignature, new Tempo(beatsPerMinute));
     }
 
-    private Task SelectOnTimeToleranceAsync(ChangeEventArgs eventArgs)
+    private async Task SelectOnTimeToleranceAsync(ChangeEventArgs eventArgs)
     {
         int milliseconds = int.Parse((string)eventArgs.Value!, CultureInfo.InvariantCulture);
         onTimeTolerance = TimeSpan.FromMilliseconds(milliseconds);
         tempoFeedbackTracker.Reset();
+        if (IsIdleNoteCheckingActive && ActiveNoteReadingMode != NoteReadingMode.PitchAndOrder)
+        {
+            ResetNoteReadingSession();
+            TimeSpan currentTime = AudioSession.IsInitialized
+                ? await AudioSession.GetCurrentTimeAsync()
+                : TimeSpan.Zero;
+            RefreshCanvasScene(currentTime);
+        }
+
         audioStatus = $"On-time tolerance set to {milliseconds} ms.";
-        return Task.CompletedTask;
     }
 
     private async Task ToggleMetronomeAsync()
@@ -1619,9 +1634,9 @@
         selectedScoreNoteAddress = null;
     }
 
-    private async Task SetCheckNotesWhileIdleAsync(bool isEnabled)
+    private async Task SetIdleNoteReadingModeAsync(NoteReadingMode mode)
     {
-        checkNotesWhileIdle = isEnabled;
+        idleNoteReadingMode = mode;
         ResetNoteReadingSession();
         TimeSpan currentTime = AudioSession.IsInitialized
             ? await AudioSession.GetCurrentTimeAsync()
@@ -1629,9 +1644,15 @@
         RefreshCanvasScene(currentTime);
         audioStatus = IsSightReadingExerciseActive
             ? "The note reading exercise remains active. Play the highlighted note."
-            : isEnabled
-                ? "Idle note checking enabled. Play the highlighted score note."
-                : "Idle note checking disabled.";
+            : mode switch
+            {
+                NoteReadingMode.Off => "Idle note checking disabled.",
+                NoteReadingMode.PitchAndOrder => "Pitch and order checking enabled. Play the highlighted score note.",
+                NoteReadingMode.PitchAndHold => "Hold checking enabled. Play and hold the highlighted score notes.",
+                NoteReadingMode.PitchHoldAndRhythm =>
+                    "Rhythm checking enabled. Your first correct pitch starts the tempo timeline.",
+                _ => throw new InvalidOperationException($"Unsupported note reading mode: {mode}."),
+            };
     }
 
     private async Task ResetScoreHighlightsAsync()
@@ -1780,9 +1801,11 @@
                     command.EventTime,
                     velocity: command.Velocity);
                 tempoFeedbackTracker.Record(command.EventTime, Metronome.Grid, onTimeTolerance);
-                if (IsSelfPacedNoteCheckingActive)
+                if (IsIdleNoteCheckingActive)
                 {
-                    NoteReadingSession.CheckResult result = noteReadingSession.Check(command.Pitch.Value);
+                    NoteReadingSession.CheckResult result = noteReadingSession.Check(
+                        command.Pitch.Value,
+                        command.EventTime);
                     if (!result.IsCorrect && !result.IsComplete && command.Note is { } wrongNote)
                     {
                         wrongScoreInputNotes.Add(wrongNote);
@@ -1797,9 +1820,15 @@
                 break;
             case BrowserInputCommandKind.NoteOff:
                 await AudioSession.StopNoteAsync(command.NoteId!, command.EventTime);
-                if (IsSelfPacedNoteCheckingActive && command.Pitch is { } releasedPitch)
+                if (IsIdleNoteCheckingActive && command.Pitch is { } releasedPitch)
                 {
-                    noteReadingSession.Release(releasedPitch);
+                    NoteReadingSession.ReleaseResult result = noteReadingSession.Release(
+                        releasedPitch,
+                        command.EventTime);
+                    if (result.WasTracked && result.Verdict.HasValue)
+                    {
+                        audioStatus = GetNoteReadingReleaseStatus(result);
+                    }
                 }
 
                 if (command.Note is { } releasedNote)
@@ -1807,14 +1836,14 @@
                     wrongScoreInputNotes.Remove(releasedNote);
                 }
 
-                if (!IsSelfPacedNoteCheckingActive)
+                if (!IsIdleNoteCheckingActive)
                 {
                     audioStatus = "Audio is ready.";
                 }
                 break;
             case BrowserInputCommandKind.Clear:
                 midiInputState.Clear(command.EventTime);
-                noteReadingSession.ReleaseAll();
+                noteReadingSession.ReleaseAll(command.EventTime);
                 wrongScoreInputNotes.Clear();
                 await StopScorePlaybackAsync();
                 bool metronomeWasRunning = Metronome.IsRunning;
@@ -1843,7 +1872,7 @@
                         : "All notes cleared.";
                 break;
             case BrowserInputCommandKind.ReleaseHeldNotes:
-                noteReadingSession.ReleaseAll();
+                noteReadingSession.ReleaseAll(command.EventTime);
                 wrongScoreInputNotes.Clear();
                 await AudioSession.ClearAsync(command.EventTime);
                 testNoteIsActive = false;
@@ -2106,8 +2135,8 @@
             ResetScoreWindowPair();
         }
 
-        bool isSelfPacedNoteCheckingActive = IsSelfPacedNoteCheckingActive;
-        double? effectiveCursorBeats = cursorBeats ?? (isSelfPacedNoteCheckingActive
+        bool isIdleNoteCheckingActive = IsIdleNoteCheckingActive;
+        double? effectiveCursorBeats = cursorBeats ?? (isIdleNoteCheckingActive
             ? noteReadingSession.CurrentOnsetBeats
             : null);
         if (!cursorBeats.HasValue && effectiveCursorBeats.HasValue)
@@ -2116,8 +2145,8 @@
         }
 
         IReadOnlyDictionary<ScoreNote, Verdict>? effectiveVerdicts = verdicts ??
-            (isSelfPacedNoteCheckingActive ? noteReadingSession.Verdicts : null);
-        IReadOnlySet<ScoreNote>? expectedNotes = isSelfPacedNoteCheckingActive
+            (isIdleNoteCheckingActive ? noteReadingSession.Verdicts : null);
+        IReadOnlySet<ScoreNote>? expectedNotes = isIdleNoteCheckingActive
             ? noteReadingSession.ExpectedNotes
             : null;
 
@@ -2128,7 +2157,7 @@
         }
 
         var performedNotes = noteTimeline.Snapshot(currentTime);
-        IReadOnlySet<PerformedNote>? performedNotesToInclude = isSelfPacedNoteCheckingActive
+        IReadOnlySet<PerformedNote>? performedNotesToInclude = isIdleNoteCheckingActive
             ? wrongScoreInputNotes
             : null;
         int upperFirstMeasure = scoreWindowPair?.UpperFirstMeasure ?? 0;
@@ -2188,7 +2217,10 @@
 
     private void ResetNoteReadingSession()
     {
-        noteReadingSession.Reset(IsNoteCheckingEnabled ? NotationScore : null);
+        noteReadingSession.Reset(
+            IsNoteCheckingEnabled ? NotationScore : null,
+            ActiveNoteReadingMode,
+            onTimeTolerance);
         wrongScoreInputNotes.Clear();
     }
 
@@ -2217,6 +2249,24 @@
                 : $"{pitch} is not the highlighted note. Try again.";
         }
 
+        if (ActiveNoteReadingMode == NoteReadingMode.PitchHoldAndRhythm &&
+            result.Verdict is Verdict.Early or Verdict.Late)
+        {
+            return $"Right pitch, but {result.Verdict.ToString()!.ToLowerInvariant()}. Continue with the highlighted notes.";
+        }
+
+        if (ActiveNoteReadingMode != NoteReadingMode.PitchAndOrder)
+        {
+            if (result.IsComplete)
+            {
+                return "Correct. Idle note check complete.";
+            }
+
+            return result.DidAdvance
+                ? "Correct attack. Keep the highlighted held notes sounding for their written durations."
+                : "Correct attack. Continue with the highlighted chord notes.";
+        }
+
         if (result.IsComplete)
         {
             return "Correct. Idle note check complete.";
@@ -2225,6 +2275,30 @@
         return result.DidAdvance
             ? "Correct. The next score note is highlighted."
             : "Correct. Continue with the highlighted chord notes.";
+    }
+
+    private static string GetNoteReadingReleaseStatus(NoteReadingSession.ReleaseResult result)
+    {
+        var feedback = new List<string>();
+        if (result.OnsetVerdict is Verdict.Early or Verdict.Late)
+        {
+            feedback.Add($"The pitch was started {result.OnsetVerdict.ToString()!.ToLowerInvariant()}.");
+        }
+
+        string durationStatus = result.DurationVerdict switch
+        {
+            Verdict.Correct when feedback.Count == 0 => "Correct hold duration.",
+            Verdict.TooShort => "That note was released too soon.",
+            Verdict.TooLong => "That note was held too long.",
+            _ => string.Empty,
+        };
+        if (durationStatus.Length > 0)
+        {
+            feedback.Add(durationStatus);
+        }
+
+        string status = string.Join(' ', feedback);
+        return result.IsComplete ? $"{status} Idle note check complete." : status;
     }
 
     private void RefreshKeyboardState(TimeSpan currentTime)
