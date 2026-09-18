@@ -487,13 +487,10 @@
     private int selectedLastMeasure;
     private ScoreGrandStaffWindowPair.State? scoreWindowPair;
     private ScoreNoteAddress? selectedScoreNoteAddress;
-    private CancellationTokenSource? playbackRefreshCancellation;
-    private Task? playbackRefreshTask;
+    private readonly AsyncTicker playbackTicker = new();
     private BrowserPracticeCoordinator practiceCoordinator = null!;
-    private CancellationTokenSource? practiceRefreshCancellation;
-    private Task? practiceRefreshTask;
-    private CancellationTokenSource? visualizationRefreshCancellation;
-    private Task? visualizationRefreshTask;
+    private readonly AsyncTicker practiceTicker = new();
+    private readonly AsyncTicker visualizationTicker = new();
     private string audioStatus = "Starting audio...";
     private string midiStatus = "No MIDI piano connected.";
     private IReadOnlyList<string> midiInputNames = [];
@@ -1047,8 +1044,8 @@
         ExitFingeringEditMode();
         sightReadingExerciseScore = null;
         await AbortPracticeAsync(updateStatus: false);
-        await CancelVisualizationRefreshAsync();
-        await CancelPlaybackRefreshAsync();
+        await visualizationTicker.StopAsync();
+        await playbackTicker.StopAsync();
         ResetNoteReadingSession();
         ResetScoreWindowPair();
         await ScorePlaybackSession.StartAsync(score);
@@ -1056,8 +1053,7 @@
         displayTempo = score.Tempo;
         RefreshCanvasScene(await AudioSession.GetCurrentTimeAsync());
         UpdateScoreCursorStates();
-        playbackRefreshCancellation = new CancellationTokenSource();
-        playbackRefreshTask = RefreshScorePlaybackAsync(playbackRefreshCancellation.Token);
+        playbackTicker.Start(TickScorePlaybackAsync, CanvasRefreshInterval);
         audioStatus = $"Playing {score.Title}, {SelectedMeasureRangeLabel}.";
     }
 
@@ -1105,7 +1101,7 @@
         ExitFingeringEditMode();
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
-        await CancelVisualizationRefreshAsync();
+        await visualizationTicker.StopAsync();
         if (Metronome.IsRunning)
         {
             await StopMetronomeAsync();
@@ -1177,7 +1173,7 @@
 
         await StopScorePlaybackAsync();
         await AbortPracticeAsync(updateStatus: false);
-        await CancelVisualizationRefreshAsync();
+        await visualizationTicker.StopAsync();
         ResetScoreWindowPair();
         TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync();
         midiInputState.Clear(currentTime);
@@ -1186,8 +1182,7 @@
         await practiceCoordinator.StartAsync(
             score,
             new GradingOptions { OnTimeTolerance = onTimeTolerance });
-        practiceRefreshCancellation = new CancellationTokenSource();
-        practiceRefreshTask = RefreshPracticeAsync(practiceRefreshCancellation.Token);
+        practiceTicker.Start(TickPracticeAsync, CanvasRefreshInterval);
         RefreshCanvasScene(currentTime);
         audioStatus = "Practice count-in started.";
     }
@@ -1204,7 +1199,7 @@
 
     private async Task StopScorePlaybackAsync()
     {
-        await CancelPlaybackRefreshAsync();
+        await playbackTicker.StopAsync();
         scheduledKeyboardNotes = [];
         scoreCursorState = null;
         secondaryScoreCursorState = null;
@@ -1723,7 +1718,7 @@
 
     public async ValueTask DisposeAsync()
     {
-        await CancelVisualizationRefreshAsync();
+        await visualizationTicker.StopAsync();
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
         if (Metronome.IsRunning)
@@ -1795,92 +1790,16 @@
             case BrowserInputCommandKind.None:
                 return;
             case BrowserInputCommandKind.NoteOn:
-                await AudioSession.StartNoteAsync(
-                    command.NoteId!,
-                    command.Pitch!.Value,
-                    command.EventTime,
-                    velocity: command.Velocity);
-                tempoFeedbackTracker.Record(command.EventTime, Metronome.Grid, onTimeTolerance);
-                if (IsIdleNoteCheckingActive)
-                {
-                    NoteReadingSession.CheckResult result = noteReadingSession.Check(
-                        command.Pitch.Value,
-                        command.EventTime);
-                    if (!result.IsCorrect && !result.IsComplete && command.Note is { } wrongNote)
-                    {
-                        wrongScoreInputNotes.Add(wrongNote);
-                    }
-
-                    audioStatus = GetNoteReadingStatus(command.Pitch.Value, result);
-                }
-                else
-                {
-                    audioStatus = $"Playing {command.Pitch}.";
-                }
+                await HandleNoteOnCommandAsync(command);
                 break;
             case BrowserInputCommandKind.NoteOff:
-                await AudioSession.StopNoteAsync(command.NoteId!, command.EventTime);
-                if (IsIdleNoteCheckingActive && command.Pitch is { } releasedPitch)
-                {
-                    NoteReadingSession.ReleaseResult result = noteReadingSession.Release(
-                        releasedPitch,
-                        command.EventTime);
-                    if (result.WasTracked && result.Verdict.HasValue)
-                    {
-                        audioStatus = GetNoteReadingReleaseStatus(result);
-                    }
-                }
-
-                if (command.Note is { } releasedNote)
-                {
-                    wrongScoreInputNotes.Remove(releasedNote);
-                }
-
-                if (!IsIdleNoteCheckingActive)
-                {
-                    audioStatus = "Audio is ready.";
-                }
+                await HandleNoteOffCommandAsync(command);
                 break;
             case BrowserInputCommandKind.Clear:
-                midiInputState.Clear(command.EventTime);
-                noteReadingSession.ReleaseAll(command.EventTime);
-                wrongScoreInputNotes.Clear();
-                await StopScorePlaybackAsync();
-                bool metronomeWasRunning = Metronome.IsRunning;
-                if (metronomeWasRunning)
-                {
-                    await StopMetronomeAsync();
-                }
-                else
-                {
-                    tempoFeedbackTracker.Reset();
-                }
-
-                bool practiceWasActive = practiceCoordinator.State != PracticeSessionState.Idle;
-                await CancelPracticeRefreshAsync();
-                if (practiceWasActive)
-                {
-                    await practiceCoordinator.AbortAsync();
-                }
-
-                await AudioSession.ClearAsync(command.EventTime);
-                testNoteIsActive = false;
-                audioStatus = metronomeWasRunning
-                    ? "Metronome off."
-                    : practiceWasActive
-                        ? "Practice aborted."
-                        : "All notes cleared.";
+                await HandleClearCommandAsync(command);
                 break;
             case BrowserInputCommandKind.ReleaseHeldNotes:
-                noteReadingSession.ReleaseAll(command.EventTime);
-                wrongScoreInputNotes.Clear();
-                await AudioSession.ClearAsync(command.EventTime);
-                testNoteIsActive = false;
-                if (!ScorePlaybackSession.IsActive)
-                {
-                    audioStatus = "Held notes released.";
-                }
-
+                await HandleReleaseHeldNotesCommandAsync(command);
                 break;
             case BrowserInputCommandKind.OctaveChanged:
                 audioStatus = $"Octave {keyboardState.CurrentOctave} selected.";
@@ -1920,107 +1839,176 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task RefreshScorePlaybackAsync(CancellationToken cancellationToken)
+    private async Task HandleNoteOnCommandAsync(BrowserInputCommand command)
     {
-        try
+        await AudioSession.StartNoteAsync(
+            command.NoteId!,
+            command.Pitch!.Value,
+            command.EventTime,
+            velocity: command.Velocity);
+        tempoFeedbackTracker.Record(command.EventTime, Metronome.Grid, onTimeTolerance);
+        if (IsIdleNoteCheckingActive)
         {
-            while (!cancellationToken.IsCancellationRequested && selectedScore is not null)
+            NoteReadingSession.CheckResult result = noteReadingSession.Check(
+                command.Pitch.Value,
+                command.EventTime);
+            if (!result.IsCorrect && !result.IsComplete && command.Note is { } wrongNote)
             {
-                TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync(cancellationToken);
-
-                double? cursorBeats = ScorePlaybackSession.GetCursorBeats(currentTime);
-                bool scoreWindowChanged = !showPianoRoll && cursorBeats.HasValue
-                    && UpdateScoreWindowPairFromCursor(cursorBeats.Value);
-
-                if (showPianoRoll || scoreWindowChanged)
-                {
-                    RefreshCanvasScene(currentTime);
-                }
-                else
-                {
-                    RefreshKeyboardState(currentTime);
-                }
-
-                await InvokeAsync(StateHasChanged);
-
-                if (!ScorePlaybackSession.IsActive)
-                {
-                    scoreCursorState = null;
-                    secondaryScoreCursorState = null;
-                    RefreshCanvasScene(currentTime);
-                    audioStatus = "Audio is ready.";
-                    EnsureVisualizationRefresh();
-                    await InvokeAsync(StateHasChanged);
-                    break;
-                }
-
-                await Task.Delay(CanvasRefreshInterval, cancellationToken);
+                wrongScoreInputNotes.Add(wrongNote);
             }
+
+            audioStatus = GetNoteReadingStatus(command.Pitch.Value, result);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        else
         {
+            audioStatus = $"Playing {command.Pitch}.";
         }
     }
 
-    private async Task CancelPlaybackRefreshAsync()
+    private async Task HandleNoteOffCommandAsync(BrowserInputCommand command)
     {
-        if (playbackRefreshCancellation is null)
+        await AudioSession.StopNoteAsync(command.NoteId!, command.EventTime);
+        if (IsIdleNoteCheckingActive && command.Pitch is { } releasedPitch)
         {
-            return;
-        }
-
-        await playbackRefreshCancellation.CancelAsync();
-        if (playbackRefreshTask is not null)
-        {
-            await playbackRefreshTask;
-        }
-
-        playbackRefreshCancellation.Dispose();
-        playbackRefreshCancellation = null;
-        playbackRefreshTask = null;
-    }
-
-    private async Task RefreshPracticeAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            while (!cancellationToken.IsCancellationRequested && selectedScore is not null)
+            NoteReadingSession.ReleaseResult result = noteReadingSession.Release(
+                releasedPitch,
+                command.EventTime);
+            if (result.WasTracked && result.Verdict.HasValue)
             {
-                await practiceCoordinator.UpdateAsync(cancellationToken);
-                double? cursorBeats = practiceCoordinator.State is
-                    PracticeSessionState.Running or PracticeSessionState.Finished
-                        ? practiceCoordinator.CursorBeats
-                        : null;
-                RefreshCanvasScene(
-                    practiceCoordinator.CurrentTime,
-                    cursorBeats,
-                    practiceCoordinator.GetVisibleVerdicts());
-                audioStatus = practiceCoordinator.State switch
-                {
-                    PracticeSessionState.CountingIn => "Practice count-in.",
-                    PracticeSessionState.Running => "Practice in progress.",
-                    PracticeSessionState.Finished => "Practice finished.",
-                    _ => audioStatus,
-                };
-                await InvokeAsync(StateHasChanged);
-
-                if (practiceCoordinator.State == PracticeSessionState.Finished)
-                {
-                    EnsureVisualizationRefresh();
-                    break;
-                }
-
-                await Task.Delay(CanvasRefreshInterval, cancellationToken);
+                audioStatus = GetNoteReadingReleaseStatus(result);
             }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+
+        if (command.Note is { } releasedNote)
         {
+            wrongScoreInputNotes.Remove(releasedNote);
         }
+
+        if (!IsIdleNoteCheckingActive)
+        {
+            audioStatus = "Audio is ready.";
+        }
+    }
+
+    private async Task HandleClearCommandAsync(BrowserInputCommand command)
+    {
+        midiInputState.Clear(command.EventTime);
+        noteReadingSession.ReleaseAll(command.EventTime);
+        wrongScoreInputNotes.Clear();
+        await StopScorePlaybackAsync();
+        bool metronomeWasRunning = Metronome.IsRunning;
+        if (metronomeWasRunning)
+        {
+            await StopMetronomeAsync();
+        }
+        else
+        {
+            tempoFeedbackTracker.Reset();
+        }
+
+        bool practiceWasActive = practiceCoordinator.State != PracticeSessionState.Idle;
+        await practiceTicker.StopAsync();
+        if (practiceWasActive)
+        {
+            await practiceCoordinator.AbortAsync();
+        }
+
+        await AudioSession.ClearAsync(command.EventTime);
+        testNoteIsActive = false;
+        audioStatus = metronomeWasRunning
+            ? "Metronome off."
+            : practiceWasActive
+                ? "Practice aborted."
+                : "All notes cleared.";
+    }
+
+    private async Task HandleReleaseHeldNotesCommandAsync(BrowserInputCommand command)
+    {
+        noteReadingSession.ReleaseAll(command.EventTime);
+        wrongScoreInputNotes.Clear();
+        await AudioSession.ClearAsync(command.EventTime);
+        testNoteIsActive = false;
+        if (!ScorePlaybackSession.IsActive)
+        {
+            audioStatus = "Held notes released.";
+        }
+    }
+
+    private async Task<bool> TickScorePlaybackAsync(CancellationToken cancellationToken)
+    {
+        if (selectedScore is null)
+        {
+            return false;
+        }
+
+        TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync(cancellationToken);
+
+        double? cursorBeats = ScorePlaybackSession.GetCursorBeats(currentTime);
+        bool scoreWindowChanged = !showPianoRoll && cursorBeats.HasValue
+            && UpdateScoreWindowPairFromCursor(cursorBeats.Value);
+
+        if (showPianoRoll || scoreWindowChanged)
+        {
+            RefreshCanvasScene(currentTime);
+        }
+        else
+        {
+            RefreshKeyboardState(currentTime);
+        }
+
+        await InvokeAsync(StateHasChanged);
+
+        if (!ScorePlaybackSession.IsActive)
+        {
+            scoreCursorState = null;
+            secondaryScoreCursorState = null;
+            RefreshCanvasScene(currentTime);
+            audioStatus = "Audio is ready.";
+            EnsureVisualizationRefresh();
+            await InvokeAsync(StateHasChanged);
+            return false;
+        }
+
+        return true;
+    }
+
+    private async Task<bool> TickPracticeAsync(CancellationToken cancellationToken)
+    {
+        if (selectedScore is null)
+        {
+            return false;
+        }
+
+        await practiceCoordinator.UpdateAsync(cancellationToken);
+        double? cursorBeats = practiceCoordinator.State is
+            PracticeSessionState.Running or PracticeSessionState.Finished
+                ? practiceCoordinator.CursorBeats
+                : null;
+        RefreshCanvasScene(
+            practiceCoordinator.CurrentTime,
+            cursorBeats,
+            practiceCoordinator.GetVisibleVerdicts());
+        audioStatus = practiceCoordinator.State switch
+        {
+            PracticeSessionState.CountingIn => "Practice count-in.",
+            PracticeSessionState.Running => "Practice in progress.",
+            PracticeSessionState.Finished => "Practice finished.",
+            _ => audioStatus,
+        };
+        await InvokeAsync(StateHasChanged);
+
+        if (practiceCoordinator.State == PracticeSessionState.Finished)
+        {
+            EnsureVisualizationRefresh();
+            return false;
+        }
+
+        return true;
     }
 
     private async Task AbortPracticeAsync(TimeSpan? eventTime = null, bool updateStatus = true)
     {
-        await CancelPracticeRefreshAsync();
+        await practiceTicker.StopAsync();
         if (practiceCoordinator.State == PracticeSessionState.Idle)
         {
             return;
@@ -2045,24 +2033,6 @@
             audioStatus = "Practice aborted.";
             await InvokeAsync(StateHasChanged);
         }
-    }
-
-    private async Task CancelPracticeRefreshAsync()
-    {
-        if (practiceRefreshCancellation is null)
-        {
-            return;
-        }
-
-        await practiceRefreshCancellation.CancelAsync();
-        if (practiceRefreshTask is not null)
-        {
-            await practiceRefreshTask;
-        }
-
-        practiceRefreshCancellation.Dispose();
-        practiceRefreshCancellation = null;
-        practiceRefreshTask = null;
     }
 
     private async Task SetViewAsync(TimeSpan currentTime)
@@ -2091,7 +2061,7 @@
         }
         else
         {
-            await CancelVisualizationRefreshAsync();
+            await visualizationTicker.StopAsync();
         }
     }
 
@@ -2374,7 +2344,7 @@
         if (!AudioSession.IsInitialized ||
             ScorePlaybackSession.IsActive ||
             practiceCoordinator.IsActive ||
-            visualizationRefreshTask is { IsCompleted: false } ||
+            visualizationTicker.IsRunning ||
             !ShouldContinueVisualizationRefresh(
                 showPianoRoll,
                 NotationScore is not null,
@@ -2385,53 +2355,19 @@
             return;
         }
 
-        visualizationRefreshCancellation?.Dispose();
-        visualizationRefreshCancellation = new CancellationTokenSource();
-        visualizationRefreshTask = RefreshVisualizationAsync(visualizationRefreshCancellation.Token);
+        visualizationTicker.Start(TickVisualizationAsync, CanvasRefreshInterval);
     }
 
-    private async Task RefreshVisualizationAsync(CancellationToken cancellationToken)
+    private async Task<bool> TickVisualizationAsync(CancellationToken cancellationToken)
     {
-        try
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync(cancellationToken);
-                RefreshCanvasScene(currentTime);
-                await InvokeAsync(StateHasChanged);
-                if (!ShouldContinueVisualizationRefresh(
-                    showPianoRoll,
-                    NotationScore is not null,
-                    canvasScene,
-                    midiInputState.ActiveNoteCount,
-                    scheduledKeyboardNotes.Count > 0))
-                {
-                    break;
-                }
-
-                await Task.Delay(CanvasRefreshInterval, cancellationToken);
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-    }
-
-    private async Task CancelVisualizationRefreshAsync()
-    {
-        if (visualizationRefreshCancellation is null)
-        {
-            return;
-        }
-
-        await visualizationRefreshCancellation.CancelAsync();
-        if (visualizationRefreshTask is not null)
-        {
-            await visualizationRefreshTask;
-        }
-
-        visualizationRefreshCancellation.Dispose();
-        visualizationRefreshCancellation = null;
-        visualizationRefreshTask = null;
+        TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync(cancellationToken);
+        RefreshCanvasScene(currentTime);
+        await InvokeAsync(StateHasChanged);
+        return ShouldContinueVisualizationRefresh(
+            showPianoRoll,
+            NotationScore is not null,
+            canvasScene,
+            midiInputState.ActiveNoteCount,
+            scheduledKeyboardNotes.Count > 0);
     }
 }

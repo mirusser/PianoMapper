@@ -12,6 +12,22 @@ public static class GrandStaffLayout
     public const float ScoreX1 = 0.96f;
     public const int VisibleMeasureCount = 5;
 
+    // Grand-staff annotation/notation geometry policy. These match the Canvas 2D notehead and
+    // beam/stem proportions in wwwroot/js/canvas.js.
+    public const double GrandStaffVerticalScale = 0.82;
+    public const double StemLength = DiatonicStep * GrandStaffVerticalScale * 6;
+    public const double StaffSeparationOffset = DiatonicStep * 6;
+    public const double NoteLabelOffsetBelowStaff = DiatonicStep * 5;
+    // Five rendered diatonic steps keep 16 px labels separate at the minimum 15 rem score-canvas height.
+    public const double LabelRowSeparation = DiatonicStep * GrandStaffVerticalScale * 5;
+    public const double FingeringRowSeparation = DiatonicStep * GrandStaffVerticalScale * 8;
+    public const double AnnotationBandPadding = DiatonicStep * GrandStaffVerticalScale;
+    public const double AnnotationNotationGap = DiatonicStep * GrandStaffVerticalScale;
+    public const double NoteHeadHalfHeightInStaffSpaces = 0.4;
+    public const double NotationStrokePaddingInStaffSpaces = 0.25;
+    public const double FermataHeightInStaffSpaces = 1.5;
+    public const double FermataClearanceInStaffSpaces = 0.75;
+
     private const int TrebleBottomDiatonicIndex = 30; // E4
     private const int BassBottomDiatonicIndex = 18; // G2
     private const float TrebleBottomY = MiddleCY + (2 * DiatonicStep);
@@ -261,4 +277,187 @@ public static class GrandStaffLayout
 
         return ledgerLineOffsets;
     }
+
+    /// <summary>
+    /// Offsets a single-staff Y (from <see cref="GetPosition"/>, where treble and bass overlap
+    /// around <see cref="MiddleCY"/>) into grand-staff scene space, where the two staves are
+    /// pulled apart by <see cref="StaffSeparationOffset"/> and the whole system is scaled by
+    /// <see cref="GrandStaffVerticalScale"/>.
+    /// </summary>
+    public static double SeparateStaffY(double y, Staff staff) =>
+        (y + (staff == Staff.Treble ? StaffSeparationOffset : -StaffSeparationOffset))
+        * GrandStaffVerticalScale;
+
+    public static double GetRenderedStaffSpace(Staff staff)
+    {
+        IReadOnlyList<float> staffLines = staff == Staff.Treble ? TrebleLineYs : BassLineYs;
+        return GrandStaffVerticalScale * (staffLines[1] - staffLines[0]);
+    }
+
+    public static double GetStaffBottomLineY(Staff staff) =>
+        staff == Staff.Treble ? TrebleLineYs[0] : BassLineYs[0];
+
+    public static double GetStaffLabelY(Staff staff) =>
+        SeparateStaffY(GetStaffBottomLineY(staff) - NoteLabelOffsetBelowStaff, staff);
+
+    public static double GetFermataY(
+        ScoreFermata fermata,
+        double noteY,
+        ScoreNoteLayout layout,
+        double? beamStemEndY)
+    {
+        bool isUpright = fermata == ScoreFermata.Upright;
+        IReadOnlyList<float> staffLines = layout.Position.Staff == Staff.Treble ? TrebleLineYs : BassLineYs;
+        double staffEdgeY = SeparateStaffY(isUpright ? staffLines[^1] : staffLines[0], layout.Position.Staff);
+        double outerY = isUpright
+            ? Math.Max(noteY, staffEdgeY)
+            : Math.Min(noteY, staffEdgeY);
+        if (beamStemEndY.HasValue)
+        {
+            outerY = isUpright
+                ? Math.Max(outerY, beamStemEndY.Value)
+                : Math.Min(outerY, beamStemEndY.Value);
+        }
+        else if (layout.HasStem)
+        {
+            double stemEndY = noteY + (layout.StemDirection == StemDirection.Up ? StemLength : -StemLength);
+            outerY = isUpright
+                ? Math.Max(outerY, stemEndY)
+                : Math.Min(outerY, stemEndY);
+        }
+
+        double direction = isUpright ? 1 : -1;
+        return outerY + (direction * FermataClearanceInStaffSpaces * GetRenderedStaffSpace(layout.Position.Staff));
+    }
+
+    public static double GetNotationBottomY(
+        Staff staff,
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> visibleNotes,
+        IReadOnlyDictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)> beamOverrides)
+    {
+        IReadOnlyList<float> staffLines = staff == Staff.Treble ? TrebleLineYs : BassLineYs;
+        double minimumY = SeparateStaffY(staffLines[0], staff);
+        double renderedStaffSpace = GrandStaffVerticalScale * (staffLines[1] - staffLines[0]);
+        double noteHeadHalfHeight = renderedStaffSpace * NoteHeadHalfHeightInStaffSpaces;
+        double strokePadding = renderedStaffSpace * NotationStrokePaddingInStaffSpaces;
+
+        foreach (var (note, layout) in visibleNotes.Where(item => item.Layout.Position.Staff == staff))
+        {
+            double noteY = SeparateStaffY(layout.Position.Y, staff);
+            minimumY = Math.Min(minimumY, noteY - noteHeadHalfHeight);
+            foreach (float ledgerLineY in layout.Position.LedgerLineYs)
+            {
+                double renderedLedgerY = SeparateStaffY(ledgerLineY, staff);
+                minimumY = Math.Min(minimumY, renderedLedgerY);
+            }
+
+            double? stemEndY = null;
+            if (layout.HasStem)
+            {
+                if (beamOverrides.TryGetValue(note, out var beamOverride))
+                {
+                    stemEndY = beamOverride.StemEndY;
+                }
+                else
+                {
+                    stemEndY = noteY + (layout.StemDirection == StemDirection.Up ? StemLength : -StemLength);
+                }
+
+                minimumY = Math.Min(minimumY, stemEndY.Value - strokePadding);
+            }
+
+            if (note.Fermata == ScoreFermata.Inverted)
+            {
+                double fermataY = GetFermataY(note.Fermata.Value, noteY, layout, stemEndY);
+                minimumY = Math.Min(
+                    minimumY,
+                    fermataY - (FermataHeightInStaffSpaces * renderedStaffSpace / 2) - strokePadding);
+            }
+        }
+
+        return minimumY;
+    }
+
+    public static int[] GetLabelRowIndexes(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> visibleNotes)
+    {
+        var rowIndexes = new int[visibleNotes.Count];
+        var simultaneousNotes = visibleNotes
+            .Select((item, index) => (item.Note, item.Layout, Index: index))
+            .GroupBy(item => (
+                item.Note.MeasureIndex,
+                item.Note.BeatOffset,
+                item.Layout.Position.Staff));
+
+        foreach (var notes in simultaneousNotes)
+        {
+            int rowIndex = 0;
+            foreach (var note in notes
+                         .OrderByDescending(item => item.Note.Pitch.MidiNumber)
+                         .ThenBy(item => item.Index))
+            {
+                rowIndexes[note.Index] = rowIndex;
+                rowIndex++;
+            }
+        }
+
+        return rowIndexes;
+    }
+
+    public static int GetLabelRowCount(
+        Staff staff,
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> visibleNotes,
+        IReadOnlyList<int> labelRowIndexes)
+    {
+        int rowCount = 0;
+        for (int noteIndex = 0; noteIndex < visibleNotes.Count; noteIndex++)
+        {
+            if (visibleNotes[noteIndex].Layout.Position.Staff == staff)
+            {
+                rowCount = Math.Max(rowCount, labelRowIndexes[noteIndex] + 1);
+            }
+        }
+
+        return rowCount;
+    }
+
+    public static AnnotationRows GetAnnotationRows(
+        Staff staff,
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> visibleNotes,
+        double notationBottomY,
+        int labelRowCount,
+        bool showFingerings)
+    {
+        bool hasLabel = labelRowCount > 0;
+        bool hasFingering = showFingerings
+            && visibleNotes.Any(item => item.Layout.Position.Staff == staff && item.Note.Fingering is not null);
+        if (!hasLabel && !hasFingering)
+        {
+            return default;
+        }
+
+        double firstRowY = notationBottomY - AnnotationNotationGap - AnnotationBandPadding;
+        double? labelY = hasLabel ? firstRowY : null;
+        double? lowestLabelY = hasLabel
+            ? firstRowY - ((labelRowCount - 1) * LabelRowSeparation)
+            : null;
+        double? fingeringY = hasFingering
+            ? (lowestLabelY ?? firstRowY) - (hasLabel ? FingeringRowSeparation : 0)
+            : null;
+        double bandY0 = Math.Min(lowestLabelY ?? double.MaxValue, fingeringY ?? double.MaxValue)
+            - AnnotationBandPadding;
+        double bandY1 = Math.Max(labelY ?? double.MinValue, fingeringY ?? double.MinValue)
+            + AnnotationBandPadding;
+        return new AnnotationRows(labelY, fingeringY, bandY0, bandY1);
+    }
 }
+
+/// <summary>
+/// Where a staff's note labels and fingering annotations sit, and the vertical band that
+/// encloses them, in grand-staff scene space. Empty (all-null) when the staff has neither.
+/// </summary>
+public readonly record struct AnnotationRows(
+    double? LabelY,
+    double? FingeringY,
+    double? BandY0,
+    double? BandY1);

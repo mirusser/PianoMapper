@@ -1,11 +1,32 @@
 import { getAnalyserNode, getCurrentTime, isAudioActive } from "./audio.js";
 
 const canvases = new Map();
-const staffLineKind = 0;
-const ledgerLineKind = 1;
-const barlineKind = 2;
-const cursorLineKind = 3;
-const beatLineKind = 4;
+
+// Scene contract: every ordinal below is matched by hand against a C# enum, because this scene
+// object crosses the JS interop seam as plain numbers with no shared source of truth. Changing
+// either side's ordinals without the other breaks rendering silently — see
+// PianoMapper.Tests/UnitTests/GrandStaffSceneContractTests.cs and this file's own
+// scene-contract.test.mjs for the pinning tests that catch that drift.
+export const grandStaffSceneKind = 0; // PianoMapper.Web.Rendering.PianoCanvasSceneKind.GrandStaff
+export const pianoRollSceneKind = 1; // PianoCanvasSceneKind.PianoRoll
+export const staffLineKind = 0; // PianoMapper.Web.Rendering.GrandStaffLineKind.Staff
+export const ledgerLineKind = 1; // GrandStaffLineKind.Ledger
+export const barlineKind = 2; // GrandStaffLineKind.Barline
+export const cursorLineKind = 3; // GrandStaffLineKind.Cursor
+export const beatLineKind = 4; // GrandStaffLineKind.Beat
+export const clefGlyphKind = 0; // PianoMapper.Web.Rendering.GrandStaffGlyphKind.Clef
+export const stemDirectionUp = 0; // PianoMapper.Rendering.StemDirection.Up (also used for GrandStaffTie.CurveDirection)
+// Index i must hold the color for PianoMapper.Core.Practice.Verdict's i-th ordinal.
+export const verdictColors = [
+    "#4ade80", // Correct
+    "#f87171", // WrongPitch
+    "#fb923c", // Early
+    "#fb923c", // Late
+    "#facc15", // TooShort
+    "#facc15", // TooLong
+    "#94a3b8", // Missed
+    "#c084fc", // Extra
+];
 // Mirrors PianoMapper.Core/Rendering/GrandStaffLayout.cs's ScoreX0/ScoreX1/VisibleMeasureCount
 // constants, so the score-playback cursor can be positioned here every animation frame from the
 // Web Audio clock, instead of C# rebuilding the whole grand-staff scene every tick just to move
@@ -39,16 +60,6 @@ const plotLeftMargin = 44;
 const plotRightMargin = 16;
 const plotTopMargin = 26;
 const plotBottomMargin = 34;
-const verdictColors = [
-    "#4ade80",
-    "#f87171",
-    "#fb923c",
-    "#fb923c",
-    "#facc15",
-    "#facc15",
-    "#94a3b8",
-    "#c084fc",
-];
 
 export function initialize(canvas, waveformCanvas, spectrumCanvas, analysisLayout) {
     initializeCanvas(canvas, waveformCanvas, spectrumCanvas, analysisLayout);
@@ -65,7 +76,7 @@ function initializeCanvas(canvas, waveformCanvas, spectrumCanvas, analysisLayout
         canvas,
         waveformCanvas,
         spectrumCanvas,
-        scene: { kind: 0, lines: [], glyphs: [], notes: [], beams: [], ties: [] },
+        scene: { kind: grandStaffSceneKind, lines: [], glyphs: [], notes: [], beams: [], ties: [] },
         scoreLayerCanvas: document.createElement("canvas"),
         scoreLayerDirty: true,
         scoreLayerWidth: undefined,
@@ -110,7 +121,10 @@ export function render(canvas, scene, isWaveformVisible, isFrequencySpectrumVisi
 
 export function hitTestScoreNote(canvas, offsetX, offsetY) {
     const state = canvases.get(canvas);
-    if (!state || state.scene.kind !== 0 || !Number.isFinite(offsetX) || !Number.isFinite(offsetY)) {
+    if (!state
+        || state.scene.kind !== grandStaffSceneKind
+        || !Number.isFinite(offsetX)
+        || !Number.isFinite(offsetY)) {
         return null;
     }
 
@@ -193,7 +207,7 @@ function draw(state) {
 
     const { context, width, height, pixelRatio } = surface;
 
-    if (scene.kind === 1) {
+    if (scene.kind === pianoRollSceneKind) {
         drawPianoRoll(context, scene, width, height);
     } else {
         const scoreLayer = prepareScoreLayer(state, width, height, pixelRatio);
@@ -298,7 +312,7 @@ function drawGrandStaff(context, scene, width, height) {
 
     let clefRight;
     for (const glyph of scene.glyphs) {
-        if (glyph.kind !== 0) {
+        if (glyph.kind !== clefGlyphKind) {
             continue;
         }
 
@@ -319,7 +333,7 @@ function drawGrandStaff(context, scene, width, height) {
     }
 
     for (const glyph of scene.glyphs) {
-        if (glyph.kind !== 0) {
+        if (glyph.kind !== clefGlyphKind) {
             drawGlyph(context, glyph, width, height);
         }
     }
@@ -658,7 +672,7 @@ function drawLine(context, line, width, height, staffSpace) {
             ? "#334155"
             : line.kind === barlineKind
             ? "#64748b"
-            : line.kind === 0 ? "#94a3b8" : "#cbd5e1";
+            : line.kind === staffLineKind ? "#94a3b8" : "#cbd5e1";
     context.lineWidth = line.kind === staffLineKind
         ? staffLineWidth
         : line.kind === cursorLineKind
@@ -679,7 +693,7 @@ function drawLine(context, line, width, height, staffSpace) {
 }
 
 function drawGlyph(context, glyph, width, height) {
-    context.fillStyle = glyph.kind === 0 ? "#e2e8f0" : "#f8fafc";
+    context.fillStyle = glyph.kind === clefGlyphKind ? "#e2e8f0" : "#f8fafc";
     context.textAlign = "center";
     const x = mapX(glyph.x, width);
     const y = mapY(glyph.y, height);
@@ -735,7 +749,7 @@ function drawNote(context, note, width, height, staffSpace, colorOverride) {
 
     let stemEndY = y;
     let stemX = x;
-    const stemGoesUp = note.stemDirection === 0;
+    const stemGoesUp = note.stemDirection === stemDirectionUp;
     if (note.hasStem) {
         stemX = x + (stemGoesUp ? noteHeadRadiusX : -noteHeadRadiusX);
         stemEndY = Number.isFinite(note.stemEndY)
@@ -789,7 +803,7 @@ function drawNote(context, note, width, height, staffSpace, colorOverride) {
 }
 
 function drawBeam(context, beam, width, height, staffSpace) {
-    const stemGoesUp = beam.stemDirection === 0;
+    const stemGoesUp = beam.stemDirection === stemDirectionUp;
     const stemXOffset = staffSpace * noteHeadWidthInStaffSpaces / 2 * (stemGoesUp ? 1 : -1);
     const beamSpacingDirection = stemGoesUp ? 1 : -1;
     const x0 = mapX(beam.x0, width) + stemXOffset;
@@ -829,7 +843,7 @@ function drawTie(context, tie, width, height, staffSpace) {
         : 0;
     const x0 = noteCenterX0 + (horizontalDirection * requestedStartInset * insetScale);
     const x1 = noteCenterX1 - (horizontalDirection * requestedEndInset * insetScale);
-    const curveDirection = tie.curveDirection === 0 ? -1 : 1;
+    const curveDirection = tie.curveDirection === stemDirectionUp ? -1 : 1;
     const tipBias = curveDirection * staffSpace * tieTipBiasInStaffSpaces;
     const y0 = mapY(tie.y0, height) + tipBias;
     const y1 = mapY(tie.y1, height) + tipBias;
