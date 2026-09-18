@@ -122,6 +122,45 @@ public sealed class NoteReadingSession
             IsComplete: IsComplete);
     }
 
+    public void Release(Pitch pitch)
+    {
+        if (!matchedMidiNumbers.Remove(pitch.MidiNumber) || stepIndex >= steps.Count)
+        {
+            return;
+        }
+
+        var updatedVerdicts = verdicts.ToDictionary();
+        foreach (ScoreNote releasedNote in steps[stepIndex].Events
+            .Where(scoreEvent => scoreEvent.Pitch.MidiNumber == pitch.MidiNumber)
+            .SelectMany(scoreEvent => scoreEvent.SourceNotes))
+        {
+            updatedVerdicts.Remove(releasedNote);
+        }
+
+        verdicts = updatedVerdicts;
+        UpdateExpectedNotes();
+    }
+
+    public void ReleaseAll()
+    {
+        if (matchedMidiNumbers.Count == 0 || stepIndex >= steps.Count)
+        {
+            return;
+        }
+
+        var updatedVerdicts = verdicts.ToDictionary();
+        foreach (ScoreNote releasedNote in steps[stepIndex].Events
+            .Where(scoreEvent => matchedMidiNumbers.Contains(scoreEvent.Pitch.MidiNumber))
+            .SelectMany(scoreEvent => scoreEvent.SourceNotes))
+        {
+            updatedVerdicts.Remove(releasedNote);
+        }
+
+        verdicts = updatedVerdicts;
+        matchedMidiNumbers.Clear();
+        UpdateExpectedNotes();
+    }
+
     private void UpdateExpectedNotes()
     {
         expectedNotes = stepIndex >= steps.Count

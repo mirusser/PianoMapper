@@ -1797,6 +1797,11 @@
                 break;
             case BrowserInputCommandKind.NoteOff:
                 await AudioSession.StopNoteAsync(command.NoteId!, command.EventTime);
+                if (IsSelfPacedNoteCheckingActive && command.Pitch is { } releasedPitch)
+                {
+                    noteReadingSession.Release(releasedPitch);
+                }
+
                 if (command.Note is { } releasedNote)
                 {
                     wrongScoreInputNotes.Remove(releasedNote);
@@ -1809,6 +1814,7 @@
                 break;
             case BrowserInputCommandKind.Clear:
                 midiInputState.Clear(command.EventTime);
+                noteReadingSession.ReleaseAll();
                 wrongScoreInputNotes.Clear();
                 await StopScorePlaybackAsync();
                 bool metronomeWasRunning = Metronome.IsRunning;
@@ -1837,6 +1843,7 @@
                         : "All notes cleared.";
                 break;
             case BrowserInputCommandKind.ReleaseHeldNotes:
+                noteReadingSession.ReleaseAll();
                 wrongScoreInputNotes.Clear();
                 await AudioSession.ClearAsync(command.EventTime);
                 testNoteIsActive = false;

@@ -103,6 +103,49 @@ public sealed class NoteReadingSessionTests
     }
 
     [Fact]
+    public void Release_CrossStaffChordBeforeCompletion_RequiresReleasedPitchAgain()
+    {
+        var trebleNote = CreateNote(NoteLetter.E, measureIndex: 0, beatOffset: 0, Staff.Treble);
+        var bassNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0, Staff.Bass);
+        var nextNote = CreateNote(NoteLetter.G, measureIndex: 0, beatOffset: 1);
+        var session = new NoteReadingSession();
+        session.Reset(CreateScore([trebleNote, bassNote, nextNote]));
+
+        session.Check(trebleNote.Pitch);
+        session.Release(trebleNote.Pitch);
+        NoteReadingSession.CheckResult bassResult = session.Check(bassNote.Pitch);
+
+        Assert.True(bassResult.IsCorrect);
+        Assert.False(bassResult.DidAdvance);
+        Assert.Equal(0, session.CurrentOnsetBeats);
+        Assert.Equal(trebleNote, Assert.Single(session.ExpectedNotes));
+        Assert.DoesNotContain(trebleNote, session.Verdicts.Keys);
+
+        NoteReadingSession.CheckResult trebleResult = session.Check(trebleNote.Pitch);
+
+        Assert.True(trebleResult.DidAdvance);
+        Assert.Equal(1, session.CurrentOnsetBeats);
+        Assert.Equal(nextNote, Assert.Single(session.ExpectedNotes));
+    }
+
+    [Fact]
+    public void ReleaseAll_PartialChord_RestoresEveryExpectedNote()
+    {
+        var trebleNote = CreateNote(NoteLetter.E, measureIndex: 0, beatOffset: 0, Staff.Treble);
+        var bassNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0, Staff.Bass);
+        var session = new NoteReadingSession();
+        session.Reset(CreateScore([trebleNote, bassNote]));
+        session.Check(trebleNote.Pitch);
+
+        session.ReleaseAll();
+
+        Assert.Empty(session.Verdicts);
+        Assert.Equal(2, session.ExpectedNotes.Count);
+        Assert.Contains(trebleNote, session.ExpectedNotes);
+        Assert.Contains(bassNote, session.ExpectedNotes);
+    }
+
+    [Fact]
     public void Check_FinalCorrectPitch_CompletesSequence()
     {
         var note = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
@@ -142,13 +185,17 @@ public sealed class NoteReadingSessionTests
         Assert.Equal(TimeSpan.Zero, session.ElapsedTime);
     }
 
-    private static ScoreNote CreateNote(NoteLetter letter, int measureIndex, double beatOffset) =>
+    private static ScoreNote CreateNote(
+        NoteLetter letter,
+        int measureIndex,
+        double beatOffset,
+        Staff staff = Staff.Treble) =>
         new(
             new Pitch(letter, 0, 4),
             new NoteValue(4),
             measureIndex,
             beatOffset,
-            Staff.Treble);
+            staff);
 
     private static Score CreateScore(IReadOnlyList<ScoreNote> notes) =>
         new(
