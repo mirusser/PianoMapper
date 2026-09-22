@@ -3,7 +3,7 @@
 
 <section class="saved-score-library" aria-labelledby="saved-scores-heading">
     <div class="saved-score-library-heading">
-        <h3 id="saved-scores-heading">Saved scores</h3>
+        <h3 id="saved-scores-heading">Your library</h3>
         <div class="controls">
             <button class="button-primary"
                     type="button"
@@ -20,46 +20,60 @@
         <ScoreLoadingIndicator />
     }
 
-    @if (savedScores is null)
-    {
-        <p class="control-note">Loading saved scores…</p>
-    }
-    else if (savedScores.Count == 0)
-    {
-        <p class="control-note">No saved scores yet.</p>
-    }
-    else
-    {
-        <ul class="saved-score-list">
-            @foreach (var savedScore in savedScores)
+    <details class="saved-score-disclosure">
+        <summary>Saved scores <span class="saved-score-count">@(savedScores?.Count.ToString(CultureInfo.CurrentCulture) ?? "…")</span></summary>
+        @if (savedScores is null)
+        {
+            <p class="control-note">Loading saved scores…</p>
+        }
+        else if (savedScores.Count == 0)
+        {
+            <p class="control-note">No saved scores yet.</p>
+        }
+        else
+        {
+            <label class="saved-score-search">
+                <span>Find a score</span>
+                <input type="search" placeholder="Search by title" @bind="searchText" @bind:event="oninput" />
+            </label>
+            @if (FilteredScores.Count == 0)
             {
-                <li>
-                    <span>
-                        <strong>@savedScore.Title</strong>
-                        <small>
-                            @savedScore.MeasureCount measure(s) · saved
-                            @savedScore.UpdatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
-                        </small>
-                    </span>
-                    <div class="saved-score-actions">
-                        <button type="button"
-                                @onclick="() => LoadAsync(savedScore.Id)"
-                                disabled="@isBusy"
-                                aria-label="Load @savedScore.Title">
-                            Load
-                        </button>
-                        <button class="button-danger"
-                                type="button"
-                                @onclick="() => DeleteAsync(savedScore)"
-                                disabled="@isBusy"
-                                aria-label="Delete @savedScore.Title">
-                            Delete
-                        </button>
-                    </div>
-                </li>
+                <p class="control-note">No scores match that title.</p>
             }
-        </ul>
-    }
+            else
+            {
+                <ul class="saved-score-list">
+                    @foreach (var savedScore in FilteredScores)
+                    {
+                        <li>
+                            <span>
+                                <strong>@savedScore.Title</strong>
+                                <small>
+                                    @savedScore.MeasureCount measure(s) · saved
+                                    @savedScore.UpdatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
+                                </small>
+                            </span>
+                            <div class="saved-score-actions">
+                                <button type="button"
+                                        @onclick="() => LoadAsync(savedScore.Id)"
+                                        disabled="@isBusy"
+                                        aria-label="Load @savedScore.Title">
+                                    Load
+                                </button>
+                                <button class="button-danger"
+                                        type="button"
+                                        @onclick="() => DeleteAsync(savedScore)"
+                                        disabled="@isBusy"
+                                        aria-label="Delete @savedScore.Title">
+                                    Delete
+                                </button>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            }
+        }
+    </details>
 
     @if (!string.IsNullOrEmpty(status))
     {
@@ -69,9 +83,13 @@
 
 @code {
     private IReadOnlyList<SavedScoreSummary>? savedScores;
+    private string searchText = string.Empty;
     private string? status;
     private bool isBusy;
     private bool isLoadingScore;
+
+    private IReadOnlyList<SavedScoreSummary> FilteredScores =>
+        savedScores?.Where(score => score.Title.Contains(searchText, StringComparison.CurrentCultureIgnoreCase)).ToArray() ?? [];
 
     [Parameter]
     public Score? CurrentScore { get; set; }

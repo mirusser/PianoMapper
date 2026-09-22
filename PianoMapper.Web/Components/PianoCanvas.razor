@@ -73,8 +73,8 @@
         </div>
     </section>
 
-    <div class="analysis-controls" role="group" aria-label="Audio visualizers">
-        <span>Audio visualizers</span>
+    <div class="analysis-controls" role="group" aria-label="Additional views">
+        <span>Additional views</span>
         <button class="button-quiet"
                 type="button"
                 aria-controls="waveform-analysis-panel"
@@ -88,6 +88,12 @@
                 aria-pressed="@(isFrequencySpectrumVisible ? "true" : "false")"
                 @onclick="ToggleFrequencySpectrum">
             @(isFrequencySpectrumVisible ? "Hide frequency spectrum" : "Show frequency spectrum")
+        </button>
+        <button class="button-quiet"
+                type="button"
+                aria-pressed="@(isKeyboardVisible ? "true" : "false")"
+                @onclick="ToggleKeyboard">
+            @(isKeyboardVisible ? "Hide 88-key piano" : "Show 88-key piano")
         </button>
     </div>
 
@@ -142,6 +148,11 @@
             </div>
         </figure>
     </div>
+
+    @if (isKeyboardVisible)
+    {
+        <FullPianoKeyboard ActiveMidiNumbers="@ActiveKeyboardMidiNumbers" />
+    }
 
     <details class="learning-disclosure visualization-help">
         <summary>Read the notation and sound views</summary>
@@ -233,6 +244,7 @@
     private IJSObjectReference? module;
     private bool isWaveformVisible;
     private bool isFrequencySpectrumVisible;
+    private bool isKeyboardVisible;
 
     [Parameter, EditorRequired]
     public IPianoCanvasScene Scene { get; set; } = new GrandStaffScene([], [], []);
@@ -278,6 +290,9 @@
 
     [Parameter]
     public string? SecondaryScoreRowStatus { get; set; }
+
+    [Parameter, EditorRequired]
+    public IReadOnlySet<int> ActiveKeyboardMidiNumbers { get; set; } = new HashSet<int>();
 
     private ScoreCursorPlaybackState? lastPushedScoreCursor;
     private ScoreCursorPlaybackState? lastPushedSecondaryScoreCursor;
@@ -444,6 +459,8 @@
     private void ToggleWaveform() => isWaveformVisible = !isWaveformVisible;
 
     private void ToggleFrequencySpectrum() => isFrequencySpectrumVisible = !isFrequencySpectrumVisible;
+
+    private void ToggleKeyboard() => isKeyboardVisible = !isKeyboardVisible;
 
     public async ValueTask DisposeAsync()
     {

@@ -50,29 +50,32 @@
                             </button>
                         </div>
                     </div>
-                    <div class="controls audio-secondary-actions">
-                        <button type="button" @onclick="PlayTestNoteAsync" disabled="@(!AudioSession.IsInitialized || testNoteIsActive)">
-                            Play test note
-                        </button>
-                        <button type="button" @onclick="StopTestNoteAsync" disabled="@(!testNoteIsActive)">Stop test note</button>
-                        <button class="button-quiet" type="button" @onclick="ShowTimingAsync" disabled="@(!AudioSession.IsInitialized)">
-                            Show input latency
-                        </button>
-                        <button type="button"
-                                @onclick="ConnectMidiAsync"
-                                disabled="@isMidiConnecting">
-                            @(!HasMidiConnection ? "Connect MIDI piano" : "Reconnect MIDI piano")
-                        </button>
-                    </div>
+                    <details class="inline-disclosure">
+                        <summary>Audio &amp; MIDI options</summary>
+                        <div class="controls audio-secondary-actions">
+                            <button type="button" @onclick="PlayTestNoteAsync" disabled="@(!AudioSession.IsInitialized || testNoteIsActive)">
+                                Play test note
+                            </button>
+                            <button type="button" @onclick="StopTestNoteAsync" disabled="@(!testNoteIsActive)">Stop test note</button>
+                            <button class="button-quiet" type="button" @onclick="ShowTimingAsync" disabled="@(!AudioSession.IsInitialized)">
+                                Show input latency
+                            </button>
+                            <button type="button"
+                                    @onclick="ConnectMidiAsync"
+                                    disabled="@isMidiConnecting">
+                                @(!HasMidiConnection ? "Connect MIDI piano" : "Reconnect MIDI piano")
+                            </button>
+                        </div>
+                    </details>
                     <p class="control-note" role="status">@midiStatus</p>
                 </div>
             </section>
 
-            <section class="control-card" aria-labelledby="timing-controls-heading">
-                <div class="control-card-heading">
+            <details class="control-card settings-card" aria-labelledby="timing-controls-heading">
+                <summary class="control-card-heading">
                     <h2 id="timing-controls-heading">Timing</h2>
                     <span>@TimingLabel</span>
-                </div>
+                </summary>
                 <div class="timing-controls">
                     <label class="timing-field">
                         <span>Beats per measure</span>
@@ -171,7 +174,7 @@
                         on MusicTheory.net.
                     </p>
                 </details>
-            </section>
+            </details>
 
             <SightReadingExercisePanel SelectedStaff="@sightReadingStaff"
                                        Difficulty="@sightReadingDifficulty"
@@ -190,85 +193,89 @@
                                        Retry="RetrySightReadingExerciseAsync"
                                        End="EndSightReadingExerciseAsync" />
 
-            <section class="score-card control-card-wide" aria-label="Imported score">
-                <ScoreFilePicker ScoreLoaded="HandleImportedScoreLoadedAsync"
-                                 ScoreUnloaded="HandleScoreUnloadedAsync"
-                                 HasLoadedScore="@(loadedScore is not null)" />
-                <SavedScoreLibrary CurrentScore="@loadedScore"
-                                   CurrentSavedScoreId="@loadedSavedScoreId"
-                                   ScoreLoaded="HandleSavedScoreLoadedAsync"
-                                   ScoreSaved="HandleSavedScoreSaved"
-                                   ScoreDeleted="HandleSavedScoreDeleted" />
+            <section class="score-card control-card-wide @(loadedScore is not null && selectedScore is not null ? "score-card-loaded" : null)" aria-label="Imported score">
+                <div class="score-library-column">
+                    <ScoreFilePicker ScoreLoaded="HandleImportedScoreLoadedAsync"
+                                     ScoreUnloaded="HandleScoreUnloadedAsync"
+                                     HasLoadedScore="@(loadedScore is not null)" />
+                    <SavedScoreLibrary CurrentScore="@loadedScore"
+                                       CurrentSavedScoreId="@loadedSavedScoreId"
+                                       ScoreLoaded="HandleSavedScoreLoadedAsync"
+                                       ScoreSaved="HandleSavedScoreSaved"
+                                       ScoreDeleted="HandleSavedScoreDeleted" />
+                </div>
                 @if (loadedScore is not null && selectedScore is not null)
                 {
-                    <p class="score-title">@loadedScore.Title — @loadedScore.Measures.Count measure(s)</p>
-                    <div class="controls measure-range-controls"
-                         role="group"
-                         aria-labelledby="measure-range-label">
-                        <span class="measure-range-label" id="measure-range-label">Play measures</span>
-                        <label class="octave-picker">
-                            From
-                            <select value="@(selectedFirstMeasure + 1)"
-                                    @onchange="SelectFirstMeasureAsync"
-                                    aria-label="First measure to play">
-                                @for (int measureNumber = 1; measureNumber <= loadedScore.Measures.Count; measureNumber++)
-                                {
-                                    <option value="@measureNumber">@measureNumber</option>
-                                }
-                            </select>
-                        </label>
-                        <label class="octave-picker">
-                            To
-                            <select value="@(selectedLastMeasure + 1)"
-                                    @onchange="SelectLastMeasureAsync"
-                                    aria-label="Last measure to play">
-                                @for (int measureNumber = 1; measureNumber <= loadedScore.Measures.Count; measureNumber++)
-                                {
-                                    <option value="@measureNumber">@measureNumber</option>
-                                }
-                            </select>
-                        </label>
+                    <div class="score-playback-column">
+                        <p class="score-title">@loadedScore.Title — @loadedScore.Measures.Count measure(s)</p>
+                        <div class="controls measure-range-controls"
+                             role="group"
+                             aria-labelledby="measure-range-label">
+                            <span class="measure-range-label" id="measure-range-label">Play measures</span>
+                            <label class="octave-picker">
+                                From
+                                <select value="@(selectedFirstMeasure + 1)"
+                                        @onchange="SelectFirstMeasureAsync"
+                                        aria-label="First measure to play">
+                                    @for (int measureNumber = 1; measureNumber <= loadedScore.Measures.Count; measureNumber++)
+                                    {
+                                        <option value="@measureNumber">@measureNumber</option>
+                                    }
+                                </select>
+                            </label>
+                            <label class="octave-picker">
+                                To
+                                <select value="@(selectedLastMeasure + 1)"
+                                        @onchange="SelectLastMeasureAsync"
+                                        aria-label="Last measure to play">
+                                    @for (int measureNumber = 1; measureNumber <= loadedScore.Measures.Count; measureNumber++)
+                                    {
+                                        <option value="@measureNumber">@measureNumber</option>
+                                    }
+                                </select>
+                            </label>
+                        </div>
+                        <div class="controls" aria-label="Score navigation">
+                            <button class="button-primary"
+                                    type="button"
+                                    @onclick="StartScorePlaybackAsync"
+                                    disabled="@(!AudioSession.IsInitialized)">
+                                Play / restart <kbd>P</kbd>
+                            </button>
+                            <button type="button" @onclick="ShowPreviousMeasures" disabled="@(!CanShowPreviousMeasures)">
+                                Previous <kbd>[</kbd>
+                            </button>
+                            <span class="measure-window">
+                                Measures @(selectedFirstMeasure + ActiveScoreFirstMeasure + 1)–@(
+                                    selectedFirstMeasure + Math.Min(
+                                        ActiveScoreFirstMeasure + GrandStaffLayout.VisibleMeasureCount,
+                                        selectedScore.Measures.Count))
+                            </span>
+                            <button type="button"
+                                    @onclick="ShowNextMeasures"
+                                    disabled="@(!CanShowNextMeasures)">
+                                Next <kbd>]</kbd>
+                            </button>
+                        </div>
+                        <PracticePanel State="@practiceCoordinator.State"
+                                       Result="@practiceCoordinator.Result"
+                                       CountInTicksDue="@practiceCoordinator.CountInTicksDue"
+                                       TotalCountInTicks="@loadedScore.TimeSignature.Numerator"
+                                       CanStart="@AudioSession.IsInitialized"
+                                       IsActive="@practiceCoordinator.IsActive"
+                                       IdleNoteReadingMode="@idleNoteReadingMode"
+                                       Start="StartPracticeAsync"
+                                       Abort="AbortPracticeFromControlAsync"
+                                       IdleNoteReadingModeChanged="SetIdleNoteReadingModeAsync" />
                     </div>
-                    <div class="controls" aria-label="Score navigation">
-                        <button class="button-primary"
-                                type="button"
-                                @onclick="StartScorePlaybackAsync"
-                                disabled="@(!AudioSession.IsInitialized)">
-                            Play / restart <kbd>P</kbd>
-                        </button>
-                        <button type="button" @onclick="ShowPreviousMeasures" disabled="@(!CanShowPreviousMeasures)">
-                            Previous <kbd>[</kbd>
-                        </button>
-                        <span class="measure-window">
-                            Measures @(selectedFirstMeasure + ActiveScoreFirstMeasure + 1)–@(
-                                selectedFirstMeasure + Math.Min(
-                                    ActiveScoreFirstMeasure + GrandStaffLayout.VisibleMeasureCount,
-                                    selectedScore.Measures.Count))
-                        </span>
-                        <button type="button"
-                                @onclick="ShowNextMeasures"
-                                disabled="@(!CanShowNextMeasures)">
-                            Next <kbd>]</kbd>
-                        </button>
-                    </div>
-                    <PracticePanel State="@practiceCoordinator.State"
-                                   Result="@practiceCoordinator.Result"
-                                   CountInTicksDue="@practiceCoordinator.CountInTicksDue"
-                                   TotalCountInTicks="@loadedScore.TimeSignature.Numerator"
-                                   CanStart="@AudioSession.IsInitialized"
-                                   IsActive="@practiceCoordinator.IsActive"
-                                   IdleNoteReadingMode="@idleNoteReadingMode"
-                                   Start="StartPracticeAsync"
-                                   Abort="AbortPracticeFromControlAsync"
-                                   IdleNoteReadingModeChanged="SetIdleNoteReadingModeAsync" />
                 }
             </section>
 
-            <section class="control-card control-card-wide" aria-labelledby="play-controls-heading">
-                <div class="control-card-heading">
+            <details class="control-card control-card-wide settings-card" aria-labelledby="play-controls-heading">
+                <summary class="control-card-heading">
                     <h2 id="play-controls-heading">Play &amp; MIDI tools</h2>
                     <span>C@(keyboardState.CurrentOctave)–C@(keyboardState.CurrentOctave + 1)</span>
-                </div>
+                </summary>
                 <div class="control-card-groups">
                     <div class="control-group" role="group" aria-labelledby="play-tools-heading">
                         <span class="control-group-label" id="play-tools-heading">Play tools</span>
@@ -413,7 +420,7 @@
                 <p class="control-note">
                     The notation focus controls the live staff view. MIDI notes retain their actual piano octaves.
                 </p>
-            </section>
+            </details>
         </div>
 
         <MetronomeControls IsRunning="@Metronome.IsRunning"
@@ -441,8 +448,8 @@
                      PrimaryScoreRangeLabel="@PrimaryScoreRangeLabel"
                      SecondaryScoreRangeLabel="@SecondaryScoreRangeLabel"
                      PrimaryScoreRowStatus="@PrimaryScoreRowStatus"
-                     SecondaryScoreRowStatus="@SecondaryScoreRowStatus" />
-        <FullPianoKeyboard ActiveMidiNumbers="@activeKeyboardMidiNumbers" />
+                     SecondaryScoreRowStatus="@SecondaryScoreRowStatus"
+                     ActiveKeyboardMidiNumbers="@activeKeyboardMidiNumbers" />
     </section>
 </main>
 
