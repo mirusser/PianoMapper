@@ -7,6 +7,7 @@ public sealed record ScoreNote(
     double BeatOffset,
     Staff Staff,
     bool TiesToNext = false,
+    bool IsChordContinuation = false,
     BeamState BeamState = BeamState.None,
     ScoreStemDirection? StemDirection = null,
     ScoreFingering? Fingering = null,

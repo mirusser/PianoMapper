@@ -23,6 +23,7 @@ public sealed class ScoreDocumentSerializerTests
                             0.5,
                             Staff.Treble,
                             TiesToNext: true,
+                            IsChordContinuation: true,
                             BeamState: BeamState.Begin,
                             StemDirection: ScoreStemDirection.Up,
                             Fingering: new ScoreFingering(3, ScoreFingeringPlacement.Above),
@@ -93,6 +94,7 @@ public sealed class ScoreDocumentSerializerTests
         var note = Assert.Single(Assert.Single(score.Measures).Notes);
         Assert.Null(note.Accidental);
         Assert.Null(note.Fermata);
+        Assert.False(note.IsChordContinuation);
     }
 
     [Fact]

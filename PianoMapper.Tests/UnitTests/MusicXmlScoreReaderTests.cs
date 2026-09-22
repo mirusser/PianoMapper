@@ -419,6 +419,52 @@ public sealed class MusicXmlScoreReaderTests
         Assert.Equal(2, events.Count(scoreEvent => scoreEvent.OnsetBeats == 0 && scoreEvent.Staff == Staff.Treble));
     }
 
+    [Fact]
+    public void Read_ChordNote_MarksSecondNoteAsChordContinuation()
+    {
+        var score = ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>2</duration><type>quarter</type>
+            </note>
+            <note>
+              <chord />
+              <pitch><step>E</step><octave>4</octave></pitch>
+              <duration>2</duration><type>quarter</type>
+            </note>
+            """);
+
+        var notes = Assert.Single(score.Measures).Notes;
+
+        Assert.Equal(2, notes.Count);
+        Assert.False(notes[0].IsChordContinuation);
+        Assert.True(notes[1].IsChordContinuation);
+    }
+
+    [Fact]
+    public void Read_BackupInterleavedVoiceAtSameOnset_DoesNotMarkChordContinuation()
+    {
+        var score = ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>2</duration><voice>1</voice><type>quarter</type>
+            </note>
+            <backup><duration>2</duration></backup>
+            <note>
+              <pitch><step>G</step><octave>4</octave></pitch>
+              <duration>2</duration><voice>2</voice><type>quarter</type>
+            </note>
+            """);
+
+        var notes = Assert.Single(score.Measures).Notes;
+
+        Assert.Equal(2, notes.Count);
+        Assert.Equal(0, notes[0].BeatOffset);
+        Assert.Equal(0, notes[1].BeatOffset);
+        Assert.False(notes[0].IsChordContinuation);
+        Assert.False(notes[1].IsChordContinuation);
+    }
+
     private static void WriteEntry(ZipArchive archive, string name, string contents)
     {
         var entry = archive.CreateEntry(name);

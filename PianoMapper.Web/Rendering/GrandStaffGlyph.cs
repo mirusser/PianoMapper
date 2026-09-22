@@ -1,3 +1,5 @@
+using PianoMapper.Practice;
+
 namespace PianoMapper.Web.Rendering;
 
 public sealed record GrandStaffGlyph(
@@ -5,4 +7,6 @@ public sealed record GrandStaffGlyph(
     double X,
     double Y,
     GrandStaffGlyphKind Kind,
-    double? Height = null);
+    double? Height = null,
+    bool IsActive = false,
+    Verdict? Verdict = null);

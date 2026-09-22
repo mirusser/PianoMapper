@@ -37,6 +37,12 @@ public sealed class GrandStaffSceneContractTests
     }
 
     [Fact]
+    public void GrandStaffGlyphKind_AccidentalMatchesCanvasJsAccidentalGlyphKindConstant()
+    {
+        Assert.Equal(1, (int)GrandStaffGlyphKind.Accidental);
+    }
+
+    [Fact]
     public void StemDirection_UpMatchesCanvasJsStemDirectionUpConstant()
     {
         Assert.Equal(0, (int)StemDirection.Up);

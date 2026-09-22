@@ -8,6 +8,7 @@ import test from "node:test";
 // stay green while these fail (or vice versa), which is the point: either side drifting alone
 // shows up as a failure.
 import {
+    accidentalGlyphKind,
     barlineKind,
     beatLineKind,
     clefGlyphKind,
@@ -36,6 +37,10 @@ test("line kind constants match GrandStaffLineKind ordinals", () => {
 
 test("clef glyph kind constant matches GrandStaffGlyphKind.Clef ordinal", () => {
     assert.equal(clefGlyphKind, 0);
+});
+
+test("accidental glyph kind constant matches GrandStaffGlyphKind.Accidental ordinal", () => {
+    assert.equal(accidentalGlyphKind, 1);
 });
 
 test("stem direction up constant matches StemDirection.Up ordinal", () => {

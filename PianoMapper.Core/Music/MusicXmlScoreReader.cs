@@ -392,6 +392,7 @@ public sealed class MusicXmlScoreReader
                 beatOffset,
                 staff,
                 TiesToNext: HasTieStart(noteElement),
+                IsChordContinuation: isChord,
                 BeamState: ParseBeamState(noteElement),
                 StemDirection: stemDirection,
                 Fingering: ParseFingering(noteElement),

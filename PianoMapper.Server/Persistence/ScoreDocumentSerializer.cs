@@ -69,6 +69,7 @@ internal static class ScoreDocumentSerializer
             note.BeatOffset,
             note.Staff,
             note.TiesToNext,
+            note.IsChordContinuation,
             note.BeamState,
             note.StemDirection,
             note.Fingering is null
@@ -97,6 +98,7 @@ internal static class ScoreDocumentSerializer
             note.BeatOffset,
             note.Staff,
             note.TiesToNext,
+            note.IsChordContinuation,
             note.BeamState,
             note.StemDirection,
             note.Fingering is null
@@ -133,6 +135,7 @@ internal static class ScoreDocumentSerializer
         double BeatOffset,
         Staff Staff,
         bool TiesToNext,
+        bool IsChordContinuation,
         BeamState BeamState,
         ScoreStemDirection? StemDirection,
         ScoreFingeringDocument? Fingering,

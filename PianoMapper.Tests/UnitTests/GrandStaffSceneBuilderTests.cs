@@ -7,6 +7,79 @@ namespace PianoMapper.Tests.UnitTests;
 
 public sealed class GrandStaffSceneBuilderTests
 {
+    [Fact]
+    public void BuildScore_ChordEarlyInMeasureFollowedByMoreNotes_DoesNotCrowdUnrelatedNotes()
+    {
+        // Regression test for a real imported score: a single dense (chord) onset must not force
+        // the rescale-to-fit step to crush every *unrelated* eighth note elsewhere in a busy
+        // measure — the extra spacing budget for chords/accidentals is capped precisely so a busy
+        // measure degrades toward plain proportional spacing instead of a collapsed mess.
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.D, 0, 4), new NoteValue(8), 0, 0, Staff.Treble),
+            new(new Pitch(NoteLetter.F, 1, 4), new NoteValue(8), 0, 0.5, Staff.Treble),
+            new(new Pitch(NoteLetter.G, 1, 4), new NoteValue(8), 0, 1, Staff.Treble),
+            new(new Pitch(NoteLetter.A, 0, 4), new NoteValue(8), 0, 1.5, Staff.Treble),
+            new(new Pitch(NoteLetter.G, 1, 4), new NoteValue(8), 0, 2, Staff.Treble),
+            new(new Pitch(NoteLetter.F, 1, 4), new NoteValue(8), 0, 2.5, Staff.Treble),
+            new(new Pitch(NoteLetter.E, 0, 3), new NoteValue(4), 0, 0, Staff.Bass),
+            new(new Pitch(NoteLetter.A, 0, 3), new NoteValue(2), 0, 1, Staff.Bass),
+            new(new Pitch(NoteLetter.B, 0, 3), new NoteValue(2), 0, 1, Staff.Bass, IsChordContinuation: true),
+        ];
+        var timeSignature = new TimeSignature(3, new NoteValue(4));
+        var score = ScoreWithNotes(notes, timeSignature: timeSignature);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        // Beat 0 -> 0.5 and beat 2 -> 2.5 are both plain, undisturbed eighth-note intervals of
+        // the same natural width, with no dense onset touching either end. A uniform final
+        // rescale-to-fit should treat them equally; a crowding regression would instead crush the
+        // later one disproportionately while leaving the first (before the chord) unaffected.
+        double firstGap = scene.Notes.Single(note => note.ScoreOnsetBeats == 0.5).X -
+            scene.Notes.Single(note => note.ScoreOnsetBeats == 0 && note.Label == "D4").X;
+        double laterGap = scene.Notes.Single(note => note.ScoreOnsetBeats == 2.5).X -
+            scene.Notes.Single(note => note.ScoreOnsetBeats == 2).X;
+        Assert.Equal(firstGap, laterGap, 3);
+    }
+
+    [Fact]
+    public void BuildScore_ChordEarlyInMeasureFollowedByMoreNotes_KeepsLaterOnsetsDistinctAndOrdered()
+    {
+        // Regression test for a real imported score: a bass 2nd-interval chord at beat 1,
+        // followed by several more treble eighth notes through the rest of the measure. The
+        // spacing fix that widens the gap around the chord must not "stick" and collapse every
+        // later onset in the measure onto the same X.
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.D, 0, 4), new NoteValue(8), 0, 0, Staff.Treble),
+            new(new Pitch(NoteLetter.F, 1, 4), new NoteValue(8), 0, 0.5, Staff.Treble),
+            new(new Pitch(NoteLetter.G, 1, 4), new NoteValue(8), 0, 1, Staff.Treble),
+            new(new Pitch(NoteLetter.A, 0, 4), new NoteValue(8), 0, 1.5, Staff.Treble),
+            new(new Pitch(NoteLetter.G, 1, 4), new NoteValue(8), 0, 2, Staff.Treble),
+            new(new Pitch(NoteLetter.F, 1, 4), new NoteValue(8), 0, 2.5, Staff.Treble),
+            new(new Pitch(NoteLetter.E, 0, 3), new NoteValue(4), 0, 0, Staff.Bass),
+            new(new Pitch(NoteLetter.A, 0, 3), new NoteValue(2), 0, 1, Staff.Bass),
+            new(new Pitch(NoteLetter.B, 0, 3), new NoteValue(2), 0, 1, Staff.Bass, IsChordContinuation: true),
+        ];
+        var score = ScoreWithNotes(notes);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        double[] trebleXsInBeatOrder = scene.Notes
+            .Where(note => note.Address?.NoteIndex < 6)
+            .OrderBy(note => note.ScoreOnsetBeats)
+            .Select(note => note.X)
+            .ToArray();
+        Assert.Equal(6, trebleXsInBeatOrder.Length);
+        for (int index = 1; index < trebleXsInBeatOrder.Length; index++)
+        {
+            Assert.True(
+                trebleXsInBeatOrder[index] > trebleXsInBeatOrder[index - 1],
+                $"Expected strictly increasing X by onset order, but note {index} ({trebleXsInBeatOrder[index]}) " +
+                $"did not advance past note {index - 1} ({trebleXsInBeatOrder[index - 1]}).");
+        }
+    }
+
     [Theory]
     [InlineData(-1, 0)]
     [InlineData(0, 0)]
@@ -46,6 +119,207 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.All(scene.Notes, note => Assert.Equal(1, note.FlagCount));
         Assert.Single(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Accidental);
         Assert.Equal(5, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Barline));
+    }
+
+    [Fact]
+    public void BuildScore_ChordNotesASecondApart_DisplacesOneNoteheadAndSharesOneStem()
+    {
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble),
+            new(new Pitch(NoteLetter.D, 0, 4), new NoteValue(4), 0, 0, Staff.Treble, IsChordContinuation: true),
+        ];
+        var score = ScoreWithNotes(notes);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        Assert.Equal(2, scene.Notes.Count);
+        Assert.NotEqual(scene.Notes[0].X, scene.Notes[1].X);
+        Assert.Single(scene.Notes, note => note.HasStem);
+    }
+
+    [Fact]
+    public void BuildScore_ChordNotesAThirdApart_KeepsSameXButStillSharesOneStem()
+    {
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble),
+            new(new Pitch(NoteLetter.E, 0, 4), new NoteValue(4), 0, 0, Staff.Treble, IsChordContinuation: true),
+        ];
+        var score = ScoreWithNotes(notes);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        Assert.Equal(2, scene.Notes.Count);
+        Assert.Equal(scene.Notes[0].X, scene.Notes[1].X);
+        Assert.Single(scene.Notes, note => note.HasStem);
+    }
+
+    [Fact]
+    public void BuildScore_DenseChordWithAccidental_WidensGapToNextOnsetWithoutMovingBarlines()
+    {
+        ScoreNote[] denseNotes =
+        [
+            new(new Pitch(NoteLetter.C, 1, 4), new NoteValue(4), 0, 2, Staff.Treble, Accidental: ScoreAccidental.Sharp),
+            new(new Pitch(NoteLetter.D, 0, 4), new NoteValue(4), 0, 2, Staff.Treble, IsChordContinuation: true),
+            new(new Pitch(NoteLetter.E, 0, 4), new NoteValue(4), 0, 2.25, Staff.Treble),
+        ];
+        ScoreNote[] sparseNotes =
+        [
+            new(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 2, Staff.Treble),
+            new(new Pitch(NoteLetter.E, 0, 4), new NoteValue(4), 0, 2.25, Staff.Treble),
+        ];
+
+        var denseScene = GrandStaffSceneBuilder.BuildScore(ScoreWithNotes(denseNotes), firstVisibleMeasure: 0);
+        var sparseScene = GrandStaffSceneBuilder.BuildScore(ScoreWithNotes(sparseNotes), firstVisibleMeasure: 0);
+
+        // Compare against the chord's undisplaced (stem-owning) member, C#4 — the displaced D4
+        // moves for a different reason (Phase 2's notehead displacement) and would conflate the
+        // two effects.
+        double denseGap = denseScene.Notes.Single(note => note.Label == "E4").X -
+            denseScene.Notes.Single(note => note.Label == "C#4").X;
+        double sparseGap = sparseScene.Notes.Single(note => note.Label == "E4").X -
+            sparseScene.Notes.Single(note => note.Label == "C4").X;
+        Assert.True(
+            denseGap > sparseGap,
+            $"Expected the dense onset to reserve more room before its neighbor (dense: {denseGap}, sparse: {sparseGap}).");
+
+        var denseBarlines = denseScene.Lines.Where(line => line.Kind == GrandStaffLineKind.Barline).Select(line => line.X0);
+        var sparseBarlines = sparseScene.Lines.Where(line => line.Kind == GrandStaffLineKind.Barline).Select(line => line.X0);
+        Assert.Equal(sparseBarlines, denseBarlines);
+    }
+
+    [Fact]
+    public void BuildScore_CursorAtDenseChordOnset_AlignsWithChordsUndisplacedNotehead()
+    {
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.C, 1, 4), new NoteValue(4), 0, 2, Staff.Treble, Accidental: ScoreAccidental.Sharp),
+            new(new Pitch(NoteLetter.D, 0, 4), new NoteValue(4), 0, 2, Staff.Treble, IsChordContinuation: true),
+            new(new Pitch(NoteLetter.E, 0, 4), new NoteValue(4), 0, 2.25, Staff.Treble),
+        ];
+        var score = ScoreWithNotes(notes);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0, cursorBeats: 2);
+
+        var cursorLine = Assert.Single(scene.Lines, line => line.Kind == GrandStaffLineKind.Cursor);
+        double stemOwnerX = scene.Notes.Single(note => note.HasStem && note.ScoreOnsetBeats == 2).X;
+        Assert.Equal(stemOwnerX, cursorLine.X0);
+    }
+
+    [Fact]
+    public void BuildScore_ChordFillsRestOfMeasureAfterLeadingNote_DisplacedMemberStaysAheadOfLeadingNote()
+    {
+        // Regression test for a real imported score: a single leading note followed immediately
+        // by a 2nd-interval chord that fills the rest of the measure (nothing after it). The
+        // chord's displaced member moves toward the leading note, so the reserved spacing gap
+        // must be strictly more than the displacement itself, or floating-point rounding alone
+        // can push the displaced notehead behind the leading note.
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.E, 0, 3), new NoteValue(4), 0, 0, Staff.Bass),
+            new(new Pitch(NoteLetter.A, 0, 3), new NoteValue(2), 0, 1, Staff.Bass),
+            new(new Pitch(NoteLetter.B, 0, 3), new NoteValue(2), 0, 1, Staff.Bass, IsChordContinuation: true),
+        ];
+        var score = ScoreWithNotes(notes, timeSignature: new TimeSignature(3, new NoteValue(4)));
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        double leadingNoteX = scene.Notes.Single(note => note.Label == "E3").X;
+        double displacedChordMemberX = scene.Notes.Where(note => !note.HasStem).Select(note => note.X).Single();
+        Assert.True(
+            displacedChordMemberX > leadingNoteX,
+            $"Displaced chord member (X={displacedChordMemberX}) should stay ahead of the leading note (X={leadingNoteX}).");
+    }
+
+    [Fact]
+    public void BuildScore_IndependentVoicesAtSharedOnset_DisplaceApartButKeepSeparateStems()
+    {
+        // Not a chord: neither note carries IsChordContinuation, matching two voices reached via
+        // MusicXML <backup> rather than a real <chord/> — see MusicXmlScoreReaderTests for the
+        // parser-level distinction this relies on. They're still a 2nd apart and simultaneous, so
+        // they must be pulled apart just like a real chord would be — see
+        // BuildScore_TwoIndependentVoicesDifferentDurations_DisplaceApartWithSeparateStems for the
+        // real-world shape (different durations) this generalizes from.
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble),
+            new(new Pitch(NoteLetter.D, 0, 4), new NoteValue(4), 0, 0, Staff.Treble),
+        ];
+        var score = ScoreWithNotes(notes);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        Assert.Equal(2, scene.Notes.Count);
+        Assert.NotEqual(scene.Notes[0].X, scene.Notes[1].X);
+        Assert.All(scene.Notes, note => Assert.True(note.HasStem));
+    }
+
+    [Fact]
+    public void BuildScore_TwoIndependentVoicesDifferentDurations_DisplaceApartWithSeparateStems()
+    {
+        // Regression test for a real imported score ("foo1", tact 12): a dotted-half A4 and a
+        // quarter G#4 share an onset on the treble staff, a 2nd apart, with neither carrying
+        // IsChordContinuation. Different durations prove they can never be one real chord (a
+        // chord shares a single stem and duration across every member) — they're two independent
+        // voices that happen to start together. They still need to be visually pulled apart, or
+        // they render on top of each other, but each must keep its own independently-shaped stem.
+        // Two-voice notation convention: the upper voice (A4) always stems up and the lower voice
+        // (G#4) always stems down, regardless of where either sits relative to the middle line —
+        // NOT the single-note automatic rule, which would have put both notes' stems up here.
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.A, 0, 4), new NoteValue(2, dots: 1), 0, 0, Staff.Treble),
+            new(new Pitch(NoteLetter.G, 1, 4), new NoteValue(4), 0, 0, Staff.Treble),
+        ];
+        var score = ScoreWithNotes(notes);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        Assert.Equal(2, scene.Notes.Count);
+        GrandStaffNote a4 = scene.Notes.Single(note => note.Label == "A4");
+        GrandStaffNote gSharp4 = scene.Notes.Single(note => note.Label == "G#4");
+        Assert.NotEqual(a4.X, gSharp4.X);
+        Assert.True(a4.HasStem);
+        Assert.True(gSharp4.HasStem);
+        Assert.True(a4.HasDot);
+        Assert.False(gSharp4.HasDot);
+        Assert.Equal(StemDirection.Up, a4.StemDirection);
+        Assert.Equal(StemDirection.Down, gSharp4.StemDirection);
+    }
+
+    [Fact]
+    public void BuildScore_TwoIndependentVoicesFarApart_KeepsIndependentStemDirectionsUnchanged()
+    {
+        // Two voices sharing an onset but far enough apart (a 5th, not a 2nd) that they never
+        // visually collide must NOT be forced into the top-up/bottom-down two-voice convention —
+        // that convention exists only to disambiguate notes that would otherwise overlap. Each
+        // keeps whatever direction its own explicit MusicXML <stem> specified.
+        ScoreNote[] notes =
+        [
+            new(
+                new Pitch(NoteLetter.G, 0, 4),
+                new NoteValue(4),
+                0,
+                0,
+                Staff.Treble,
+                StemDirection: ScoreStemDirection.Down),
+            new(
+                new Pitch(NoteLetter.C, 0, 4),
+                new NoteValue(4),
+                0,
+                0,
+                Staff.Treble,
+                StemDirection: ScoreStemDirection.Up),
+        ];
+        var score = ScoreWithNotes(notes);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        GrandStaffNote g4 = scene.Notes.Single(note => note.Label == "G4");
+        GrandStaffNote c4 = scene.Notes.Single(note => note.Label == "C4");
+        Assert.Equal(StemDirection.Down, g4.StemDirection);
+        Assert.Equal(StemDirection.Up, c4.StemDirection);
     }
 
     [Fact]
@@ -196,7 +470,7 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
-    public void BuildScore_IvanovskayaThirdMeasureBassChord_StacksLabels()
+    public void BuildScore_IvanovskayaThirdMeasureBassChord_StacksLabelsAndDisplacesNoteheads()
     {
         string fixture = Path.Combine(
             AppContext.BaseDirectory,
@@ -210,8 +484,10 @@ public sealed class GrandStaffSceneBuilderTests
             .ToArray();
 
         Assert.Equal(2, chordNotes.Length);
-        Assert.Single(chordNotes.Select(note => note.X).Distinct());
+        // A3 and B3 are a 2nd apart, so the shared-stem chord displaces one notehead to the side.
+        Assert.Equal(2, chordNotes.Select(note => note.X).Distinct().Count());
         Assert.Equal(2, chordNotes.Select(note => note.LabelY).Distinct().Count());
+        Assert.Single(chordNotes, note => note.HasStem);
     }
 
     [Theory]

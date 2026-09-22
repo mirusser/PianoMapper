@@ -50,7 +50,7 @@ class FakeCanvasContext {
     fillRect() { }
     strokeRect() { }
     fillText(...args) {
-        this.fillTextCalls.push({ args, font: this.font });
+        this.fillTextCalls.push({ args, font: this.font, fillStyle: this.fillStyle });
     }
     measureText() {
         this.measureTextCalls++;
@@ -624,6 +624,27 @@ test("grand staff sizes signature glyphs to their requested heights", () => {
     assert.ok(Math.abs(Number.parseFloat(scoreContext.fillTextCalls[0].font) - 20.4) < 1e-9);
     assert.equal(scoreContext.fillTextCalls[1].args[0], "4");
     assert.ok(Math.abs(Number.parseFloat(scoreContext.fillTextCalls[1].font) - 20.4) < 1e-9);
+});
+
+test("grand staff colors an accidental glyph to match its note, not clef white", () => {
+    const scoreContext = renderGrandStaffScene({
+        kind: 0,
+        lines: [],
+        glyphs: [
+            { text: "𝄞", x: -0.87, y: 0.2, kind: 0, height: 0.4 },
+            { text: "♯", x: -0.5, y: 0.2, kind: 1, height: 0.1 },
+            { text: "♯", x: -0.3, y: 0.2, kind: 1, height: 0.1, isActive: true },
+            { text: "♯", x: -0.1, y: 0.2, kind: 1, height: 0.1, verdict: 0 },
+        ],
+        notes: [],
+        beams: [],
+        shouldClipNotesAtClefs: false,
+    });
+
+    assert.equal(scoreContext.fillTextCalls[0].fillStyle, "#e2e8f0"); // clef stays off-white
+    assert.equal(scoreContext.fillTextCalls[1].fillStyle, "#fbbf24"); // default note amber
+    assert.equal(scoreContext.fillTextCalls[2].fillStyle, "#22d3ee"); // active note cyan
+    assert.equal(scoreContext.fillTextCalls[3].fillStyle, "#4ade80"); // Verdict.Correct
 });
 
 test("grand staff draws score beams", () => {

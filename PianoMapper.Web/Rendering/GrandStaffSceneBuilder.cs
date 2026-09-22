@@ -18,6 +18,32 @@ internal static class GrandStaffSceneBuilder
     private const double MeasureEdgeNoteClearance = 0.02;
     private const double OpeningBarlineLead = MeasureEdgeNoteClearance;
     private const double LedgerLineHalfWidth = 0.065;
+    // Slightly less than one measured notehead width in scene-X units (empirically measured from
+    // a rendered screenshot: pixel width of a notehead / measured scene-X-to-pixel scale, both
+    // from the same canvas) — a full notehead width only makes the two noteheads' edges just
+    // touch the shared stem from either side, which still reads as a visible gap between them;
+    // this slightly tighter value makes their ink overlap, the standard engraving look for a
+    // chord a 2nd apart. Do NOT derive this from a Y-axis quantity like
+    // GrandStaffLayout.DiatonicStep or "one staff space": canvas.js maps scene-X and scene-Y to
+    // pixels using independent scale factors (the canvas is wide and short, not square), so a
+    // Y-sized quantity reused as an X quantity here previously rendered roughly 5-6x too wide.
+    // Re-tune only by measuring a real render again, not by recomputing from Y or from a formula.
+    private const double ChordNoteheadDisplacement = 0.016;
+    // Minimum visual gap a displaced chord notehead must keep from its nearest same-staff
+    // neighbor — see the clamp in ApplyChordLayout.
+    private const double MinimumOnsetClearance = ChordNoteheadDisplacement * 0.15;
+    // At most this fraction of a measure's total width may be spent on extra chord/accidental
+    // spacing, combined across every dense onset in that measure — see BuildNotationSpacingAnchors.
+    private const double MaxMeasureSpacingBudgetFraction = 0.2;
+    // How far left of the notehead an accidental glyph's center sits, in scene-X units — tuned by
+    // rendering a real accidental next to a real notehead and measuring the pixel gap, the same
+    // way as ChordNoteheadDisplacement above. Do NOT derive this from a Y-axis quantity: it must
+    // shrink to match AccidentalHeightInStaffSpaces below whenever that height changes, since a
+    // taller glyph renders wider too.
+    private const double AccidentalHorizontalOffset = 0.019;
+    // Slightly larger than the key signature's own accidental glyphs
+    // (KeySignatureHeightInStaffSpaces) so an inline accidental reads clearly next to its notehead.
+    private const double AccidentalHeightInStaffSpaces = 2.6;
     private const string RightHandFingeringPrefix = "R";
     private const string LeftHandFingeringPrefix = "L";
     private const double ViewY0 = -0.9;
@@ -126,6 +152,7 @@ internal static class GrandStaffSceneBuilder
                 }
 
                 float renderedX = MapScoreNotationBeatToX(
+                    measure,
                     note.MeasureIndex,
                     note.BeatOffset,
                     score.TimeSignature,
@@ -139,6 +166,8 @@ internal static class GrandStaffSceneBuilder
         // The source hand still controls R/L fingerings independently of notation placement.
         var beamOverrides = new Dictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)>();
         IReadOnlyList<GrandStaffBeam> beams = BuildBeams(visibleNotes, beamOverrides);
+        var chordOverrides = new Dictionary<ScoreNote, ChordNoteOverride>();
+        ApplyChordLayout(visibleNotes, chordOverrides, beamOverrides);
         int[] labelRowIndexes = GrandStaffLayout.GetLabelRowIndexes(visibleNotes);
         AnnotationRows trebleAnnotationRows = GrandStaffLayout.GetAnnotationRows(
             Staff.Treble,
@@ -177,6 +206,15 @@ internal static class GrandStaffSceneBuilder
         for (int visibleNoteIndex = 0; visibleNoteIndex < visibleNotes.Count; visibleNoteIndex++)
         {
             var (note, layout) = visibleNotes[visibleNoteIndex];
+            bool suppressChordStem = false;
+            StemDirection? chordDirectionOverride = null;
+            if (chordOverrides.TryGetValue(note, out var chordOverride))
+            {
+                layout = layout with { X = layout.X + (float)chordOverride.XOffset };
+                suppressChordStem = chordOverride.SuppressStem;
+                chordDirectionOverride = chordOverride.DirectionOverride;
+            }
+
             Verdict? verdict = verdicts is not null && verdicts.TryGetValue(note, out var visibleVerdict)
                 ? visibleVerdict
                 : null;
@@ -194,10 +232,10 @@ internal static class GrandStaffSceneBuilder
                 DurationSeconds: 0,
                 IsActive: expectedNotes?.Contains(note) == true,
                 IsFilled: layout.HeadStyle == NoteHeadStyle.Filled,
-                layout.HasStem,
-                isBeamed ? beamOverride.Direction : layout.StemDirection,
+                HasStem: !suppressChordStem && layout.HasStem,
+                isBeamed ? beamOverride.Direction : chordDirectionOverride ?? layout.StemDirection,
                 layout.HasDot,
-                isBeamed ? layout.FlagCount - beamOverride.BeamCount : layout.FlagCount,
+                FlagCount: suppressChordStem ? 0 : (isBeamed ? layout.FlagCount - beamOverride.BeamCount : layout.FlagCount),
                 verdict,
                 StemEndY: isBeamed ? beamOverride.StemEndY : null,
                 LabelY: showNoteLabels && annotationRows.LabelY is { } labelY
@@ -226,9 +264,12 @@ internal static class GrandStaffSceneBuilder
             {
                 glyphs.Add(new GrandStaffGlyph(
                     accidentalGlyph,
-                    layout.X - 0.055,
+                    layout.X - AccidentalHorizontalOffset,
                     noteY,
-                    GrandStaffGlyphKind.Accidental));
+                    GrandStaffGlyphKind.Accidental,
+                    AccidentalHeightInStaffSpaces * GrandStaffLayout.GetRenderedStaffSpace(layout.Position.Staff),
+                    IsActive: expectedNotes?.Contains(note) == true,
+                    Verdict: verdict));
             }
 
             if (note.Fermata is { } fermata)
@@ -292,10 +333,10 @@ internal static class GrandStaffSceneBuilder
         bool showNoteLabels = true)
     {
         int clampedMeasure = ClampFirstVisibleMeasure(score, firstVisibleMeasure);
-        float? cursorX = GetVisibleScoreX(cursorBeats, score.TimeSignature, clampedMeasure);
+        float? cursorX = GetVisibleScoreX(score, cursorBeats, clampedMeasure);
         double? indicatorBeats = performedNoteBeats ?? cursorBeats;
         float? indicatorX = performedNoteBeats.HasValue
-            ? GetVisibleScoreX(performedNoteBeats, score.TimeSignature, clampedMeasure)
+            ? GetVisibleScoreX(score, performedNoteBeats, clampedMeasure)
             : cursorX;
 
         PerformedNote[] heldNotes = performedNotes?
@@ -360,8 +401,8 @@ internal static class GrandStaffSceneBuilder
     }
 
     private static float? GetVisibleScoreX(
+        Score score,
         double? beats,
-        TimeSignature timeSignature,
         int firstVisibleMeasure)
     {
         if (!beats.HasValue)
@@ -369,6 +410,7 @@ internal static class GrandStaffSceneBuilder
             return null;
         }
 
+        TimeSignature timeSignature = score.TimeSignature;
         double windowStartBeat = firstVisibleMeasure * timeSignature.Numerator;
         double windowEndBeat = (firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount)
             * timeSignature.Numerator;
@@ -379,10 +421,21 @@ internal static class GrandStaffSceneBuilder
 
         int measureIndex = (int)Math.Floor(beats.Value / timeSignature.Numerator);
         double beatOffset = beats.Value - (measureIndex * timeSignature.Numerator);
-        return MapScoreNotationBeatToX(measureIndex, beatOffset, timeSignature, firstVisibleMeasure);
+        ScoreMeasure? measure = measureIndex < score.Measures.Count ? score.Measures[measureIndex] : null;
+        return MapScoreNotationBeatToX(measure, measureIndex, beatOffset, timeSignature, firstVisibleMeasure);
     }
 
+    /// <summary>
+    /// Maps a beat position within a measure to scene-X for score notation (as opposed to
+    /// <see cref="GrandStaffLayout.MapAbsoluteBeatToScoreX"/>, used by the live/rolling piano-roll
+    /// view, which stays purely beat-proportional and is untouched by the spacing below).
+    /// Beat-proportional by default, widened around onsets that need extra room — a displaced
+    /// chord second or a printed accidental — via <see cref="BuildNotationSpacingAnchors"/>, then
+    /// rescaled to still land exactly on <paramref name="measureIndex"/>'s barlines if that
+    /// widening would otherwise overflow the measure.
+    /// </summary>
     private static float MapScoreNotationBeatToX(
+        ScoreMeasure? measure,
         int measureIndex,
         double beatOffset,
         TimeSignature timeSignature,
@@ -396,10 +449,162 @@ internal static class GrandStaffSceneBuilder
             ? measureStartX
             : measureStartX + MeasureEdgeNoteClearance;
         double noteAreaEndX = measureEndX - MeasureEdgeNoteClearance;
+        double noteAreaWidth = noteAreaEndX - noteAreaStartX;
+        double fraction = measure is null
+            ? beatOffset / timeSignature.Numerator
+            : GetNotationBeatFraction(measure, beatOffset, timeSignature, noteAreaWidth);
         return (float)Math.Clamp(
-            noteAreaStartX + (beatOffset / timeSignature.Numerator) * (noteAreaEndX - noteAreaStartX),
+            noteAreaStartX + (fraction * noteAreaWidth),
             noteAreaStartX,
             noteAreaEndX);
+    }
+
+    private static double GetNotationBeatFraction(
+        ScoreMeasure measure,
+        double beatOffset,
+        TimeSignature timeSignature,
+        double noteAreaWidth)
+    {
+        var anchors = BuildNotationSpacingAnchors(measure, timeSignature, noteAreaWidth);
+        for (int index = 1; index < anchors.Count; index++)
+        {
+            if (beatOffset <= anchors[index].Beat || index == anchors.Count - 1)
+            {
+                (double beat0, double fraction0) = anchors[index - 1];
+                (double beat1, double fraction1) = anchors[index];
+                double span = beat1 - beat0;
+                double progress = span <= 0 ? 0 : (beatOffset - beat0) / span;
+                return fraction0 + (progress * (fraction1 - fraction0));
+            }
+        }
+
+        return anchors[^1].Fraction;
+    }
+
+    /// <summary>
+    /// Piecewise-linear (beat, fraction-of-measure-width) anchors for one measure's notation
+    /// spacing: beat-proportional by default, with extra fraction inserted before/after any onset
+    /// that <see cref="RequiresExtraNotationWidth"/> flags, then rescaled back to [0, 1] if that
+    /// widening would push the last anchor past the measure's own width.
+    /// </summary>
+    private static IReadOnlyList<(double Beat, double Fraction)> BuildNotationSpacingAnchors(
+        ScoreMeasure measure,
+        TimeSignature timeSignature,
+        double noteAreaWidth)
+    {
+        double[] onsetBeats = measure.Notes
+            .Select(note => note.BeatOffset)
+            .Concat(measure.Rests.Select(rest => rest.BeatOffset))
+            .Distinct()
+            .OrderBy(beat => beat)
+            .ToArray();
+        if (onsetBeats.Length == 0)
+        {
+            return [(0, 0), (timeSignature.Numerator, 1)];
+        }
+
+        bool[] needsExtraWidth = onsetBeats
+            .Select(beat => RequiresExtraNotationWidth(measure, beat))
+            .ToArray();
+
+        var beats = new List<double>(onsetBeats.Length + 2) { 0 };
+        beats.AddRange(onsetBeats.Where(beat => beat > 0));
+        if (beats[^1] < timeSignature.Numerator)
+        {
+            beats.Add(timeSignature.Numerator);
+        }
+
+        // Reserve more than exactly one displacement's worth of clearance per gap: a chord's
+        // displaced member can move toward either neighbor, and reserving the same amount it
+        // moves by leaves zero margin — floating-point rounding alone can then tip the displaced
+        // notehead behind its neighbor instead of just touching it.
+        bool[] intervalNeedsGap = new bool[beats.Count];
+        for (int index = 1; index < beats.Count; index++)
+        {
+            int onsetIndex = Array.IndexOf(onsetBeats, beats[index]);
+            int previousOnsetIndex = Array.IndexOf(onsetBeats, beats[index - 1]);
+            intervalNeedsGap[index] = (onsetIndex >= 0 && needsExtraWidth[onsetIndex]) ||
+                (previousOnsetIndex >= 0 && needsExtraWidth[previousOnsetIndex]);
+        }
+
+        double rawGapFraction = noteAreaWidth > 0
+            ? ChordNoteheadDisplacement / noteAreaWidth
+            : 0;
+        int gapCount = intervalNeedsGap.Count(needsGap => needsGap);
+        double totalRawExtra = gapCount * rawGapFraction;
+        // Cap how much of the measure's total width chord/accidental clearance can consume: a
+        // busy measure can have several dense onsets, each individually wanting close to a full
+        // notehead-width of clearance on both sides, which — left uncapped — forces the
+        // rescale-to-fit step below to crush every other (unrelated) note in the measure to
+        // compensate. Scale every gap down proportionally instead once the combined ask exceeds
+        // this budget, so a busy measure degrades toward plain proportional spacing rather than
+        // toward a compressed mess.
+        double gapFraction = totalRawExtra > MaxMeasureSpacingBudgetFraction && totalRawExtra > 0
+            ? rawGapFraction * (MaxMeasureSpacingBudgetFraction / totalRawExtra)
+            : rawGapFraction;
+
+        // Accumulate each interval's own proportional share plus any extra clearance — never
+        // compare against an absolute baseline fraction. Comparing against baseline let one
+        // widened gap permanently outrun every later onset's baseline for the rest of the
+        // measure once accumulated, collapsing them onto the same X (see the "foo1" bug report:
+        // a single dense chord early in a measure pulled every subsequent note onto one X).
+        var fractions = new double[beats.Count];
+        for (int index = 1; index < beats.Count; index++)
+        {
+            double naturalGap = (beats[index] - beats[index - 1]) / timeSignature.Numerator;
+            fractions[index] = fractions[index - 1] + naturalGap + (intervalNeedsGap[index] ? gapFraction : 0);
+        }
+
+        double lastFraction = fractions[^1];
+        if (lastFraction > 1)
+        {
+            double scale = 1 / lastFraction;
+            for (int index = 0; index < fractions.Length; index++)
+            {
+                fractions[index] *= scale;
+            }
+        }
+
+        var anchors = new List<(double Beat, double Fraction)>(beats.Count);
+        for (int index = 0; index < beats.Count; index++)
+        {
+            anchors.Add((beats[index], fractions[index]));
+        }
+
+        return anchors;
+    }
+
+    /// <summary>
+    /// Whether the notation at this onset (a printed accidental, or two same-staff notes a 2nd
+    /// apart that <see cref="ApplyChordLayout"/> will displace — whether they're one real chord or
+    /// independent voices sharing the onset, see <see cref="ApplyVoiceOverlapDisplacement"/>) needs
+    /// more than the default beat-proportional gap from its neighboring onset to avoid visually
+    /// overlapping it.
+    /// </summary>
+    private static bool RequiresExtraNotationWidth(ScoreMeasure measure, double beatOffset)
+    {
+        ScoreNote[] notesAtOnset = measure.Notes.Where(note => note.BeatOffset == beatOffset).ToArray();
+        if (notesAtOnset.Any(note => note.Accidental is not null))
+        {
+            return true;
+        }
+
+        foreach (var staffNotes in notesAtOnset.GroupBy(note => note.Staff))
+        {
+            ScoreNote[] notesOnStaff = staffNotes.ToArray();
+            for (int i = 0; i < notesOnStaff.Length; i++)
+            {
+                for (int j = i + 1; j < notesOnStaff.Length; j++)
+                {
+                    if (Math.Abs(notesOnStaff[i].Pitch.DiatonicIndex - notesOnStaff[j].Pitch.DiatonicIndex) == 1)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -519,9 +724,11 @@ internal static class GrandStaffSceneBuilder
                 {
                     glyphs.Add(new GrandStaffGlyph(
                         GetAccidentalGlyph(note.Pitch.Alter),
-                        renderedX - 0.055,
+                        renderedX - AccidentalHorizontalOffset,
                         noteY,
-                        GrandStaffGlyphKind.Accidental));
+                        GrandStaffGlyphKind.Accidental,
+                        AccidentalHeightInStaffSpaces * GrandStaffLayout.GetRenderedStaffSpace(position.Staff),
+                        IsActive: isActiveSegment));
                 }
 
                 if (segment.HasIncomingTie)
@@ -759,6 +966,266 @@ internal static class GrandStaffSceneBuilder
             double stemEndY = y0 + ((y1 - y0) * progress);
             beamOverrides[item.Note] = (direction, stemEndY, beamCount);
         }
+    }
+
+    /// <summary>
+    /// Per-note adjustments produced by <see cref="ApplyChordLayout"/>: how far a chord member's
+    /// notehead (and everything anchored to it — ledger lines, accidental, fermata) is displaced
+    /// to the side of the shared stem, and whether this member draws its own stem/flags at all
+    /// (only the chord's stem-owning member does; the rest share its stem visually).
+    /// </summary>
+    private readonly record struct ChordNoteOverride(
+        double XOffset,
+        bool SuppressStem,
+        StemDirection? DirectionOverride = null);
+
+    /// <summary>
+    /// Groups simultaneous notes that form one true MusicXML chord (contiguous
+    /// <see cref="ScoreNote.IsChordContinuation"/> runs on the same notation staff), displaces
+    /// noteheads that are a 2nd apart to the correct side of the shared stem, and gives the
+    /// group's stem-owning member a <paramref name="beamOverrides"/> entry spanning the full
+    /// chord so it renders as a single stem. Chords with a beamed member are left untouched here
+    /// — beam geometry (<see cref="BuildBeams"/>) already assumes one note per time slot, and
+    /// reconciling that with a merged chord stem is out of scope for this pass; those notes keep
+    /// today's independent per-note stems. Afterward, independent voices that share an onset and
+    /// staff without a real chord link between them (different durations, so never eligible for a
+    /// shared stem) still get pulled apart via <see cref="ApplyVoiceOverlapDisplacement"/> — they
+    /// are just as unreadable fully overlapping as an undisplaced chord would be.
+    /// </summary>
+    private static void ApplyChordLayout(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> notes,
+        IDictionary<ScoreNote, ChordNoteOverride> chordOverrides,
+        IDictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)> beamOverrides)
+    {
+        IReadOnlyList<IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)>> chordGroups = BuildChordGroups(notes);
+        foreach (var group in chordGroups)
+        {
+            if (group.Count < 2 || group.Any(item => item.Note.BeamState != BeamState.None))
+            {
+                continue;
+            }
+
+            StemDirection direction = ResolveChordStemDirection(group);
+            var ordered = (direction == StemDirection.Up
+                    ? group.OrderBy(item => item.Layout.Position.DiatonicPosition.DiatonicOffset)
+                    : group.OrderByDescending(item => item.Layout.Position.DiatonicPosition.DiatonicOffset))
+                .ToArray();
+
+            var displaced = new bool[ordered.Length];
+            for (int index = 1; index < ordered.Length; index++)
+            {
+                int step = Math.Abs(
+                    ordered[index].Layout.Position.DiatonicPosition.DiatonicOffset -
+                    ordered[index - 1].Layout.Position.DiatonicPosition.DiatonicOffset);
+                displaced[index] = step == 1 && !displaced[index - 1];
+            }
+
+            double displacementSign = direction == StemDirection.Up ? 1 : -1;
+            double maxDisplacement = ClampDisplacementToNeighbor(
+                notes,
+                ordered[0].Note,
+                ordered[0].Layout.Position.Staff,
+                ordered[0].Layout.X,
+                displacementSign,
+                ChordNoteheadDisplacement);
+
+            for (int index = 0; index < ordered.Length; index++)
+            {
+                chordOverrides[ordered[index].Note] = new ChordNoteOverride(
+                    displaced[index] ? displacementSign * maxDisplacement : 0,
+                    SuppressStem: index > 0);
+            }
+
+            Staff staff = ordered[0].Layout.Position.Staff;
+            double stemOffset = direction == StemDirection.Up ? GrandStaffLayout.StemLength : -GrandStaffLayout.StemLength;
+            double stemEndY = GrandStaffLayout.SeparateStaffY(ordered[^1].Layout.Position.Y, staff) + stemOffset;
+            beamOverrides[ordered[0].Note] = (direction, stemEndY, BeamCount: 0);
+        }
+
+        ApplyVoiceOverlapDisplacement(notes, chordGroups, chordOverrides);
+    }
+
+    /// <summary>
+    /// Clamps a requested chord-notehead displacement so it can never cross past the nearest
+    /// same-staff neighbor at a different onset in this measure. Cosmetic spacing
+    /// (<see cref="BuildNotationSpacingAnchors"/>) tries to leave room for this, but its
+    /// reservation is capped for busy measures (see <see cref="MaxMeasureSpacingBudgetFraction"/>)
+    /// and must never be the only thing preventing a displaced notehead from visually landing
+    /// behind — or on top of — its neighbor.
+    /// </summary>
+    private static double ClampDisplacementToNeighbor(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> notes,
+        ScoreNote referenceNote,
+        Staff staff,
+        double referenceX,
+        double displacementSign,
+        double requestedDisplacement)
+    {
+        if (displacementSign < 0)
+        {
+            double? previousNeighborX = notes
+                .Where(item =>
+                    item.Note.MeasureIndex == referenceNote.MeasureIndex &&
+                    item.Layout.Position.Staff == staff &&
+                    item.Note.BeatOffset < referenceNote.BeatOffset)
+                .Select(item => (double?)item.Layout.X)
+                .Max();
+            return previousNeighborX is { } previousX
+                ? Math.Clamp(referenceX - previousX - MinimumOnsetClearance, 0, requestedDisplacement)
+                : requestedDisplacement;
+        }
+
+        double? nextNeighborX = notes
+            .Where(item =>
+                item.Note.MeasureIndex == referenceNote.MeasureIndex &&
+                item.Layout.Position.Staff == staff &&
+                item.Note.BeatOffset > referenceNote.BeatOffset)
+            .Select(item => (double?)item.Layout.X)
+            .Min();
+        return nextNeighborX is { } nextX
+            ? Math.Clamp(nextX - referenceX - MinimumOnsetClearance, 0, requestedDisplacement)
+            : requestedDisplacement;
+    }
+
+    /// <summary>
+    /// Displaces independent voices — chord groups from <see cref="BuildChordGroups"/> that share
+    /// an onset and staff but were never linked by a real <c>&lt;chord/&gt;</c>, so each keeps its
+    /// own stem — when they are pitch-adjacent enough to otherwise render on top of each other.
+    /// Two notes at the same onset with different durations can never be one real chord (a chord
+    /// shares a single stem and duration across all its members), but they are exactly as
+    /// unreadable fully overlapping as an undisplaced chord would be. Reuses the same "flip sides
+    /// on each adjacent 2nd" rule as real chords, and the same neighbor clamp, but only ever
+    /// shifts whole voices as rigid units — a voice that already got its own internal chord
+    /// displacement in the caller's earlier loop keeps that shape, just moved as one piece.
+    /// </summary>
+    private static void ApplyVoiceOverlapDisplacement(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> notes,
+        IReadOnlyList<IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)>> chordGroups,
+        IDictionary<ScoreNote, ChordNoteOverride> chordOverrides)
+    {
+        var buckets = chordGroups.GroupBy(group =>
+            (group[0].Note.MeasureIndex, group[0].Note.BeatOffset, group[0].Layout.Position.Staff));
+        foreach (var bucket in buckets)
+        {
+            var voices = bucket.ToArray();
+            if (voices.Length < 2)
+            {
+                continue;
+            }
+
+            var ordered = voices
+                .OrderBy(voice => voice.Average(item => item.Layout.Position.DiatonicPosition.DiatonicOffset))
+                .ToArray();
+
+            var displaced = new bool[ordered.Length];
+            for (int index = 1; index < ordered.Length; index++)
+            {
+                int forwardGap = Math.Abs(
+                    ordered[index].Min(item => item.Layout.Position.DiatonicPosition.DiatonicOffset) -
+                    ordered[index - 1].Max(item => item.Layout.Position.DiatonicPosition.DiatonicOffset));
+                int backwardGap = Math.Abs(
+                    ordered[index].Max(item => item.Layout.Position.DiatonicPosition.DiatonicOffset) -
+                    ordered[index - 1].Min(item => item.Layout.Position.DiatonicPosition.DiatonicOffset));
+                displaced[index] = Math.Min(forwardGap, backwardGap) <= 1 && !displaced[index - 1];
+            }
+
+            if (!displaced.Any(needsDisplacement => needsDisplacement))
+            {
+                // No two voices in this bucket are actually close enough to collide (e.g. a 5th
+                // apart) — leave each note's independently-resolved stem direction alone. The
+                // top-voice-up/bottom-voice-down convention below is only for telling apart
+                // voices that would otherwise visually overlap.
+                continue;
+            }
+
+            // Independent voices sharing a staff use a different stem-direction convention than a
+            // single line of notes once they're close enough to need disambiguating: the top
+            // voice always stems up and the bottom voice always stems down, regardless of where
+            // either one actually sits relative to the middle line, so a reader can keep each
+            // voice visually distinct. (Any voices strictly between the top and bottom keep
+            // whatever direction their own pitch already resolved to — three or more real,
+            // independent voices sharing one exact onset on one staff is rare enough not to need
+            // a general rule here.)
+            var directionOverrides = new StemDirection?[ordered.Length];
+            directionOverrides[0] = StemDirection.Down;
+            directionOverrides[^1] = StemDirection.Up;
+
+            for (int index = 0; index < ordered.Length; index++)
+            {
+                double shift = 0;
+                if (displaced[index])
+                {
+                    StemDirection ownDirection = directionOverrides[index] ?? ResolveChordStemDirection(ordered[index]);
+                    double displacementSign = ownDirection == StemDirection.Up ? 1 : -1;
+                    var anchor = ordered[index][0];
+                    shift = ClampDisplacementToNeighbor(
+                        notes,
+                        anchor.Note,
+                        anchor.Layout.Position.Staff,
+                        anchor.Layout.X,
+                        displacementSign,
+                        ChordNoteheadDisplacement) * displacementSign;
+                }
+
+                if (shift == 0 && directionOverrides[index] is null)
+                {
+                    continue;
+                }
+
+                foreach (var (note, _) in ordered[index])
+                {
+                    ChordNoteOverride existing = chordOverrides.TryGetValue(note, out var current)
+                        ? current
+                        : new ChordNoteOverride(0, SuppressStem: false);
+                    chordOverrides[note] = existing with
+                    {
+                        XOffset = existing.XOffset + shift,
+                        DirectionOverride = directionOverrides[index] ?? existing.DirectionOverride,
+                    };
+                }
+            }
+        }
+    }
+
+    private static IReadOnlyList<IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)>> BuildChordGroups(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> notes)
+    {
+        var groups = new List<List<(ScoreNote Note, ScoreNoteLayout Layout)>>();
+        foreach (var item in notes)
+        {
+            List<(ScoreNote Note, ScoreNoteLayout Layout)>? currentGroup = groups.Count > 0 ? groups[^1] : null;
+            bool continuesChord = item.Note.IsChordContinuation &&
+                currentGroup is not null &&
+                currentGroup[^1].Note.MeasureIndex == item.Note.MeasureIndex &&
+                currentGroup[^1].Layout.Position.Staff == item.Layout.Position.Staff;
+            if (continuesChord)
+            {
+                currentGroup!.Add(item);
+            }
+            else
+            {
+                groups.Add([item]);
+            }
+        }
+
+        return groups;
+    }
+
+    private static StemDirection ResolveChordStemDirection(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> group)
+    {
+        Staff staff = group[0].Layout.Position.Staff;
+        var staffLines = staff == Staff.Treble ? GrandStaffLayout.TrebleLineYs : GrandStaffLayout.BassLineYs;
+        double averageY = group.Average(item => item.Layout.Position.Y);
+        var automaticDirection = averageY < staffLines[2] ? StemDirection.Up : StemDirection.Down;
+        var explicitDirections = group
+            .Select(item => item.Note.StemDirection)
+            .OfType<ScoreStemDirection>()
+            .Distinct()
+            .ToArray();
+        return explicitDirections.Length == 1
+            ? group.First(item => item.Note.StemDirection == explicitDirections[0]).Layout.StemDirection
+            : automaticDirection;
     }
 
     private static void AddScoreSignatures(ICollection<GrandStaffGlyph> glyphs, Score score)

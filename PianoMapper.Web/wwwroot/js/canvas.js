@@ -15,6 +15,7 @@ export const barlineKind = 2; // GrandStaffLineKind.Barline
 export const cursorLineKind = 3; // GrandStaffLineKind.Cursor
 export const beatLineKind = 4; // GrandStaffLineKind.Beat
 export const clefGlyphKind = 0; // PianoMapper.Web.Rendering.GrandStaffGlyphKind.Clef
+export const accidentalGlyphKind = 1; // GrandStaffGlyphKind.Accidental
 export const stemDirectionUp = 0; // PianoMapper.Rendering.StemDirection.Up (also used for GrandStaffTie.CurveDirection)
 // Index i must hold the color for PianoMapper.Core.Practice.Verdict's i-th ordinal.
 export const verdictColors = [
@@ -708,7 +709,13 @@ function drawLine(context, line, width, height, staffSpace) {
 }
 
 function drawGlyph(context, glyph, width, height) {
-    context.fillStyle = glyph.kind === clefGlyphKind ? "#e2e8f0" : "#f8fafc";
+    if (glyph.kind === accidentalGlyphKind) {
+        context.fillStyle = Number.isInteger(glyph.verdict)
+            ? verdictColors[glyph.verdict]
+            : glyph.isActive ? "#22d3ee" : "#fbbf24";
+    } else {
+        context.fillStyle = glyph.kind === clefGlyphKind ? "#e2e8f0" : "#f8fafc";
+    }
     context.textAlign = "center";
     const x = mapX(glyph.x, width);
     const y = mapY(glyph.y, height);
