@@ -466,6 +466,41 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
+    public void BuildScore_HighBassNoteWithLowerBassNote_StaysOnBassStaff()
+    {
+        var bassNote = new ScoreNote(
+            new Pitch(NoteLetter.C, 1, 4),
+            new NoteValue(2),
+            0,
+            1,
+            Staff.Bass,
+            Fingering: new ScoreFingering(2));
+        var score = ScoreWithNotes(
+        [
+            new ScoreNote(new Pitch(NoteLetter.F, 1, 3), new NoteValue(4), 0, 0, Staff.Bass),
+            new ScoreNote(new Pitch(NoteLetter.F, 1, 4), new NoteValue(4), 0, 1, Staff.Treble),
+            bassNote,
+        ],
+        timeSignature: new TimeSignature(3, new NoteValue(4)));
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+        var renderedNote = Assert.Single(scene.Notes, note => note.Label == "C#4");
+        GrandStaffLine[] staffLines = scene.Lines
+            .Where(line => line.Kind == GrandStaffLineKind.Staff)
+            .ToArray();
+        double bassTopLineY = staffLines.Skip(5).Max(line => line.Y0);
+        double trebleBottomLineY = staffLines.Take(5).Min(line => line.Y0);
+
+        Assert.Equal("L2", renderedNote.Fingering);
+        Assert.True(renderedNote.Y > bassTopLineY);
+        Assert.True(renderedNote.Y - bassTopLineY < trebleBottomLineY - renderedNote.Y);
+        Assert.Contains(scene.Lines, line =>
+            line.Kind == GrandStaffLineKind.Ledger &&
+            line.Y0 == renderedNote.Y &&
+            line.X0 < renderedNote.X && line.X1 > renderedNote.X);
+    }
+
+    [Fact]
     public void BuildScore_NoteWithoutFingering_LeavesFingeringFieldsNull()
     {
         var sourceNote = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
@@ -899,6 +934,47 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.Contains(barlineXs, x => Math.Abs(x - finalBoundaryX) < 1e-6);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    [InlineData(4)]
+    public void BuildScore_ConsecutiveEighthNotes_HaveEvenSpacingAndAlignedCursor(int measureIndex)
+    {
+        var score = new Score(
+            "test",
+            new TimeSignature(3, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            Enumerable.Range(0, 5)
+                .Select(index => new ScoreMeasure(
+                    index == measureIndex
+                        ? Enumerable.Range(0, 6)
+                            .Select(noteIndex => new ScoreNote(
+                                new Pitch(NoteLetter.D, 0, 4),
+                                new NoteValue(8),
+                                index,
+                                noteIndex * 0.5,
+                                Staff.Treble))
+                            .ToArray()
+                        : [],
+                    []))
+                .ToArray());
+
+        var scene = GrandStaffSceneBuilder.BuildScore(
+            score,
+            firstVisibleMeasure: 0,
+            cursorBeats: (measureIndex * 3) + 0.5);
+        double[] noteXs = scene.Notes.Select(note => note.X).ToArray();
+        var cursor = Assert.Single(scene.Lines, line => line.Kind == GrandStaffLineKind.Cursor);
+
+        Assert.Equal(6, noteXs.Length);
+        Assert.Equal(noteXs[1], cursor.X0, 6);
+        for (int index = 2; index < noteXs.Length; index++)
+        {
+            Assert.Equal(noteXs[1] - noteXs[0], noteXs[index] - noteXs[index - 1], precision: 6);
+        }
+    }
+
     [Fact]
     public void BuildScore_BeamEndingNearMeasureBoundary_KeepsNoteAndBeamInsideMeasure()
     {
@@ -1033,20 +1109,6 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
-    public void BuildScore_CursorInWindow_ReturnsMappedCursorLine()
-    {
-        var score = CreateScore(measureCount: 6);
-
-        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 4, cursorBeats: 17);
-
-        var cursor = Assert.Single(scene.Lines, line => line.Kind == GrandStaffLineKind.Cursor);
-        Assert.Equal(
-            GrandStaffLayout.MapAbsoluteBeatToScoreX(17, score.TimeSignature, firstVisibleMeasure: 4),
-            cursor.X0,
-            6);
-    }
-
-    [Fact]
     public void BuildScore_CursorAtWindowBoundary_BelongsOnlyToIncomingWindow()
     {
         var score = CreateScore(measureCount: 12);
@@ -1126,10 +1188,9 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.Equal("C4", indicator.Label);
         Assert.True(indicator.IsActive);
         Assert.False(indicator.IsFilled);
-        Assert.Equal(
-            GrandStaffLayout.MapAbsoluteBeatToScoreX(1, score.TimeSignature, firstVisibleMeasure: 0),
-            indicator.X,
-            6);
+        var cursorScene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0, cursorBeats: 1);
+        var cursor = Assert.Single(cursorScene.Lines, line => line.Kind == GrandStaffLineKind.Cursor);
+        Assert.Equal(cursor.X0, indicator.X, 6);
         GrandStaffLine[] trebleStaffLines = scene.Lines
             .Where(line => line.Kind == GrandStaffLineKind.Staff)
             .Take(5)

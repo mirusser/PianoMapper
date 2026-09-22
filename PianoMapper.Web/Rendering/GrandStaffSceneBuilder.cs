@@ -110,40 +110,33 @@ internal static class GrandStaffSceneBuilder
         for (int measureIndex = clampedMeasure; measureIndex < lastMeasureIndexExclusive; measureIndex++)
         {
             ScoreMeasure measure = score.Measures[measureIndex];
+            bool hasBassRegisterNote = measure.Notes.Any(candidate =>
+                candidate.Staff == Staff.Bass &&
+                GrandStaffLayout.GetLivePosition(candidate.Pitch).Staff == Staff.Bass);
             for (int noteIndex = 0; noteIndex < measure.Notes.Count; noteIndex++)
             {
                 ScoreNote note = measure.Notes[noteIndex];
-                Staff notationStaff = GrandStaffLayout.GetLivePosition(note.Pitch).Staff;
+                Staff notationStaff = note.Staff == Staff.Bass && hasBassRegisterNote
+                    ? Staff.Bass
+                    : GrandStaffLayout.GetLivePosition(note.Pitch).Staff;
                 ScoreNote notationNote = note with { Staff = notationStaff };
                 if (GrandStaffLayout.GetScoreNoteLayout(notationNote, score.TimeSignature, clampedMeasure) is not { } layout)
                 {
                     continue;
                 }
 
-                double measureStartX = GrandStaffLayout.MapScoreOnsetToX(
+                float renderedX = MapScoreNotationBeatToX(
                     note.MeasureIndex,
-                    beatOffset: 0,
+                    note.BeatOffset,
                     score.TimeSignature,
                     clampedMeasure);
-                double visibleMeasureStartX = note.MeasureIndex == clampedMeasure
-                    ? measureStartX - OpeningBarlineLead
-                    : measureStartX;
-                double measureEndX = GrandStaffLayout.MapScoreOnsetToX(
-                    note.MeasureIndex + 1,
-                    beatOffset: 0,
-                    score.TimeSignature,
-                    clampedMeasure);
-                float renderedX = (float)Math.Clamp(
-                    layout.X,
-                    visibleMeasureStartX + MeasureEdgeNoteClearance,
-                    measureEndX - MeasureEdgeNoteClearance);
                 visibleNotes.Add((note, layout with { X = renderedX }));
                 visibleNoteAddresses.Add(new ScoreNoteAddress(measureIndex, noteIndex));
             }
         }
 
-        // Score pitch determines notation placement independently of the hand stored on ScoreNote.
-        // This keeps middle-C-area left-hand notes with the treble notation while retaining L fingerings.
+        // Score pitch determines notation placement for bass voices without a bass-register anchor.
+        // The source hand still controls R/L fingerings independently of notation placement.
         var beamOverrides = new Dictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)>();
         IReadOnlyList<GrandStaffBeam> beams = BuildBeams(visibleNotes, beamOverrides);
         int[] labelRowIndexes = GrandStaffLayout.GetLabelRowIndexes(visibleNotes);
@@ -379,9 +372,34 @@ internal static class GrandStaffSceneBuilder
         double windowStartBeat = firstVisibleMeasure * timeSignature.Numerator;
         double windowEndBeat = (firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount)
             * timeSignature.Numerator;
-        return beats.Value >= windowStartBeat && beats.Value < windowEndBeat
-            ? GrandStaffLayout.MapAbsoluteBeatToScoreX(beats.Value, timeSignature, firstVisibleMeasure)
-            : null;
+        if (beats.Value < windowStartBeat || beats.Value >= windowEndBeat)
+        {
+            return null;
+        }
+
+        int measureIndex = (int)Math.Floor(beats.Value / timeSignature.Numerator);
+        double beatOffset = beats.Value - (measureIndex * timeSignature.Numerator);
+        return MapScoreNotationBeatToX(measureIndex, beatOffset, timeSignature, firstVisibleMeasure);
+    }
+
+    private static float MapScoreNotationBeatToX(
+        int measureIndex,
+        double beatOffset,
+        TimeSignature timeSignature,
+        int firstVisibleMeasure)
+    {
+        double measureStartX = GrandStaffLayout.MapScoreOnsetToX(
+            measureIndex, 0, timeSignature, firstVisibleMeasure);
+        double measureEndX = GrandStaffLayout.MapScoreOnsetToX(
+            measureIndex + 1, 0, timeSignature, firstVisibleMeasure);
+        double noteAreaStartX = measureIndex == firstVisibleMeasure
+            ? measureStartX
+            : measureStartX + MeasureEdgeNoteClearance;
+        double noteAreaEndX = measureEndX - MeasureEdgeNoteClearance;
+        return (float)Math.Clamp(
+            noteAreaStartX + (beatOffset / timeSignature.Numerator) * (noteAreaEndX - noteAreaStartX),
+            noteAreaStartX,
+            noteAreaEndX);
     }
 
     /// <summary>

@@ -34,6 +34,7 @@ export const verdictColors = [
 const scoreCursorX0 = -0.56;
 const scoreCursorX1 = 0.96;
 const scoreCursorVisibleMeasureCount = 5;
+const scoreNoteEdgeClearance = 0.02;
 const defaultStaffSpace = 11;
 const noteHeadWidthInStaffSpaces = 1.2;
 const noteHeadHeightInStaffSpaces = 0.8;
@@ -638,7 +639,7 @@ function drawScoreCursor(context, state, width, height, scorePlaybackBeats) {
         return;
     }
 
-    const x = mapAbsoluteBeatToScoreX(beats, cursor.beatsPerMeasure, cursor.firstVisibleMeasure);
+    const x = mapScoreNotationBeatToX(beats, cursor.beatsPerMeasure, cursor.firstVisibleMeasure);
     drawLine(
         context,
         { x0: x, y0: cursor.cursorY0, x1: x, y1: cursor.cursorY1, kind: cursorLineKind },
@@ -652,6 +653,20 @@ export function mapAbsoluteBeatToScoreX(absoluteBeat, beatsPerMeasure, firstVisi
     const beatOffset = absoluteBeat - (measureIndex * beatsPerMeasure);
     const relativeMeasure = measureIndex - firstVisibleMeasure + (beatOffset / beatsPerMeasure);
     return scoreCursorX0 + (relativeMeasure / scoreCursorVisibleMeasureCount) * (scoreCursorX1 - scoreCursorX0);
+}
+
+// Mirrors GrandStaffSceneBuilder.MapScoreNotationBeatToX for note and cursor alignment.
+export function mapScoreNotationBeatToX(absoluteBeat, beatsPerMeasure, firstVisibleMeasure) {
+    const measureIndex = Math.floor(absoluteBeat / beatsPerMeasure);
+    const beatOffset = absoluteBeat - (measureIndex * beatsPerMeasure);
+    const measureStartX = mapAbsoluteBeatToScoreX(measureIndex * beatsPerMeasure, beatsPerMeasure, firstVisibleMeasure);
+    const measureEndX = mapAbsoluteBeatToScoreX((measureIndex + 1) * beatsPerMeasure, beatsPerMeasure, firstVisibleMeasure);
+    const noteAreaStartX = measureIndex === firstVisibleMeasure
+        ? measureStartX
+        : measureStartX + scoreNoteEdgeClearance;
+    const noteAreaEndX = measureEndX - scoreNoteEdgeClearance;
+    const x = noteAreaStartX + (beatOffset / beatsPerMeasure) * (noteAreaEndX - noteAreaStartX);
+    return Math.min(Math.max(x, noteAreaStartX), noteAreaEndX);
 }
 
 function drawBand(context, band, width, height) {

@@ -7,6 +7,7 @@ import {
     initialize,
     initializeScoreCanvas,
     mapAbsoluteBeatToScoreX,
+    mapScoreNotationBeatToX,
     render,
     startScoreCursor,
     stopScoreCursor,
@@ -20,6 +21,13 @@ test("score cursor mapping fits five measures across the score width", () => {
     const fifthMeasureBoundary = mapAbsoluteBeatToScoreX(20, 4, 0);
 
     assert.ok(Math.abs(fifthMeasureBoundary - 0.96) < 1e-9);
+});
+
+test("score notation cursor keeps consecutive eighth-note onsets evenly spaced", () => {
+    const onsets = [6, 6.5, 7].map(beat => mapScoreNotationBeatToX(beat, 3, 0));
+
+    assert.ok(onsets[0] > mapAbsoluteBeatToScoreX(6, 3, 0));
+    assert.ok(Math.abs((onsets[1] - onsets[0]) - (onsets[2] - onsets[1])) < 1e-9);
 });
 
 class FakeCanvasContext {
@@ -391,7 +399,7 @@ test("score cursor animates without analysis panels and stops at completion or r
 test("score playback highlights a chord only inside its half-open beat interval", async () => {
     const harness = await createScoreCursorHarness(1);
     const canvas = harness.createCanvas();
-    const noteX = mapAbsoluteBeatToScoreX(1, 4, 0);
+    const noteX = mapScoreNotationBeatToX(1, 4, 0);
     const note = {
         y: 0.2,
         scoreOnsetBeats: 1,
