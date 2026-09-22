@@ -5,7 +5,6 @@
     <section class="visualization-panel" aria-labelledby="piano-view-heading">
         <div class="visualization-panel-header">
             <div>
-                <p class="panel-kicker">Notes</p>
                 <h2 id="piano-view-heading">@SceneTitle</h2>
             </div>
             @if (IsScoreView)
@@ -25,7 +24,10 @@
                 <span class="panel-context">@SceneContext</span>
             }
         </div>
-        <p class="panel-description">@SceneDescription</p>
+        @if (!string.IsNullOrEmpty(SceneDescription))
+        {
+            <p class="panel-description">@SceneDescription</p>
+        }
         <div class="legend" aria-label="Note color legend">
             <span><span class="legend-mark legend-mark-active"></span>Pressed by you</span>
             <span><span class="legend-mark legend-mark-finished"></span>Released or expected</span>
@@ -301,7 +303,7 @@
     private string SceneDescription => Scene.Kind == PianoCanvasSceneKind.PianoRoll
         ? "Time moves from left to right; higher notes appear higher in the panel."
         : IsScoreView
-            ? "The upper five lines are the treble staff and the lower five are the bass staff."
+            ? string.Empty
             : "The view follows the selected keyboard octave while preserving each note's real position on the staff.";
 
     private string SceneLabel => Scene.Kind == PianoCanvasSceneKind.PianoRoll
