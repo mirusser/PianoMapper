@@ -87,6 +87,37 @@ public sealed class ScorePlaybackTests
     }
 
     [Fact]
+    public void CreateSchedule_EighthNoteTriplet_ScalesOnsetAndDurationByRatio()
+    {
+        var pitchD = new Pitch(NoteLetter.D, 0, 4);
+        var score = new Score(
+            "Triplet",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [
+                new ScoreMeasure(
+                    [
+                        new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble),
+                        new ScoreNote(
+                            pitchD,
+                            new NoteValue(8, tupletActualNotes: 3, tupletNormalNotes: 2),
+                            0,
+                            1,
+                            Staff.Treble),
+                    ],
+                    []),
+            ]);
+        var anchor = TimeSpan.FromSeconds(5);
+
+        var schedule = ScorePlayback.CreateSchedule(score, anchor);
+
+        var tripletEvent = Assert.Single(schedule, item => item.Event.Pitch == pitchD);
+        Assert.Equal(anchor + TimeSpan.FromSeconds(0.5), tripletEvent.DueTime);
+        Assert.Equal(TimeSpan.FromSeconds(1.0 / 6.0), tripletEvent.Duration);
+    }
+
+    [Fact]
     public void CreateSchedule_AnchorTempoChordsAndTie_ReturnsAbsoluteDueTimesAndDurations()
     {
         var pitchC = new Pitch(NoteLetter.C, 0, 4);

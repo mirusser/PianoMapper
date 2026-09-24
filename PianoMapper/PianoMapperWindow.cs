@@ -140,11 +140,11 @@ internal sealed class PianoMapperWindow : GameWindow
                 showGrandStaff = !showGrandStaff;
                 return;
             case PianoInputAction.ScrollPrevious:
-                firstVisibleMeasure = Math.Max(0, firstVisibleMeasure - GrandStaffLayout.VisibleMeasureCount);
+                firstVisibleMeasure = Math.Max(0, firstVisibleMeasure - GrandStaffLayout.DefaultVisibleMeasureCount);
                 return;
             case PianoInputAction.ScrollNext:
                 int lastMeasure = Math.Max(0, loadedScore!.Measures.Count - 1);
-                firstVisibleMeasure = Math.Min(lastMeasure, firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount);
+                firstVisibleMeasure = Math.Min(lastMeasure, firstVisibleMeasure + GrandStaffLayout.DefaultVisibleMeasureCount);
                 return;
             case PianoInputAction.StartScorePlayback:
                 StartScorePlayback();

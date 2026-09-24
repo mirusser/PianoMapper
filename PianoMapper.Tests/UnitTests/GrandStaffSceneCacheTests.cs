@@ -192,6 +192,44 @@ public sealed class GrandStaffSceneCacheTests
     }
 
     [Fact]
+    public void BuildScore_VisibleMeasureCountUnchanged_ReusesStaticGeometryInstances()
+    {
+        var cache = new GrandStaffSceneCache();
+        var score = CreateScore(measureCount: 6);
+
+        var first = cache.BuildScore(score, firstVisibleMeasure: 0, visibleMeasureCount: 2);
+        var second = cache.BuildScore(score, firstVisibleMeasure: 0, visibleMeasureCount: 2);
+
+        Assert.Same(first.Glyphs, second.Glyphs);
+        Assert.Same(first.Notes, second.Notes);
+    }
+
+    [Fact]
+    public void BuildScore_VisibleMeasureCountChanges_RebuildsStaticGeometryWithNewSpacing()
+    {
+        var cache = new GrandStaffSceneCache();
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble),
+            new(new Pitch(NoteLetter.E, 0, 4), new NoteValue(4), 0, 2, Staff.Treble),
+        ];
+        var score = new Score(
+            "test",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure(notes, [])]);
+
+        var defaultScene = cache.BuildScore(score, firstVisibleMeasure: 0);
+        var narrowedScene = cache.BuildScore(score, firstVisibleMeasure: 0, visibleMeasureCount: 2);
+
+        Assert.NotSame(defaultScene.Glyphs, narrowedScene.Glyphs);
+        double defaultDistance = Math.Abs(defaultScene.Notes[1].X - defaultScene.Notes[0].X);
+        double narrowedDistance = Math.Abs(narrowedScene.Notes[1].X - narrowedScene.Notes[0].X);
+        Assert.True(narrowedDistance > defaultDistance);
+    }
+
+    [Fact]
     public void BuildScore_ShowFingeringsChanges_RebuildsNotesWithoutFingering()
     {
         var cache = new GrandStaffSceneCache();

@@ -1,5 +1,6 @@
 using PianoMapper.Music;
 using PianoMapper.Practice;
+using PianoMapper.Rendering;
 
 namespace PianoMapper.Web.Rendering;
 
@@ -26,6 +27,7 @@ internal sealed class GrandStaffSceneCache
     private IReadOnlySet<ScoreNote>? cachedExpectedNotes;
     private bool cachedShowNoteLabels;
     private bool cachedShowFingerings;
+    private int cachedVisibleMeasureCount;
     private GrandStaffStaticScoreParts? cachedStaticParts;
 
     internal GrandStaffScene BuildScore(
@@ -37,7 +39,8 @@ internal sealed class GrandStaffSceneCache
         double? performedNoteBeats = null,
         bool showNoteLabels = true,
         bool showFingerings = true,
-        IReadOnlySet<ScoreNote>? expectedNotes = null)
+        IReadOnlySet<ScoreNote>? expectedNotes = null,
+        int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount)
     {
         ArgumentNullException.ThrowIfNull(score);
 
@@ -47,7 +50,8 @@ internal sealed class GrandStaffSceneCache
             !VerdictsEqual(cachedVerdicts, verdicts) ||
             !ScoreNotesEqual(cachedExpectedNotes, expectedNotes) ||
             cachedShowNoteLabels != showNoteLabels ||
-            cachedShowFingerings != showFingerings)
+            cachedShowFingerings != showFingerings ||
+            cachedVisibleMeasureCount != visibleMeasureCount)
         {
             staticParts = GrandStaffSceneBuilder.BuildStaticScoreParts(
                 score,
@@ -55,7 +59,8 @@ internal sealed class GrandStaffSceneCache
                 verdicts,
                 showNoteLabels,
                 showFingerings,
-                expectedNotes);
+                expectedNotes,
+                visibleMeasureCount);
             cachedStaticParts = staticParts;
             cachedScore = score;
             cachedFirstVisibleMeasure = firstVisibleMeasure;
@@ -63,6 +68,7 @@ internal sealed class GrandStaffSceneCache
             cachedExpectedNotes = expectedNotes;
             cachedShowNoteLabels = showNoteLabels;
             cachedShowFingerings = showFingerings;
+            cachedVisibleMeasureCount = visibleMeasureCount;
         }
 
         return GrandStaffSceneBuilder.ComposeScore(
@@ -72,7 +78,8 @@ internal sealed class GrandStaffSceneCache
             cursorBeats,
             performedNotes,
             performedNoteBeats,
-            showNoteLabels);
+            showNoteLabels,
+            visibleMeasureCount);
     }
 
     private static bool VerdictsEqual(

@@ -8,10 +8,11 @@ PianoMapper captures piano performances and renders them as notation. The reposi
 - Computer-key note input and octave selection in the legacy desktop client.
 - Live grand staff and scrolling piano roll with clefs, ledger lines, accidentals, and note duration.
 - A full 88-key browser piano from A0 through C8 that highlights live input and score-playback notes while they sound.
-- Strict MusicXML (`.mxl`, `.musicxml`, or `.xml`) import for one part and up to two staves, including chords, ties, rests, dotted values, beam groups, backup/forward timing, preserved `up`/`down` stem direction, and editable or automatically generated piano fingering numbers.
+- Strict MusicXML (`.mxl`, `.musicxml`, or `.xml`) import for one part and up to two staves, including chords, ties, rests, dotted values, beam groups, backup/forward timing, preserved `up`/`down` stem direction, tuplet ratios (with a rendered numeral for beamed triplets), and editable or automatically generated piano fingering numbers.
+- Rendered `<notations>` marks on the grand staff: fermata, a beginner-piano articulation subset (staccato, tenuto, accent, staccatissimo), a trill-mark ornament, accidental marks, slurs (a thin arc distinct from a tie), arpeggiated/non-arpeggiated chord marks (a wavy line or bracket to the left of the chord), and glissando/slide lines connecting two noteheads. An articulation or ornament outside the supported subset fails import with a readable error instead of being silently dropped.
 - JPEG and PNG sheet-music import through an Audiveris optical music recognition (OMR) host, with recognized fingering numbers carried into the grand staff.
 - A shared PostgreSQL score library that saves the current imported score and loads it again without repeating MusicXML parsing or image recognition.
-- Scheduled score playback, measure navigation, a tempo cursor, and random-measure playback. In the browser, imported scores keep the current five-measure grand-staff page and the next page visible together; playback and Practice alternate between those rows without replacing the row being played.
+- Scheduled score playback, measure navigation, a tempo cursor, and random-measure playback. In the browser, imported scores keep a configurable grand-staff page size (a "Measures per page" control, defaulting to five measures, from one to twelve) and the next page visible together; playback and Practice alternate between those rows without replacing the row being played.
 - Count-in practice with pitch/timing/duration verdicts and an accuracy summary.
 - Selectable idle score checking for pitch/order only, written hold duration, or hold duration plus tempo-relative rhythm.
 - Generated, self-paced note-reading exercises with treble or bass ranges, highlighted prompts, first-try accuracy, and mistake counts.
@@ -134,7 +135,9 @@ The manual browser checklist and current evidence are in [docs/browser-test-matr
 
 ## Current limits
 
-- Multipart scores, tuplets, grace notes, tempo/time-signature changes, stem values `none`/`double`, and unsupported MusicXML semantics fail with a readable error. Repeat barlines are accepted, but playback remains linear.
+- Multipart scores, grace notes, tempo/time-signature changes, stem values `none`/`double`, and unsupported MusicXML semantics fail with a readable error. Repeat barlines are accepted, but playback remains linear.
+- Tuplets import and play back at the correct duration for any `actual:normal` ratio, but only a beamed triplet (3:2) gets a rendered numeral on the grand staff today; other ratios and unbeamed tuplets import and sound correctly without a visual indicator.
+- `<other-notation>`, MusicXML's arbitrary vendor-extension escape hatch (a `type` attribute plus free text, no fixed visual meaning), imports without error but is deliberately never rendered — inventing a generic visual for unknown vendor content would be guessing, not implementing a notation.
 - OMR output depends on scan quality and Audiveris recognition. The image importer corrects the narrow beginner-score case where an isolated fingering `3` is exported as an unbeamed quarter-note triplet. Fingering mistakes can be corrected on the grand staff; pitch, rhythm, and other recognition mistakes still require an external score editor.
 - A touch piano, accounts, backend synchronization, and mobile-specific layout are outside the current browser release.
 - Web MIDI input and FP-10 output depend on browser support, MIDI permission, and a secure context; the browser app reports when any of these prevent connection.

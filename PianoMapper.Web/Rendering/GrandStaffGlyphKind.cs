@@ -7,4 +7,8 @@ public enum GrandStaffGlyphKind
     KeySignature,
     TimeSignature,
     Fermata,
+    Tuplet,
+    Articulation,
+    Ornament,
+    AccidentalMark,
 }

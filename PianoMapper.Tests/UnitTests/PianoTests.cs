@@ -75,6 +75,25 @@ public sealed class PianoTests
     }
 
     [Theory]
+    [InlineData(1, 1, true)]
+    [InlineData(2, 1, false)]
+    public void CanChangeScorePage_CustomVisibleMeasureCount_UsesConfiguredPageSize(
+        int activePageIndex,
+        int pageDelta,
+        bool expected)
+    {
+        bool canChange = Piano.CanChangeScorePage(
+            measureCount: 6,
+            activePageIndex,
+            pageDelta,
+            isScorePlaybackActive: false,
+            isPracticeActive: false,
+            visibleMeasureCount: 2);
+
+        Assert.Equal(expected, canChange);
+    }
+
+    [Theory]
     [InlineData(true, true, false, false, true)]
     [InlineData(false, true, false, false, false)]
     [InlineData(true, false, false, false, false)]
@@ -94,6 +113,27 @@ public sealed class PianoTests
             isPracticeActive);
 
         Assert.Equal(expected, canReset);
+    }
+
+    [Fact]
+    public void FromPageIndex_RecomputedAfterVisibleMeasureCountChange_KeepsPreviouslyActiveMeasureVisible()
+    {
+        // Mirrors Piano.SelectVisibleMeasureCountAsync's position-preserving recompute: a user
+        // viewing measure 10 (0-indexed) at the old count of 5 changes the count to 3. The new
+        // page index is oldFirstMeasure / newVisibleMeasureCount, so the previously active measure
+        // stays visible on the newly active row rather than snapping back to page 0.
+        const int oldFirstMeasure = 10;
+        const int newVisibleMeasureCount = 3;
+
+        var state = ScoreGrandStaffWindowPair.FromPageIndex(
+            measureCount: 30,
+            oldFirstMeasure / newVisibleMeasureCount,
+            newVisibleMeasureCount);
+
+        int activeFirstMeasure = state.ActiveRow == ScoreGrandStaffWindowPair.PhysicalRow.Upper
+            ? state.UpperFirstMeasure
+            : state.LowerFirstMeasure!.Value;
+        Assert.InRange(oldFirstMeasure, activeFirstMeasure, activeFirstMeasure + newVisibleMeasureCount - 1);
     }
 
     [Theory]

@@ -173,6 +173,23 @@ public sealed class GrandStaffLayoutTests
         Assert.Equal((firstMeasure + nextMeasure) / 2f, halfwayThroughFirst, 5);
     }
 
+    [Fact]
+    public void MapScoreOnsetToX_CustomVisibleMeasureCount_WidensMeasureSpacing()
+    {
+        var timeSignature = new TimeSignature(4, new NoteValue(4));
+
+        float defaultNextMeasure = GrandStaffLayout.MapScoreOnsetToX(1, 0, timeSignature, firstVisibleMeasure: 0);
+        float narrowedNextMeasure = GrandStaffLayout.MapScoreOnsetToX(
+            1,
+            0,
+            timeSignature,
+            firstVisibleMeasure: 0,
+            visibleMeasureCount: 2);
+
+        Assert.NotEqual(defaultNextMeasure, narrowedNextMeasure);
+        Assert.True(narrowedNextMeasure > defaultNextMeasure);
+    }
+
     [Theory]
     [InlineData(1, 0, (int)NoteHeadStyle.Hollow, false, false, 0)]
     [InlineData(2, 0, (int)NoteHeadStyle.Hollow, true, false, 0)]
@@ -333,7 +350,7 @@ public sealed class GrandStaffLayoutTests
         var signature = new TimeSignature(4, new NoteValue(4));
         var tempo = new Tempo(120);
         TimeSpan boundaryTime = MusicalTime.BeatsToDuration(
-            GrandStaffLayout.VisibleMeasureCount * signature.Numerator,
+            GrandStaffLayout.DefaultVisibleMeasureCount * signature.Numerator,
             tempo);
         TimeSpan startTime = boundaryTime - TimeSpan.FromMilliseconds(250);
         TimeSpan releaseTime = boundaryTime + TimeSpan.FromMilliseconds(250);
@@ -503,7 +520,7 @@ public sealed class GrandStaffLayoutTests
 
         var expectedBarlineXs = GrandStaffLayout.GetScoreBarlineXs(
             firstVisibleMeasure,
-            firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount);
+            firstVisibleMeasure + GrandStaffLayout.DefaultVisibleMeasureCount);
         var actualBarlineXs = gridLines
             .Where(line => line.Kind == GridLineKind.Barline)
             .Select(line => line.X)
@@ -527,7 +544,7 @@ public sealed class GrandStaffLayoutTests
         var beatTicks = gridLines.Where(line => line.Kind == GridLineKind.Beat).ToArray();
         Assert.Equal(expectedBeatTickCount, beatTicks.Length);
 
-        int visibleBeatCount = GrandStaffLayout.VisibleMeasureCount * numerator;
+        int visibleBeatCount = GrandStaffLayout.DefaultVisibleMeasureCount * numerator;
         var expectedXs = Enumerable.Range(1, visibleBeatCount - 1)
             .Where(beatIndex => beatIndex % numerator != 0)
             .Select(beatIndex => GrandStaffLayout.MapAbsoluteBeatToScoreX(beatIndex, signature, firstVisibleMeasure: 0))

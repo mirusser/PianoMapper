@@ -44,8 +44,19 @@ internal static class GrandStaffSceneBuilder
     // Slightly larger than the key signature's own accidental glyphs
     // (KeySignatureHeightInStaffSpaces) so an inline accidental reads clearly next to its notehead.
     private const double AccidentalHeightInStaffSpaces = 2.6;
+    // Smaller than a printed accidental: articulation/ornament marks (a dot, dash, wedge, "tr")
+    // read clearly at a more modest size than an accidental glyph needs to stay legible.
+    private const double NotationMarkHeightInStaffSpaces = 1.2;
+    // How far left of the leftmost chord notehead an arpeggio mark sits — tuned the same way as
+    // AccidentalHorizontalOffset, but a little wider since the mark itself has visual width (a
+    // wavy line or bracket, not a thin single glyph).
+    private const double ArpeggioMarkHorizontalOffset = 0.03;
     private const string RightHandFingeringPrefix = "R";
     private const string LeftHandFingeringPrefix = "L";
+    // Vertical clearance (in staff spaces, same axis as the beam's own Y) between a beamed
+    // tuplet's numeral and the beam itself — mirrors GrandStaffLayout.FermataClearanceInStaffSpaces'
+    // role of pushing a glyph just outside the notation it annotates.
+    private const double TupletGlyphClearanceInStaffSpaces = 0.6;
     private const double ViewY0 = -0.9;
     private const double ViewY1 = 0.9;
     private const int TrebleClefHeightInStaffSpaces = 7;
@@ -90,7 +101,8 @@ internal static class GrandStaffSceneBuilder
         double? performedNoteBeats = null,
         bool showNoteLabels = true,
         bool showFingerings = true,
-        IReadOnlySet<ScoreNote>? expectedNotes = null) =>
+        IReadOnlySet<ScoreNote>? expectedNotes = null,
+        int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount) =>
         ComposeScore(
             BuildStaticScoreParts(
                 score,
@@ -98,13 +110,15 @@ internal static class GrandStaffSceneBuilder
                 verdicts,
                 showNoteLabels,
                 showFingerings,
-                expectedNotes),
+                expectedNotes,
+                visibleMeasureCount),
             score,
             firstVisibleMeasure,
             cursorBeats,
             performedNotes,
             performedNoteBeats,
-            showNoteLabels);
+            showNoteLabels,
+            visibleMeasureCount);
 
     /// <summary>
     /// Builds everything about a score's grand-staff rendering that does NOT depend on the
@@ -121,18 +135,19 @@ internal static class GrandStaffSceneBuilder
         IReadOnlyDictionary<ScoreNote, Verdict>? verdicts = null,
         bool showNoteLabels = true,
         bool showFingerings = true,
-        IReadOnlySet<ScoreNote>? expectedNotes = null)
+        IReadOnlySet<ScoreNote>? expectedNotes = null,
+        int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount)
     {
         int clampedMeasure = ClampFirstVisibleMeasure(score, firstVisibleMeasure);
         var visibleNotes = new List<(ScoreNote Note, ScoreNoteLayout Layout)>();
         var visibleNoteAddresses = new List<ScoreNoteAddress>();
         // GetScoreNoteLayout below culls any note whose MeasureIndex falls outside
-        // [clampedMeasure, clampedMeasure + VisibleMeasureCount), so only that range can ever
+        // [clampedMeasure, clampedMeasure + visibleMeasureCount), so only that range can ever
         // contribute a note — bound the loop to it instead of scanning the whole score, which
         // otherwise makes every measure-window advance cost O(notes in the entire piece).
         int lastMeasureIndexExclusive = Math.Min(
             score.Measures.Count,
-            clampedMeasure + GrandStaffLayout.VisibleMeasureCount);
+            clampedMeasure + visibleMeasureCount);
         for (int measureIndex = clampedMeasure; measureIndex < lastMeasureIndexExclusive; measureIndex++)
         {
             ScoreMeasure measure = score.Measures[measureIndex];
@@ -146,7 +161,11 @@ internal static class GrandStaffSceneBuilder
                     ? Staff.Bass
                     : GrandStaffLayout.GetLivePosition(note.Pitch).Staff;
                 ScoreNote notationNote = note with { Staff = notationStaff };
-                if (GrandStaffLayout.GetScoreNoteLayout(notationNote, score.TimeSignature, clampedMeasure) is not { } layout)
+                if (GrandStaffLayout.GetScoreNoteLayout(
+                        notationNote,
+                        score.TimeSignature,
+                        clampedMeasure,
+                        visibleMeasureCount) is not { } layout)
                 {
                     continue;
                 }
@@ -156,16 +175,20 @@ internal static class GrandStaffSceneBuilder
                     note.MeasureIndex,
                     note.BeatOffset,
                     score.TimeSignature,
-                    clampedMeasure);
+                    clampedMeasure,
+                    visibleMeasureCount);
                 visibleNotes.Add((note, layout with { X = renderedX }));
                 visibleNoteAddresses.Add(new ScoreNoteAddress(measureIndex, noteIndex));
             }
         }
 
+        var glyphs = CreateClefGlyphs();
+        AddScoreSignatures(glyphs, score);
+
         // Score pitch determines notation placement for bass voices without a bass-register anchor.
         // The source hand still controls R/L fingerings independently of notation placement.
         var beamOverrides = new Dictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)>();
-        IReadOnlyList<GrandStaffBeam> beams = BuildBeams(visibleNotes, beamOverrides);
+        IReadOnlyList<GrandStaffBeam> beams = BuildBeams(visibleNotes, beamOverrides, glyphs);
         var chordOverrides = new Dictionary<ScoreNote, ChordNoteOverride>();
         ApplyChordLayout(visibleNotes, chordOverrides, beamOverrides);
         int[] labelRowIndexes = GrandStaffLayout.GetLabelRowIndexes(visibleNotes);
@@ -183,12 +206,10 @@ internal static class GrandStaffSceneBuilder
             showFingerings);
 
         var lines = CreateStaffLines();
-        var glyphs = CreateClefGlyphs();
-        AddScoreSignatures(glyphs, score);
         var renderedNotes = new List<GrandStaffNote>();
 
         var (barlineY0, barlineY1) = GetCursorLineYBounds();
-        lines.AddRange(GrandStaffLayout.GetScoreBarlineXs(clampedMeasure, score.Measures.Count)
+        lines.AddRange(GrandStaffLayout.GetScoreBarlineXs(clampedMeasure, score.Measures.Count, visibleMeasureCount)
             .Where(x => x < GrandStaffLayout.ScoreX1)
             .Select((x, boundary) =>
             {
@@ -282,11 +303,45 @@ internal static class GrandStaffSceneBuilder
                     GrandStaffLayout.FermataHeightInStaffSpaces
                         * GrandStaffLayout.GetRenderedStaffSpace(layout.Position.Staff)));
             }
+
+            double? beamStemEndY = isBeamed ? beamOverride.StemEndY : null;
+            if (note.Articulation is { } articulation)
+            {
+                glyphs.Add(new GrandStaffGlyph(
+                    GetArticulationGlyph(articulation),
+                    layout.X,
+                    GrandStaffLayout.GetPointGlyphY(noteY, layout, beamStemEndY),
+                    GrandStaffGlyphKind.Articulation,
+                    NotationMarkHeightInStaffSpaces * GrandStaffLayout.GetRenderedStaffSpace(layout.Position.Staff)));
+            }
+
+            if (note.Ornament is { } ornament)
+            {
+                glyphs.Add(new GrandStaffGlyph(
+                    GetOrnamentGlyph(ornament),
+                    layout.X,
+                    GrandStaffLayout.GetPointGlyphY(noteY, layout, beamStemEndY),
+                    GrandStaffGlyphKind.Ornament,
+                    NotationMarkHeightInStaffSpaces * GrandStaffLayout.GetRenderedStaffSpace(layout.Position.Staff)));
+            }
+
+            if (note.AccidentalMark is { } accidentalMark)
+            {
+                glyphs.Add(new GrandStaffGlyph(
+                    GetAccidentalGlyph(accidentalMark),
+                    layout.X,
+                    GrandStaffLayout.GetPointGlyphY(noteY, layout, beamStemEndY),
+                    GrandStaffGlyphKind.AccidentalMark,
+                    AccidentalHeightInStaffSpaces * GrandStaffLayout.GetRenderedStaffSpace(layout.Position.Staff)));
+            }
         }
 
         IReadOnlyList<GrandStaffBand> bands = BuildAnnotationBands(
             trebleAnnotationRows,
             bassAnnotationRows);
+        IReadOnlyList<GrandStaffSlur> slurs = BuildSlurs(visibleNotes, renderedNotes);
+        IReadOnlyList<GrandStaffArpeggioMark> arpeggioMarks = BuildArpeggioMarks(visibleNotes, renderedNotes);
+        lines.AddRange(BuildGlissandoLines(visibleNotes, renderedNotes));
         return new GrandStaffStaticScoreParts(
             lines,
             glyphs,
@@ -294,7 +349,167 @@ internal static class GrandStaffSceneBuilder
             beams,
             bands,
             trebleAnnotationRows.LabelY,
-            bassAnnotationRows.LabelY);
+            bassAnnotationRows.LabelY,
+            slurs,
+            arpeggioMarks);
+    }
+
+    /// <summary>
+    /// One vertical arpeggio mark per real MusicXML chord (a contiguous
+    /// <see cref="ScoreNote.IsChordContinuation"/> run — see <see cref="BuildChordGroups"/>, the
+    /// same anchor <see cref="ApplyChordLayout"/> uses for notehead displacement) that carries an
+    /// <see cref="ScoreNote.Arpeggio"/> mark on any member. A single non-chord note carrying an
+    /// arpeggio mark (musically meaningless but not disallowed by the MusicXML schema) renders
+    /// nothing, resolving Task 9's open question toward "ignore" rather than "throw": it is valid,
+    /// already-imported data, not a new error condition to invent at render time.
+    /// </summary>
+    private static IReadOnlyList<GrandStaffArpeggioMark> BuildArpeggioMarks(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> notes,
+        IReadOnlyList<GrandStaffNote> renderedNotes)
+    {
+        var marks = new List<GrandStaffArpeggioMark>();
+        int index = 0;
+        foreach (var group in BuildChordGroups(notes))
+        {
+            int groupStart = index;
+            index += group.Count;
+            if (group.Count < 2)
+            {
+                continue;
+            }
+
+            ScoreArpeggio? arpeggio = group
+                .Select(item => item.Note.Arpeggio)
+                .FirstOrDefault(value => value is not null);
+            if (arpeggio is not { } markKind)
+            {
+                continue;
+            }
+
+            double minX = double.MaxValue;
+            double minY = double.MaxValue;
+            double maxY = double.MinValue;
+            for (int memberIndex = groupStart; memberIndex < index; memberIndex++)
+            {
+                minX = Math.Min(minX, renderedNotes[memberIndex].X);
+                minY = Math.Min(minY, renderedNotes[memberIndex].Y);
+                maxY = Math.Max(maxY, renderedNotes[memberIndex].Y);
+            }
+
+            marks.Add(new GrandStaffArpeggioMark(
+                minX - ArpeggioMarkHorizontalOffset,
+                minY,
+                maxY,
+                markKind == ScoreArpeggio.NonArpeggiate));
+        }
+
+        return marks;
+    }
+
+    /// <summary>
+    /// Matches slur-start notes to slur-stop notes by <see cref="ScoreSlur.Number"/> (not a
+    /// sequential "next note that ends" scan — a staff can have multiple simultaneously-open,
+    /// overlapping slurs) within the same notation staff, and resolves each matched pair to the
+    /// two notes' already-finalized rendered positions (post chord-displacement X).
+    /// </summary>
+    private static IReadOnlyList<GrandStaffSlur> BuildSlurs(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> notes,
+        IReadOnlyList<GrandStaffNote> renderedNotes)
+    {
+        var slurs = new List<GrandStaffSlur>();
+        for (int startIndex = 0; startIndex < notes.Count; startIndex++)
+        {
+            if (notes[startIndex].Note.Slur is not { IsStart: true } start)
+            {
+                continue;
+            }
+
+            Staff staff = notes[startIndex].Layout.Position.Staff;
+            for (int stopIndex = startIndex + 1; stopIndex < notes.Count; stopIndex++)
+            {
+                if (notes[stopIndex].Layout.Position.Staff != staff ||
+                    notes[stopIndex].Note.Slur is not { IsStart: false, Number: var stopNumber } ||
+                    stopNumber != start.Number)
+                {
+                    continue;
+                }
+
+                slurs.Add(new GrandStaffSlur(
+                    renderedNotes[startIndex].X,
+                    renderedNotes[startIndex].Y,
+                    renderedNotes[stopIndex].X,
+                    renderedNotes[stopIndex].Y,
+                    GetSlurCurveDirection(notes, startIndex, stopIndex, staff)));
+                break;
+            }
+        }
+
+        return slurs;
+    }
+
+    /// <summary>
+    /// Matches glissando/slide-start notes to their matching stop by <see cref="ScoreGlissando.Number"/>
+    /// (same by-number matching as <see cref="BuildSlurs"/>, not a sequential "next note" scan),
+    /// and draws a straight line directly between the two noteheads' final rendered positions.
+    /// Glissando and slide render identically in v1 — MusicXML distinguishes them semantically
+    /// (a discrete pitch slide vs. a continuous one), but a beginner-learning grand staff doesn't
+    /// need visually distinct treatments yet; both use the same <see cref="GrandStaffLineKind.Glissando"/>
+    /// line kind. A straight connecting line is a much simpler shape than a slur's arc, so it
+    /// reuses the existing <see cref="GrandStaffLine"/>/<c>drawLine</c> machinery directly rather
+    /// than a new record/draw-function pair.
+    /// </summary>
+    private static IReadOnlyList<GrandStaffLine> BuildGlissandoLines(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> notes,
+        IReadOnlyList<GrandStaffNote> renderedNotes)
+    {
+        var lines = new List<GrandStaffLine>();
+        for (int startIndex = 0; startIndex < notes.Count; startIndex++)
+        {
+            if (notes[startIndex].Note.Glissando is not { IsStart: true } start)
+            {
+                continue;
+            }
+
+            Staff staff = notes[startIndex].Layout.Position.Staff;
+            for (int stopIndex = startIndex + 1; stopIndex < notes.Count; stopIndex++)
+            {
+                if (notes[stopIndex].Layout.Position.Staff != staff ||
+                    notes[stopIndex].Note.Glissando is not { IsStart: false, Number: var stopNumber } ||
+                    stopNumber != start.Number)
+                {
+                    continue;
+                }
+
+                lines.Add(new GrandStaffLine(
+                    renderedNotes[startIndex].X,
+                    renderedNotes[startIndex].Y,
+                    renderedNotes[stopIndex].X,
+                    renderedNotes[stopIndex].Y,
+                    GrandStaffLineKind.Glissando));
+                break;
+            }
+        }
+
+        return lines;
+    }
+
+    /// <summary>
+    /// A slur curves on the opposite side from where its spanned notes automatically sit relative
+    /// to the staff's middle line — the same "opposite the notes' own stem direction" convention
+    /// <see cref="GrandStaffSceneBuilder.Build"/> already uses for a live tie's curve direction.
+    /// </summary>
+    private static StemDirection GetSlurCurveDirection(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> notes,
+        int startIndex,
+        int stopIndex,
+        Staff staff)
+    {
+        var staffLines = staff == Staff.Treble ? GrandStaffLayout.TrebleLineYs : GrandStaffLayout.BassLineYs;
+        double averageY = Enumerable.Range(startIndex, (stopIndex - startIndex) + 1)
+            .Where(index => notes[index].Layout.Position.Staff == staff)
+            .Average(index => notes[index].Layout.Position.Y);
+        var automaticDirection = averageY < staffLines[2] ? StemDirection.Up : StemDirection.Down;
+        return automaticDirection == StemDirection.Up ? StemDirection.Down : StemDirection.Up;
     }
 
     private static IReadOnlyList<GrandStaffBand> BuildAnnotationBands(params AnnotationRows[] rows)
@@ -330,13 +545,14 @@ internal static class GrandStaffSceneBuilder
         double? cursorBeats,
         IReadOnlyList<PerformedNote>? performedNotes = null,
         double? performedNoteBeats = null,
-        bool showNoteLabels = true)
+        bool showNoteLabels = true,
+        int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount)
     {
         int clampedMeasure = ClampFirstVisibleMeasure(score, firstVisibleMeasure);
-        float? cursorX = GetVisibleScoreX(score, cursorBeats, clampedMeasure);
+        float? cursorX = GetVisibleScoreX(score, cursorBeats, clampedMeasure, visibleMeasureCount);
         double? indicatorBeats = performedNoteBeats ?? cursorBeats;
         float? indicatorX = performedNoteBeats.HasValue
-            ? GetVisibleScoreX(score, performedNoteBeats, clampedMeasure)
+            ? GetVisibleScoreX(score, performedNoteBeats, clampedMeasure, visibleMeasureCount)
             : cursorX;
 
         PerformedNote[] heldNotes = performedNotes?
@@ -349,6 +565,8 @@ internal static class GrandStaffSceneBuilder
             {
                 Beams = staticParts.Beams,
                 Bands = staticParts.Bands,
+                Slurs = staticParts.Slurs,
+                ArpeggioMarks = staticParts.ArpeggioMarks,
             };
         }
 
@@ -397,13 +615,16 @@ internal static class GrandStaffSceneBuilder
         {
             Beams = staticParts.Beams,
             Bands = staticParts.Bands,
+            Slurs = staticParts.Slurs,
+            ArpeggioMarks = staticParts.ArpeggioMarks,
         };
     }
 
     private static float? GetVisibleScoreX(
         Score score,
         double? beats,
-        int firstVisibleMeasure)
+        int firstVisibleMeasure,
+        int visibleMeasureCount)
     {
         if (!beats.HasValue)
         {
@@ -412,7 +633,7 @@ internal static class GrandStaffSceneBuilder
 
         TimeSignature timeSignature = score.TimeSignature;
         double windowStartBeat = firstVisibleMeasure * timeSignature.Numerator;
-        double windowEndBeat = (firstVisibleMeasure + GrandStaffLayout.VisibleMeasureCount)
+        double windowEndBeat = (firstVisibleMeasure + visibleMeasureCount)
             * timeSignature.Numerator;
         if (beats.Value < windowStartBeat || beats.Value >= windowEndBeat)
         {
@@ -422,7 +643,13 @@ internal static class GrandStaffSceneBuilder
         int measureIndex = (int)Math.Floor(beats.Value / timeSignature.Numerator);
         double beatOffset = beats.Value - (measureIndex * timeSignature.Numerator);
         ScoreMeasure? measure = measureIndex < score.Measures.Count ? score.Measures[measureIndex] : null;
-        return MapScoreNotationBeatToX(measure, measureIndex, beatOffset, timeSignature, firstVisibleMeasure);
+        return MapScoreNotationBeatToX(
+            measure,
+            measureIndex,
+            beatOffset,
+            timeSignature,
+            firstVisibleMeasure,
+            visibleMeasureCount);
     }
 
     /// <summary>
@@ -439,12 +666,13 @@ internal static class GrandStaffSceneBuilder
         int measureIndex,
         double beatOffset,
         TimeSignature timeSignature,
-        int firstVisibleMeasure)
+        int firstVisibleMeasure,
+        int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount)
     {
         double measureStartX = GrandStaffLayout.MapScoreOnsetToX(
-            measureIndex, 0, timeSignature, firstVisibleMeasure);
+            measureIndex, 0, timeSignature, firstVisibleMeasure, visibleMeasureCount);
         double measureEndX = GrandStaffLayout.MapScoreOnsetToX(
-            measureIndex + 1, 0, timeSignature, firstVisibleMeasure);
+            measureIndex + 1, 0, timeSignature, firstVisibleMeasure, visibleMeasureCount);
         double noteAreaStartX = measureIndex == firstVisibleMeasure
             ? measureStartX
             : measureStartX + MeasureEdgeNoteClearance;
@@ -893,7 +1121,8 @@ internal static class GrandStaffSceneBuilder
 
     private static IReadOnlyList<GrandStaffBeam> BuildBeams(
         IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> notes,
-        IDictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)> beamOverrides)
+        IDictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)> beamOverrides,
+        ICollection<GrandStaffGlyph> glyphs)
     {
         var beams = new List<GrandStaffBeam>();
         foreach (var measureStaff in notes.GroupBy(item => (item.Note.MeasureIndex, item.Note.Staff)))
@@ -912,7 +1141,7 @@ internal static class GrandStaffSceneBuilder
                         break;
                     case BeamState.End when currentGroup.Count > 0:
                         currentGroup.Add(item);
-                        AddBeam(currentGroup, beams, beamOverrides);
+                        AddBeam(currentGroup, beams, beamOverrides, glyphs);
                         currentGroup.Clear();
                         break;
                     default:
@@ -928,7 +1157,8 @@ internal static class GrandStaffSceneBuilder
     private static void AddBeam(
         IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> group,
         ICollection<GrandStaffBeam> beams,
-        IDictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)> beamOverrides)
+        IDictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)> beamOverrides,
+        ICollection<GrandStaffGlyph> glyphs)
     {
         if (group.Count < 2)
         {
@@ -966,6 +1196,43 @@ internal static class GrandStaffSceneBuilder
             double stemEndY = y0 + ((y1 - y0) * progress);
             beamOverrides[item.Note] = (direction, stemEndY, beamCount);
         }
+
+        AddTupletGlyph(group, staff, x0, x1, y0, y1, direction, glyphs);
+    }
+
+    /// <summary>
+    /// A beamed group whose members share one non-identity tuplet ratio (e.g. a triplet) gets a
+    /// single numeral, positioned outside the beam like a fermata sits outside its note. v1 only
+    /// labels beamed tuplets — an unbeamed tuplet note still imports and plays back correctly
+    /// (see <see cref="MusicXmlScoreReader"/>/<see cref="MusicalTime"/>), it just has no numeral yet.
+    /// </summary>
+    private static void AddTupletGlyph(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> group,
+        Staff staff,
+        double x0,
+        double x1,
+        double y0,
+        double y1,
+        StemDirection direction,
+        ICollection<GrandStaffGlyph> glyphs)
+    {
+        NoteValue firstValue = group[0].Note.NoteValue;
+        if (firstValue.TupletActualNotes == firstValue.TupletNormalNotes ||
+            group.Any(item =>
+                item.Note.NoteValue.TupletActualNotes != firstValue.TupletActualNotes ||
+                item.Note.NoteValue.TupletNormalNotes != firstValue.TupletNormalNotes))
+        {
+            return;
+        }
+
+        double clearance = TupletGlyphClearanceInStaffSpaces * GrandStaffLayout.GetRenderedStaffSpace(staff);
+        double beamMidY = (y0 + y1) / 2;
+        double glyphY = direction == StemDirection.Up ? beamMidY + clearance : beamMidY - clearance;
+        glyphs.Add(new GrandStaffGlyph(
+            firstValue.TupletActualNotes.ToString(CultureInfo.InvariantCulture),
+            (x0 + x1) / 2,
+            glyphY,
+            GrandStaffGlyphKind.Tuplet));
     }
 
     /// <summary>
@@ -1324,6 +1591,18 @@ internal static class GrandStaffSceneBuilder
             yValues.Add(tie.Y1);
         }
 
+        foreach (var slur in scene.Slurs)
+        {
+            yValues.Add(slur.Y0);
+            yValues.Add(slur.Y1);
+        }
+
+        foreach (var arpeggioMark in scene.ArpeggioMarks)
+        {
+            yValues.Add(arpeggioMark.Y0);
+            yValues.Add(arpeggioMark.Y1);
+        }
+
         for (int octave = selectedOctave; octave <= selectedOctave + 1; octave++)
         {
             var position = GrandStaffLayout.GetLivePosition(new Pitch(NoteLetter.C, 0, octave));
@@ -1356,6 +1635,10 @@ internal static class GrandStaffSceneBuilder
             Beams = scene.Beams.Select(beam => beam with { Y0 = MapY(beam.Y0), Y1 = MapY(beam.Y1) }).ToArray(),
             Ties = scene.Ties.Select(tie => tie with { Y0 = MapY(tie.Y0), Y1 = MapY(tie.Y1) }).ToArray(),
             Bands = scene.Bands.Select(band => band with { Y0 = MapY(band.Y0), Y1 = MapY(band.Y1) }).ToArray(),
+            Slurs = scene.Slurs.Select(slur => slur with { Y0 = MapY(slur.Y0), Y1 = MapY(slur.Y1) }).ToArray(),
+            ArpeggioMarks = scene.ArpeggioMarks
+                .Select(mark => mark with { Y0 = MapY(mark.Y0), Y1 = MapY(mark.Y1) })
+                .ToArray(),
         };
     }
 
@@ -1373,6 +1656,25 @@ internal static class GrandStaffSceneBuilder
         1 => "♯",
         2 => "𝄪",
         _ => string.Empty,
+    };
+
+    // "●" (not the visually lighter "•") and ">" both measure a normal, letter-like bounding
+    // box height in canvas.js's dynamic glyph-sizing math, unlike "–" (an en dash, tenuto's mark)
+    // — see the minimumMeasuredHeight comment in canvas.js's drawGlyph for why that still needs a
+    // defensive clamp rather than a "just pick a well-behaved character" fix alone.
+    private static string GetArticulationGlyph(ScoreArticulation articulation) => articulation switch
+    {
+        ScoreArticulation.Staccato => "●",
+        ScoreArticulation.Tenuto => "–",
+        ScoreArticulation.Accent => ">",
+        ScoreArticulation.Staccatissimo => "▾",
+        _ => throw new ArgumentOutOfRangeException(nameof(articulation), articulation, message: null),
+    };
+
+    private static string GetOrnamentGlyph(ScoreOrnament ornament) => ornament switch
+    {
+        ScoreOrnament.TrillMark => "tr",
+        _ => throw new ArgumentOutOfRangeException(nameof(ornament), ornament, message: null),
     };
 
     private static string GetAccidentalGlyph(ScoreAccidental accidental) => accidental switch

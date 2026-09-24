@@ -12,4 +12,5 @@ public sealed record ScoreCursorPlaybackState(
     int FirstVisibleMeasure,
     double CompletionSeconds,
     double CursorY0,
-    double CursorY1);
+    double CursorY1,
+    int VisibleMeasureCount);

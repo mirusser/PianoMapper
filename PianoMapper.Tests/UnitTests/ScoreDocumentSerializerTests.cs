@@ -28,7 +28,13 @@ public sealed class ScoreDocumentSerializerTests
                             StemDirection: ScoreStemDirection.Up,
                             Fingering: new ScoreFingering(3, ScoreFingeringPlacement.Above),
                             Accidental: ScoreAccidental.Sharp,
-                            Fermata: ScoreFermata.Upright),
+                            Fermata: ScoreFermata.Upright,
+                            Articulation: ScoreArticulation.Staccato,
+                            Ornament: ScoreOrnament.TrillMark,
+                            AccidentalMark: ScoreAccidental.Flat,
+                            Slur: new ScoreSlur(IsStart: true, Number: 2),
+                            Arpeggio: ScoreArpeggio.Arpeggiate,
+                            Glissando: new ScoreGlissando(IsStart: false, Number: 3, ScoreGlissandoKind.Slide)),
                         new ScoreNote(
                             new Pitch(NoteLetter.B, -1, 2),
                             new NoteValue(16),
@@ -36,6 +42,12 @@ public sealed class ScoreDocumentSerializerTests
                             1.25,
                             Staff.Bass,
                             BeamState: BeamState.End),
+                        new ScoreNote(
+                            new Pitch(NoteLetter.D, 0, 4),
+                            new NoteValue(8, tupletActualNotes: 3, tupletNormalNotes: 2),
+                            0,
+                            2.0,
+                            Staff.Treble),
                     ],
                     [new ScoreRest(new NoteValue(4, 1), 0, 2.0, Staff.Bass)]),
             ]);
@@ -95,6 +107,14 @@ public sealed class ScoreDocumentSerializerTests
         Assert.Null(note.Accidental);
         Assert.Null(note.Fermata);
         Assert.False(note.IsChordContinuation);
+        Assert.Equal(1, note.NoteValue.TupletActualNotes);
+        Assert.Equal(1, note.NoteValue.TupletNormalNotes);
+        Assert.Null(note.Articulation);
+        Assert.Null(note.Ornament);
+        Assert.Null(note.AccidentalMark);
+        Assert.Null(note.Slur);
+        Assert.Null(note.Arpeggio);
+        Assert.Null(note.Glissando);
     }
 
     [Fact]

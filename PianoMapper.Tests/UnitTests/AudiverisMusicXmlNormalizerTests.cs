@@ -94,6 +94,40 @@ public sealed class AudiverisMusicXmlNormalizerTests
         Assert.Contains(measure.Notes, note => note.Staff == Staff.Bass && note.BeatOffset == 3);
     }
 
+    [Fact]
+    public void Normalize_MeasureHasOnlyAnOrphanedBackup_RemovesItInsteadOfThrowing()
+    {
+        byte[] source = CreateCompressedMusicXml("""
+            <score-partwise>
+              <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+              <part id="P1">
+                <measure number="1">
+                  <attributes>
+                    <divisions>1</divisions>
+                    <time><beats>4</beats><beat-type>4</beat-type></time>
+                  </attributes>
+                  <note default-x="10">
+                    <pitch><step>C</step><octave>4</octave></pitch>
+                    <duration>4</duration><type>whole</type>
+                  </note>
+                </measure>
+                <measure number="2" width="83">
+                  <backup><duration>12</duration></backup>
+                </measure>
+              </part>
+            </score-partwise>
+            """);
+
+        byte[] normalized = new AudiverisMusicXmlNormalizer().Normalize(source);
+        using var stream = new MemoryStream(normalized);
+        var score = new MusicXmlScoreReader().Read(stream, "recognized.mxl");
+
+        Assert.Equal(2, score.Measures.Count);
+        var phantomMeasure = score.Measures[1];
+        Assert.Empty(phantomMeasure.Notes);
+        Assert.Empty(phantomMeasure.Rests);
+    }
+
     private static byte[] CreateCompressedMusicXml(string scoreXml)
     {
         const string containerXml = """

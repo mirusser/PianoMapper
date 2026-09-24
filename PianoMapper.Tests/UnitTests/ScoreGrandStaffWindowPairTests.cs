@@ -9,7 +9,7 @@ public sealed class ScoreGrandStaffWindowPairTests
     public void FromCursorBeats_ExactPageBoundary_SelectsIncomingLowerPage()
     {
         int beatsPerMeasure = 4;
-        double boundaryBeats = GrandStaffLayout.VisibleMeasureCount * beatsPerMeasure;
+        double boundaryBeats = GrandStaffLayout.DefaultVisibleMeasureCount * beatsPerMeasure;
 
         var state = ScoreGrandStaffWindowPair.FromCursorBeats(
             measureCount: 20,
@@ -17,8 +17,8 @@ public sealed class ScoreGrandStaffWindowPairTests
             beatsPerMeasure);
 
         Assert.Equal(1, state.ActivePageIndex);
-        Assert.Equal(GrandStaffLayout.VisibleMeasureCount * 2, state.UpperFirstMeasure);
-        Assert.Equal(GrandStaffLayout.VisibleMeasureCount, state.LowerFirstMeasure);
+        Assert.Equal(GrandStaffLayout.DefaultVisibleMeasureCount * 2, state.UpperFirstMeasure);
+        Assert.Equal(GrandStaffLayout.DefaultVisibleMeasureCount, state.LowerFirstMeasure);
         Assert.Equal(ScoreGrandStaffWindowPair.PhysicalRow.Lower, state.ActiveRow);
     }
 
@@ -44,7 +44,7 @@ public sealed class ScoreGrandStaffWindowPairTests
     public void FromCursorBeats_DirectMultiPageJump_DerivesTargetPairFromAbsolutePosition()
     {
         int beatsPerMeasure = 3;
-        double pageThreeBeats = GrandStaffLayout.VisibleMeasureCount * 3 * beatsPerMeasure;
+        double pageThreeBeats = GrandStaffLayout.DefaultVisibleMeasureCount * 3 * beatsPerMeasure;
 
         var state = ScoreGrandStaffWindowPair.FromCursorBeats(
             measureCount: 24,
@@ -88,10 +88,24 @@ public sealed class ScoreGrandStaffWindowPairTests
         int expectedPageIndex)
     {
         var state = ScoreGrandStaffWindowPair.FromPageIndex(
-            measureCount: GrandStaffLayout.VisibleMeasureCount * 3,
+            measureCount: GrandStaffLayout.DefaultVisibleMeasureCount * 3,
             requestedPageIndex);
 
         Assert.Equal(expectedPageIndex, state.ActivePageIndex);
+    }
+
+    [Fact]
+    public void FromPageIndex_CustomVisibleMeasureCount_UsesConfiguredPageSize()
+    {
+        var state = ScoreGrandStaffWindowPair.FromPageIndex(
+            measureCount: 10,
+            activePageIndex: 1,
+            visibleMeasureCount: 2);
+
+        Assert.Equal(1, state.ActivePageIndex);
+        Assert.Equal(4, state.UpperFirstMeasure);
+        Assert.Equal(2, state.LowerFirstMeasure);
+        Assert.Equal(ScoreGrandStaffWindowPair.PhysicalRow.Lower, state.ActiveRow);
     }
 
     [Theory]

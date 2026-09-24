@@ -9,6 +9,9 @@ namespace PianoMapper.Music;
 public sealed class MusicXmlScoreReader
 {
     private const string AccidentalElementName = "accidental";
+    private const string AccidentalMarkElementName = "accidental-mark";
+    private const string ActualNotesElementName = "actual-notes";
+    private const string ArticulationsElementName = "articulations";
     private const string BeamElementName = "beam";
     private const string ChordElementName = "chord";
     private const string CompressedMusicXmlExtension = ".mxl";
@@ -17,15 +20,20 @@ public sealed class MusicXmlScoreReader
     private const string DurationElementName = "duration";
     private const string FermataElementName = "fermata";
     private const string FingeringElementName = "fingering";
+    private const string NormalNotesElementName = "normal-notes";
     private const string NotationsElementName = "notations";
+    private const string OrnamentsElementName = "ornaments";
     private const string PitchElementName = "pitch";
     private const string RepeatElementName = "repeat";
     private const string RestElementName = "rest";
+    private const string SlurElementName = "slur";
     private const string SoundElementName = "sound";
     private const string StaffElementName = "staff";
     private const string StemElementName = "stem";
     private const string TechnicalElementName = "technical";
     private const string TieElementName = "tie";
+    private const string TimeModificationElementName = "time-modification";
+    private const string TupletElementName = "tuplet";
     private const string TypeElementName = "type";
     private const string VoiceElementName = "voice";
     private const double DefaultQuarterNotesPerMinute = 120;
@@ -41,6 +49,26 @@ public sealed class MusicXmlScoreReader
         "clef",
         "lyric",
         "dynamics",
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    // The MusicXML <notations> content model's presentation-only children: real data (ties,
+    // fingering, fermata) is still extracted by name elsewhere, but none of these has anything for
+    // HasTieStart's own <tied>-only scan to act on, so it just needs to recognize and skip them
+    // rather than throw.
+    private static readonly FrozenSet<string> IgnoredNotationsElements = new[]
+    {
+        TechnicalElementName,
+        FermataElementName,
+        ArticulationsElementName,
+        TupletElementName,
+        SlurElementName,
+        "arpeggiate",
+        "non-arpeggiate",
+        "glissando",
+        "slide",
+        "ornaments",
+        "accidental-mark",
+        "other-notation",
     }.ToFrozenSet(StringComparer.Ordinal);
 
     private static readonly FrozenSet<string> IgnoredDirectionElements = new[]
@@ -67,6 +95,7 @@ public sealed class MusicXmlScoreReader
         BeamElementName,
         StemElementName,
         AccidentalElementName,
+        TimeModificationElementName,
     }.ToFrozenSet(StringComparer.Ordinal);
 
     public Score Read(string path)
@@ -397,7 +426,13 @@ public sealed class MusicXmlScoreReader
                 StemDirection: stemDirection,
                 Fingering: ParseFingering(noteElement),
                 Accidental: ParseAccidental(noteElement),
-                Fermata: ParseFermata(noteElement)));
+                Fermata: ParseFermata(noteElement),
+                Articulation: ParseArticulation(noteElement),
+                Ornament: ParseOrnament(noteElement),
+                AccidentalMark: ParseAccidentalMark(noteElement),
+                Slur: ParseSlur(noteElement),
+                Arpeggio: ParseArpeggio(noteElement),
+                Glissando: ParseGlissando(noteElement)));
         }
 
         if (!isChord)
@@ -469,7 +504,7 @@ public sealed class MusicXmlScoreReader
                 continue;
             }
 
-            if (name is TechnicalElementName or FermataElementName)
+            if (IgnoredNotationsElements.Contains(name))
             {
                 continue;
             }
@@ -501,18 +536,221 @@ public sealed class MusicXmlScoreReader
             return null;
         }
 
-        string value = accidental.Value.Trim();
-        return value switch
+        return ParseAccidentalValue(AccidentalElementName, accidental.Value.Trim());
+    }
+
+    private static ScoreAccidental? ParseAccidentalMark(XElement noteElement)
+    {
+        var accidentalMarks = FindChild(noteElement, NotationsElementName)?
+            .Elements()
+            .Where(element => element.Name.LocalName == AccidentalMarkElementName)
+            .ToArray() ?? [];
+        if (accidentalMarks.Length == 0)
         {
-            "natural" => ScoreAccidental.Natural,
-            "sharp" => ScoreAccidental.Sharp,
-            "flat" => ScoreAccidental.Flat,
-            "double-sharp" => ScoreAccidental.DoubleSharp,
-            "sharp-sharp" => ScoreAccidental.SharpSharp,
-            "flat-flat" => ScoreAccidental.DoubleFlat,
-            _ => throw new NotSupportedException(
-                $"Unsupported MusicXML <{AccidentalElementName}> value '{value}'."),
+            return null;
+        }
+
+        if (accidentalMarks.Length > 1)
+        {
+            throw new NotSupportedException(
+                $"Unsupported MusicXML <{AccidentalMarkElementName}>: exactly one accidental-mark per note is required.");
+        }
+
+        return ParseAccidentalValue(AccidentalMarkElementName, accidentalMarks[0].Value.Trim());
+    }
+
+    private static ScoreAccidental ParseAccidentalValue(string elementName, string value) => value switch
+    {
+        "natural" => ScoreAccidental.Natural,
+        "sharp" => ScoreAccidental.Sharp,
+        "flat" => ScoreAccidental.Flat,
+        "double-sharp" => ScoreAccidental.DoubleSharp,
+        "sharp-sharp" => ScoreAccidental.SharpSharp,
+        "flat-flat" => ScoreAccidental.DoubleFlat,
+        _ => throw new NotSupportedException($"Unsupported MusicXML <{elementName}> value '{value}'."),
+    };
+
+    private static ScoreArticulation? ParseArticulation(XElement noteElement)
+    {
+        var articulations = FindChild(noteElement, NotationsElementName)?
+            .Elements()
+            .FirstOrDefault(element => element.Name.LocalName == ArticulationsElementName);
+        if (articulations is null)
+        {
+            return null;
+        }
+
+        var children = articulations.Elements().ToArray();
+        if (children.Length == 0)
+        {
+            return null;
+        }
+
+        if (children.Length > 1)
+        {
+            throw new NotSupportedException(
+                $"Unsupported MusicXML <{ArticulationsElementName}>: exactly one articulation per note is required.");
+        }
+
+        string name = children[0].Name.LocalName;
+        return name switch
+        {
+            "staccato" => ScoreArticulation.Staccato,
+            "tenuto" => ScoreArticulation.Tenuto,
+            "accent" => ScoreArticulation.Accent,
+            "staccatissimo" => ScoreArticulation.Staccatissimo,
+            _ => throw Unsupported(name),
         };
+    }
+
+    private static ScoreOrnament? ParseOrnament(XElement noteElement)
+    {
+        var ornaments = FindChild(noteElement, NotationsElementName)?
+            .Elements()
+            .FirstOrDefault(element => element.Name.LocalName == OrnamentsElementName);
+        if (ornaments is null)
+        {
+            return null;
+        }
+
+        var children = ornaments.Elements().ToArray();
+        if (children.Length == 0)
+        {
+            return null;
+        }
+
+        if (children.Length > 1)
+        {
+            throw new NotSupportedException(
+                $"Unsupported MusicXML <{OrnamentsElementName}>: exactly one ornament per note is required.");
+        }
+
+        string name = children[0].Name.LocalName;
+        return name switch
+        {
+            "trill-mark" => ScoreOrnament.TrillMark,
+            _ => throw Unsupported(name),
+        };
+    }
+
+    private static ScoreSlur? ParseSlur(XElement noteElement)
+    {
+        var slurs = FindChild(noteElement, NotationsElementName)?
+            .Elements()
+            .Where(element => element.Name.LocalName == SlurElementName)
+            .ToArray() ?? [];
+        if (slurs.Length == 0)
+        {
+            return null;
+        }
+
+        if (slurs.Length > 1)
+        {
+            throw new NotSupportedException(
+                $"Unsupported MusicXML <{SlurElementName}>: exactly one slur per note is required.");
+        }
+
+        var slur = slurs[0];
+        bool isStart = ParsePairingType(slur, SlurElementName);
+        int number = ParsePairingNumber(slur, SlurElementName);
+        return new ScoreSlur(isStart, number);
+    }
+
+    /// <summary>
+    /// Reads a start/stop-pairing notation's <c>type</c> attribute (used by both
+    /// <see cref="ParseSlur"/> and, later, glissando/slide parsing) — only "start" and "stop" are
+    /// supported; MusicXML's "continue" (a slur/tie segment split across a line/system break) is
+    /// out of v1's scope, matching <see cref="HasTieStart"/>'s existing tie/tied handling.
+    /// </summary>
+    private static bool ParsePairingType(XElement element, string elementName)
+    {
+        string type = element.Attribute("type")?.Value ?? string.Empty;
+        return type switch
+        {
+            "start" => true,
+            "stop" => false,
+            _ => throw new InvalidDataException($"Invalid MusicXML <{elementName}> type '{type}'."),
+        };
+    }
+
+    /// <summary>
+    /// Reads a start/stop-pairing notation's <c>number</c> attribute, defaulting to 1 when absent
+    /// (MusicXML's own default), the same way <see cref="ParseBeamState"/> treats a missing beam
+    /// <c>number</c> as "1".
+    /// </summary>
+    private static int ParsePairingNumber(XElement element, string elementName)
+    {
+        string? value = element.Attribute("number")?.Value;
+        if (value is null)
+        {
+            return 1;
+        }
+
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int number) || number <= 0)
+        {
+            throw new InvalidDataException($"Invalid MusicXML <{elementName}> number '{value}'.");
+        }
+
+        return number;
+    }
+
+    private static ScoreArpeggio? ParseArpeggio(XElement noteElement)
+    {
+        var notations = FindChild(noteElement, NotationsElementName);
+        if (notations is null)
+        {
+            return null;
+        }
+
+        var arpeggiateMarks = notations.Elements().Where(element => element.Name.LocalName == "arpeggiate").ToArray();
+        var nonArpeggiateMarks = notations.Elements()
+            .Where(element => element.Name.LocalName == "non-arpeggiate")
+            .ToArray();
+        int markCount = arpeggiateMarks.Length + nonArpeggiateMarks.Length;
+        if (markCount == 0)
+        {
+            return null;
+        }
+
+        if (markCount > 1)
+        {
+            throw new NotSupportedException(
+                "Unsupported MusicXML <arpeggiate>/<non-arpeggiate>: exactly one arpeggio mark per note is required.");
+        }
+
+        return arpeggiateMarks.Length == 1 ? ScoreArpeggio.Arpeggiate : ScoreArpeggio.NonArpeggiate;
+    }
+
+    private static ScoreGlissando? ParseGlissando(XElement noteElement)
+    {
+        var notations = FindChild(noteElement, NotationsElementName);
+        if (notations is null)
+        {
+            return null;
+        }
+
+        var glissandos = notations.Elements().Where(element => element.Name.LocalName == "glissando").ToArray();
+        var slides = notations.Elements().Where(element => element.Name.LocalName == "slide").ToArray();
+        int markCount = glissandos.Length + slides.Length;
+        if (markCount == 0)
+        {
+            return null;
+        }
+
+        if (markCount > 1)
+        {
+            throw new NotSupportedException(
+                "Unsupported MusicXML <glissando>/<slide>: exactly one glissando or slide per note is required.");
+        }
+
+        (XElement element, ScoreGlissandoKind kind) = glissandos.Length == 1
+            ? (glissandos[0], ScoreGlissandoKind.Glissando)
+            : (slides[0], ScoreGlissandoKind.Slide);
+        string elementName = element.Name.LocalName;
+        return new ScoreGlissando(
+            ParsePairingType(element, elementName),
+            ParsePairingNumber(element, elementName),
+            kind);
     }
 
     private static ScoreFermata? ParseFermata(XElement noteElement)
@@ -720,13 +958,26 @@ public sealed class MusicXmlScoreReader
             _ => throw new NotSupportedException($"Unsupported MusicXML note type '{type}'."),
         };
         int dots = noteElement.Elements().Count(element => element.Name.LocalName == DotElementName);
-        return new NoteValue(denominator, dots);
+        int tupletActualNotes = 1;
+        int tupletNormalNotes = 1;
+        if (FindChild(noteElement, TimeModificationElementName) is { } timeModification)
+        {
+            tupletActualNotes = ParsePositiveInt(
+                RequiredChild(timeModification, ActualNotesElementName),
+                ActualNotesElementName);
+            tupletNormalNotes = ParsePositiveInt(
+                RequiredChild(timeModification, NormalNotesElementName),
+                NormalNotesElementName);
+        }
+
+        return new NoteValue(denominator, dots, tupletActualNotes, tupletNormalNotes);
     }
 
     private static void ValidateDuration(int durationDivisions, int divisions, NoteValue noteValue)
     {
         double actualQuarterNotes = (double)durationDivisions / divisions;
-        double expectedQuarterNotes = 4.0 * (2.0 - (1.0 / Math.Pow(2.0, noteValue.Dots))) / noteValue.Denominator;
+        double expectedQuarterNotes = 4.0 * (2.0 - (1.0 / Math.Pow(2.0, noteValue.Dots)))
+            * noteValue.TupletNormalNotes / noteValue.TupletActualNotes / noteValue.Denominator;
         if (Math.Abs(actualQuarterNotes - expectedQuarterNotes) > 1e-9)
         {
             throw new InvalidDataException(

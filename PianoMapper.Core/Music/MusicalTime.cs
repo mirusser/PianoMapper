@@ -17,6 +17,7 @@ public static class MusicalTime
     private static double GetWholeNoteFraction(NoteValue noteValue)
     {
         double dotMultiplier = 2.0 - (1.0 / Math.Pow(2.0, noteValue.Dots));
-        return dotMultiplier / noteValue.Denominator;
+        double tupletMultiplier = (double)noteValue.TupletNormalNotes / noteValue.TupletActualNotes;
+        return dotMultiplier * tupletMultiplier / noteValue.Denominator;
     }
 }

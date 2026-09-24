@@ -30,6 +30,7 @@ internal sealed class AudiverisMusicXmlNormalizer
             }
 
             RemovePresentationOnlyElements(measure);
+            RemoveTimingElementsFromNotelessMeasure(measure);
             if (NormalizeFingeringTuplets(measure, divisions))
             {
                 RebuildMonophonicStaffTimelines(measure);
@@ -99,6 +100,28 @@ internal sealed class AudiverisMusicXmlNormalizer
             }
 
             sound.RemoveNodes();
+        }
+    }
+
+    // Audiveris occasionally emits a phantom measure containing nothing but a stray <backup> (a
+    // segmentation artifact, not real notated content). A <backup>/<forward> repositions the
+    // cursor relative to notes in the same measure, so with no <note> present its declared
+    // duration is meaningless — dropping it here turns a hard rejection (a negative or
+    // out-of-range cursor) into a correctly empty measure, without loosening the reader's strict
+    // validation for measures that do contain notes.
+    private static void RemoveTimingElementsFromNotelessMeasure(XElement measure)
+    {
+        if (measure.Elements().Any(element => element.Name.LocalName == "note"))
+        {
+            return;
+        }
+
+        foreach (var element in measure
+                     .Elements()
+                     .Where(element => element.Name.LocalName is "backup" or "forward")
+                     .ToArray())
+        {
+            element.Remove();
         }
     }
 

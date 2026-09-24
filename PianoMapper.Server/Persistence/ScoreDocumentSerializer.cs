@@ -19,9 +19,7 @@ internal static class ScoreDocumentSerializer
 
         var document = new ScoreDocument(
             score.TimeSignature.Numerator,
-            new NoteValueDocument(
-                score.TimeSignature.BeatNoteValue.Denominator,
-                score.TimeSignature.BeatNoteValue.Dots),
+            ToDocument(score.TimeSignature.BeatNoteValue),
             score.Tempo.BeatsPerMinute,
             score.KeyFifths,
             score.Measures.Select(ToDocument).ToArray());
@@ -64,7 +62,7 @@ internal static class ScoreDocumentSerializer
     private static ScoreNoteDocument ToDocument(ScoreNote note) =>
         new(
             new PitchDocument(note.Pitch.Letter, note.Pitch.Alter, note.Pitch.Octave),
-            new NoteValueDocument(note.NoteValue.Denominator, note.NoteValue.Dots),
+            ToDocument(note.NoteValue),
             note.MeasureIndex,
             note.BeatOffset,
             note.Staff,
@@ -76,11 +74,19 @@ internal static class ScoreDocumentSerializer
                 ? null
                 : new ScoreFingeringDocument(note.Fingering.Number, note.Fingering.Placement),
             note.Accidental,
-            note.Fermata);
+            note.Fermata,
+            note.Articulation,
+            note.Ornament,
+            note.AccidentalMark,
+            note.Slur is null ? null : new ScoreSlurDocument(note.Slur.IsStart, note.Slur.Number),
+            note.Arpeggio,
+            note.Glissando is null
+                ? null
+                : new ScoreGlissandoDocument(note.Glissando.IsStart, note.Glissando.Number, note.Glissando.Kind));
 
     private static ScoreRestDocument ToDocument(ScoreRest rest) =>
         new(
-            new NoteValueDocument(rest.NoteValue.Denominator, rest.NoteValue.Dots),
+            ToDocument(rest.NoteValue),
             rest.MeasureIndex,
             rest.BeatOffset,
             rest.Staff);
@@ -105,7 +111,15 @@ internal static class ScoreDocumentSerializer
                 ? null
                 : new ScoreFingering(note.Fingering.Number, note.Fingering.Placement),
             note.Accidental,
-            note.Fermata);
+            note.Fermata,
+            note.Articulation,
+            note.Ornament,
+            note.AccidentalMark,
+            note.Slur is null ? null : new ScoreSlur(note.Slur.IsStart, note.Slur.Number),
+            note.Arpeggio,
+            note.Glissando is null
+                ? null
+                : new ScoreGlissando(note.Glissando.IsStart, note.Glissando.Number, note.Glissando.Kind));
 
     private static ScoreRest FromDocument(ScoreRestDocument rest) =>
         new(
@@ -115,7 +129,10 @@ internal static class ScoreDocumentSerializer
             rest.Staff);
 
     private static NoteValue FromDocument(NoteValueDocument noteValue) =>
-        new(noteValue.Denominator, noteValue.Dots);
+        new(noteValue.Denominator, noteValue.Dots, noteValue.TupletActualNotes, noteValue.TupletNormalNotes);
+
+    private static NoteValueDocument ToDocument(NoteValue noteValue) =>
+        new(noteValue.Denominator, noteValue.Dots, noteValue.TupletActualNotes, noteValue.TupletNormalNotes);
 
     private sealed record ScoreDocument(
         int TimeSignatureNumerator,
@@ -140,7 +157,13 @@ internal static class ScoreDocumentSerializer
         ScoreStemDirection? StemDirection,
         ScoreFingeringDocument? Fingering,
         ScoreAccidental? Accidental,
-        ScoreFermata? Fermata);
+        ScoreFermata? Fermata,
+        ScoreArticulation? Articulation = null,
+        ScoreOrnament? Ornament = null,
+        ScoreAccidental? AccidentalMark = null,
+        ScoreSlurDocument? Slur = null,
+        ScoreArpeggio? Arpeggio = null,
+        ScoreGlissandoDocument? Glissando = null);
 
     private sealed record ScoreRestDocument(
         NoteValueDocument NoteValue,
@@ -150,9 +173,17 @@ internal static class ScoreDocumentSerializer
 
     private sealed record PitchDocument(NoteLetter Letter, int Alter, int Octave);
 
-    private sealed record NoteValueDocument(int Denominator, int Dots);
+    private sealed record NoteValueDocument(
+        int Denominator,
+        int Dots,
+        int TupletActualNotes = 1,
+        int TupletNormalNotes = 1);
 
     private sealed record ScoreFingeringDocument(
         int Number,
         ScoreFingeringPlacement? Placement);
+
+    private sealed record ScoreSlurDocument(bool IsStart, int Number);
+
+    private sealed record ScoreGlissandoDocument(bool IsStart, int Number, ScoreGlissandoKind Kind);
 }

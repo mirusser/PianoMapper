@@ -12,4 +12,10 @@ public sealed record ScoreNote(
     ScoreStemDirection? StemDirection = null,
     ScoreFingering? Fingering = null,
     ScoreAccidental? Accidental = null,
-    ScoreFermata? Fermata = null);
+    ScoreFermata? Fermata = null,
+    ScoreArticulation? Articulation = null,
+    ScoreOrnament? Ornament = null,
+    ScoreAccidental? AccidentalMark = null,
+    ScoreSlur? Slur = null,
+    ScoreArpeggio? Arpeggio = null,
+    ScoreGlissando? Glissando = null);

@@ -14,6 +14,7 @@ export const ledgerLineKind = 1; // GrandStaffLineKind.Ledger
 export const barlineKind = 2; // GrandStaffLineKind.Barline
 export const cursorLineKind = 3; // GrandStaffLineKind.Cursor
 export const beatLineKind = 4; // GrandStaffLineKind.Beat
+export const glissandoLineKind = 5; // GrandStaffLineKind.Glissando
 export const clefGlyphKind = 0; // PianoMapper.Web.Rendering.GrandStaffGlyphKind.Clef
 export const accidentalGlyphKind = 1; // GrandStaffGlyphKind.Accidental
 export const stemDirectionUp = 0; // PianoMapper.Rendering.StemDirection.Up (also used for GrandStaffTie.CurveDirection)
@@ -28,13 +29,17 @@ export const verdictColors = [
     "#94a3b8", // Missed
     "#c084fc", // Extra
 ];
-// Mirrors PianoMapper.Core/Rendering/GrandStaffLayout.cs's ScoreX0/ScoreX1/VisibleMeasureCount
-// constants, so the score-playback cursor can be positioned here every animation frame from the
-// Web Audio clock, instead of C# rebuilding the whole grand-staff scene every tick just to move
-// the cursor line.
+// Mirrors PianoMapper.Core/Rendering/GrandStaffLayout.cs's ScoreX0/ScoreX1 constants, so the
+// score-playback cursor can be positioned here every animation frame from the Web Audio clock,
+// instead of C# rebuilding the whole grand-staff scene every tick just to move the cursor line.
+// The visible-measure count itself is NOT duplicated here — it arrives per call, either on the
+// ScoreCursorPlaybackState pushed from Piano.razor (cursor.visibleMeasureCount) or as an explicit
+// parameter below, so a user-configured count never drifts out of sync with this file the way a
+// second hardcoded copy would. defaultScoreCursorVisibleMeasureCount is only a defensive fallback
+// for a stale cached module that predates this field.
 const scoreCursorX0 = -0.56;
 const scoreCursorX1 = 0.96;
-const scoreCursorVisibleMeasureCount = 5;
+const defaultScoreCursorVisibleMeasureCount = 5;
 const scoreNoteEdgeClearance = 0.02;
 const defaultStaffSpace = 11;
 const noteHeadWidthInStaffSpaces = 1.2;
@@ -53,6 +58,17 @@ const tieMinimumHeightInStaffSpaces = 0.3;
 const tieMaximumHeightInStaffSpaces = 0.45;
 const tieHeightToLengthRatio = 0.04;
 const tieCenterThicknessInStaffSpaces = 0.08;
+const slurMinimumHeightInStaffSpaces = 0.6;
+const slurMaximumHeightInStaffSpaces = 1.6;
+const slurHeightToLengthRatio = 0.12;
+const slurStrokeWidthInStaffSpaces = 0.12;
+const slurColor = "#e2e8f0";
+const arpeggioMarkStrokeWidthInStaffSpaces = 0.12;
+const arpeggioMarkWaveAmplitudeInStaffSpaces = 0.25;
+const arpeggioMarkWaveSegmentHeightInStaffSpaces = 0.5;
+const arpeggioMarkBracketTickWidthInStaffSpaces = 0.35;
+const arpeggioMarkColor = "#e2e8f0";
+const glissandoLineColor = "#f472b6";
 const staffLineWidth = 1.5;
 const spectrumReleaseClearMilliseconds = 120;
 const scorePlaybackHighlightColor = "#a78bfa";
@@ -344,6 +360,14 @@ function drawGrandStaff(context, scene, width, height) {
         drawTie(context, tie, width, height, staffSpace);
     }
 
+    for (const slur of scene.slurs ?? []) {
+        drawSlur(context, slur, width, height, staffSpace);
+    }
+
+    for (const arpeggioMark of scene.arpeggioMarks ?? []) {
+        drawArpeggioMark(context, arpeggioMark, width, height, staffSpace);
+    }
+
     for (const note of scene.notes) {
         if (!note.isActive) {
             drawNote(context, note, width, height, staffSpace);
@@ -632,15 +656,16 @@ function drawScoreCursor(context, state, width, height, scorePlaybackBeats) {
         return;
     }
 
+    const visibleMeasureCount = cursor.visibleMeasureCount ?? defaultScoreCursorVisibleMeasureCount;
     const beats = Math.max(0, scorePlaybackBeats);
     const windowStartBeat = cursor.firstVisibleMeasure * cursor.beatsPerMeasure;
-    const windowEndBeat = (cursor.firstVisibleMeasure + scoreCursorVisibleMeasureCount)
+    const windowEndBeat = (cursor.firstVisibleMeasure + visibleMeasureCount)
         * cursor.beatsPerMeasure;
     if (beats < windowStartBeat || beats >= windowEndBeat) {
         return;
     }
 
-    const x = mapScoreNotationBeatToX(beats, cursor.beatsPerMeasure, cursor.firstVisibleMeasure);
+    const x = mapScoreNotationBeatToX(beats, cursor.beatsPerMeasure, cursor.firstVisibleMeasure, visibleMeasureCount);
     drawLine(
         context,
         { x0: x, y0: cursor.cursorY0, x1: x, y1: cursor.cursorY1, kind: cursorLineKind },
@@ -649,19 +674,29 @@ function drawScoreCursor(context, state, width, height, scorePlaybackBeats) {
 }
 
 // Mirrors GrandStaffLayout.MapAbsoluteBeatToScoreX / MapScoreOnsetToX.
-export function mapAbsoluteBeatToScoreX(absoluteBeat, beatsPerMeasure, firstVisibleMeasure) {
+export function mapAbsoluteBeatToScoreX(
+    absoluteBeat,
+    beatsPerMeasure,
+    firstVisibleMeasure,
+    visibleMeasureCount = defaultScoreCursorVisibleMeasureCount) {
     const measureIndex = Math.floor(absoluteBeat / beatsPerMeasure);
     const beatOffset = absoluteBeat - (measureIndex * beatsPerMeasure);
     const relativeMeasure = measureIndex - firstVisibleMeasure + (beatOffset / beatsPerMeasure);
-    return scoreCursorX0 + (relativeMeasure / scoreCursorVisibleMeasureCount) * (scoreCursorX1 - scoreCursorX0);
+    return scoreCursorX0 + (relativeMeasure / visibleMeasureCount) * (scoreCursorX1 - scoreCursorX0);
 }
 
 // Mirrors GrandStaffSceneBuilder.MapScoreNotationBeatToX for note and cursor alignment.
-export function mapScoreNotationBeatToX(absoluteBeat, beatsPerMeasure, firstVisibleMeasure) {
+export function mapScoreNotationBeatToX(
+    absoluteBeat,
+    beatsPerMeasure,
+    firstVisibleMeasure,
+    visibleMeasureCount = defaultScoreCursorVisibleMeasureCount) {
     const measureIndex = Math.floor(absoluteBeat / beatsPerMeasure);
     const beatOffset = absoluteBeat - (measureIndex * beatsPerMeasure);
-    const measureStartX = mapAbsoluteBeatToScoreX(measureIndex * beatsPerMeasure, beatsPerMeasure, firstVisibleMeasure);
-    const measureEndX = mapAbsoluteBeatToScoreX((measureIndex + 1) * beatsPerMeasure, beatsPerMeasure, firstVisibleMeasure);
+    const measureStartX = mapAbsoluteBeatToScoreX(
+        measureIndex * beatsPerMeasure, beatsPerMeasure, firstVisibleMeasure, visibleMeasureCount);
+    const measureEndX = mapAbsoluteBeatToScoreX(
+        (measureIndex + 1) * beatsPerMeasure, beatsPerMeasure, firstVisibleMeasure, visibleMeasureCount);
     const noteAreaStartX = measureIndex === firstVisibleMeasure
         ? measureStartX
         : measureStartX + scoreNoteEdgeClearance;
@@ -688,12 +723,16 @@ function drawLine(context, line, width, height, staffSpace) {
             ? "#334155"
             : line.kind === barlineKind
             ? "#64748b"
-            : line.kind === staffLineKind ? "#94a3b8" : "#cbd5e1";
+            : line.kind === staffLineKind
+                ? "#94a3b8"
+                : line.kind === glissandoLineKind ? glissandoLineColor : "#cbd5e1";
     context.lineWidth = line.kind === staffLineKind
         ? staffLineWidth
         : line.kind === cursorLineKind
             ? 2
-            : line.kind === beatLineKind ? 1 : 1.5;
+            : line.kind === beatLineKind
+                ? 1
+                : line.kind === glissandoLineKind ? 2 : 1.5;
     let x0 = mapX(line.x0, width);
     let x1 = mapX(line.x1, width);
     if (line.kind === ledgerLineKind) {
@@ -724,8 +763,19 @@ function drawGlyph(context, glyph, width, height) {
         context.font = `${measurementFontSize}px 'Noto Music', 'Bravura Text', serif`;
         const measurement = context.measureText(glyph.text);
         const measuredHeight = measurement.actualBoundingBoxAscent + measurement.actualBoundingBoxDescent;
+        // A visually "flat" character (a dash/underscore-shaped mark, centered near the
+        // baseline) measures a tiny actualBoundingBoxAscent+Descent relative to a normal
+        // letter/digit/musical-symbol glyph — dividing by that near-zero height below would
+        // blow the computed font size up by 10x+ and render as an oversized, overlapping blob
+        // (found by screenshot-verifying the tenuto articulation mark, an en dash "–", against
+        // the real running app — see docs/plans/notations-rendering.md). Floor the divisor at a
+        // fraction of the reference size so a flat glyph renders at a comparable scale to its
+        // neighbors instead of blowing up; every glyph kind already in use here (clef,
+        // accidental, signatures, fermata, tuplet numerals) measures well above this floor, so
+        // the clamp is a no-op for them.
+        const minimumMeasuredHeight = measurementFontSize * 0.2;
         const targetHeight = mapHeight(glyph.height, height);
-        const fontSize = measurementFontSize * targetHeight / measuredHeight;
+        const fontSize = measurementFontSize * targetHeight / Math.max(measuredHeight, minimumMeasuredHeight);
         context.font = `${fontSize}px 'Noto Music', 'Bravura Text', serif`;
 
         const metrics = context.measureText(glyph.text);
@@ -901,6 +951,77 @@ function drawTie(context, tie, width, height, staffSpace) {
         y0);
     context.closePath();
     context.fill();
+}
+
+// A slur (a thin stroked bezier arc over a whole phrase) shares GrandStaffTie's X0/Y0/X1/Y1/
+// direction shape but is drawn with its own simpler curve, not drawTie's tapered filled shape —
+// see the "Curve rendering exists but is tuned for a different shape" note in
+// docs/plans/notations-rendering.md.
+function drawSlur(context, slur, width, height, staffSpace) {
+    const x0 = mapX(slur.x0, width);
+    const x1 = mapX(slur.x1, width);
+    const y0 = mapY(slur.y0, height);
+    const y1 = mapY(slur.y1, height);
+    const curveDirection = slur.curveDirection === stemDirectionUp ? -1 : 1;
+    const lengthInStaffSpaces = Math.hypot(x1 - x0, y1 - y0) / staffSpace;
+    const heightInStaffSpaces = Math.min(
+        slurMaximumHeightInStaffSpaces,
+        Math.max(slurMinimumHeightInStaffSpaces, lengthInStaffSpaces * slurHeightToLengthRatio));
+    const controlHeight = curveDirection * staffSpace * heightInStaffSpaces;
+    const controlX1 = x0 + ((x1 - x0) / 3);
+    const controlX2 = x0 + ((x1 - x0) * 2 / 3);
+    const controlY1 = y0 + ((y1 - y0) / 3) + controlHeight;
+    const controlY2 = y0 + ((y1 - y0) * 2 / 3) + controlHeight;
+    context.strokeStyle = slurColor;
+    context.lineWidth = Math.max(1, staffSpace * slurStrokeWidthInStaffSpaces);
+    context.beginPath();
+    context.moveTo(x0, y0);
+    context.bezierCurveTo(controlX1, controlY1, controlX2, controlY2, x1, y1);
+    context.stroke();
+}
+
+// A vertical arpeggio mark to the left of a chord: a wavy line (quadratic-curve zigzag) for
+// GrandStaffArpeggioMark.IsNonArpeggiate false, or a straight bracket for true — no existing
+// primitive to adapt (ties/beams/slurs are all horizontal-ish; this is the first vertical mark).
+function drawArpeggioMark(context, mark, width, height, staffSpace) {
+    const x = mapX(mark.x, width);
+    const yTop = mapY(Math.max(mark.y0, mark.y1), height);
+    const yBottom = mapY(Math.min(mark.y0, mark.y1), height);
+    context.strokeStyle = arpeggioMarkColor;
+    context.lineWidth = Math.max(1, staffSpace * arpeggioMarkStrokeWidthInStaffSpaces);
+    if (mark.isNonArpeggiate) {
+        drawArpeggioBracket(context, x, yTop, yBottom, staffSpace);
+    } else {
+        drawArpeggioWave(context, x, yTop, yBottom, staffSpace);
+    }
+}
+
+function drawArpeggioBracket(context, x, yTop, yBottom, staffSpace) {
+    const tickWidth = staffSpace * arpeggioMarkBracketTickWidthInStaffSpaces;
+    context.beginPath();
+    context.moveTo(x + tickWidth, yTop);
+    context.lineTo(x, yTop);
+    context.lineTo(x, yBottom);
+    context.lineTo(x + tickWidth, yBottom);
+    context.stroke();
+}
+
+function drawArpeggioWave(context, x, yTop, yBottom, staffSpace) {
+    const amplitude = staffSpace * arpeggioMarkWaveAmplitudeInStaffSpaces;
+    const segmentHeight = staffSpace * arpeggioMarkWaveSegmentHeightInStaffSpaces;
+    const totalHeight = Math.max(1, yBottom - yTop);
+    const segmentCount = Math.max(1, Math.round(totalHeight / segmentHeight));
+    const actualSegmentHeight = totalHeight / segmentCount;
+    context.beginPath();
+    context.moveTo(x, yTop);
+    for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++) {
+        const segmentStartY = yTop + (segmentIndex * actualSegmentHeight);
+        const segmentEndY = segmentStartY + actualSegmentHeight;
+        const controlX = x + (segmentIndex % 2 === 0 ? amplitude : -amplitude);
+        const controlY = segmentStartY + (actualSegmentHeight / 2);
+        context.quadraticCurveTo(controlX, controlY, x, segmentEndY);
+    }
+    context.stroke();
 }
 
 function isScoreEdgeX(x) {

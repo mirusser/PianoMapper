@@ -10,7 +10,7 @@ public static class GrandStaffLayout
     public const float MiddleCY = (PianoRollLayout.BandY0 + PianoRollLayout.BandY1) / 2f;
     public const float ScoreX0 = -0.56f;
     public const float ScoreX1 = 0.96f;
-    public const int VisibleMeasureCount = 5;
+    public const int DefaultVisibleMeasureCount = 5;
 
     // Grand-staff annotation/notation geometry policy. These match the Canvas 2D notehead and
     // beam/stem proportions in wwwroot/js/canvas.js.
@@ -27,6 +27,7 @@ public static class GrandStaffLayout
     public const double NotationStrokePaddingInStaffSpaces = 0.25;
     public const double FermataHeightInStaffSpaces = 1.5;
     public const double FermataClearanceInStaffSpaces = 0.75;
+    public const double PointGlyphClearanceInStaffSpaces = 0.75;
 
     private const int TrebleBottomDiatonicIndex = 30; // E4
     private const int BassBottomDiatonicIndex = 18; // G2
@@ -53,10 +54,11 @@ public static class GrandStaffLayout
         int measureIndex,
         double beatOffset,
         TimeSignature timeSignature,
-        int firstVisibleMeasure)
+        int firstVisibleMeasure,
+        int visibleMeasureCount = DefaultVisibleMeasureCount)
     {
         double relativeMeasure = measureIndex - firstVisibleMeasure + (beatOffset / timeSignature.Numerator);
-        return ScoreX0 + (float)(relativeMeasure / VisibleMeasureCount * (ScoreX1 - ScoreX0));
+        return ScoreX0 + (float)(relativeMeasure / visibleMeasureCount * (ScoreX1 - ScoreX0));
     }
 
     public static int GetLiveFirstVisibleMeasure(
@@ -66,7 +68,7 @@ public static class GrandStaffLayout
     {
         double currentBeat = MusicalTime.DurationToBeats(currentTime, tempo);
         int currentMeasure = Math.Max(0, (int)Math.Floor(currentBeat / timeSignature.Numerator));
-        return currentMeasure / VisibleMeasureCount * VisibleMeasureCount;
+        return currentMeasure / DefaultVisibleMeasureCount * DefaultVisibleMeasureCount;
     }
 
     public static LiveNoteLayout? GetLiveNoteLayout(
@@ -105,7 +107,7 @@ public static class GrandStaffLayout
     {
         int firstVisibleMeasure = GetLiveFirstVisibleMeasure(currentTime, timeSignature, tempo);
         double windowStartBeat = firstVisibleMeasure * timeSignature.Numerator;
-        double windowEndBeat = (firstVisibleMeasure + VisibleMeasureCount) * timeSignature.Numerator;
+        double windowEndBeat = (firstVisibleMeasure + DefaultVisibleMeasureCount) * timeSignature.Numerator;
         double startBeat = MusicalTime.DurationToBeats(startTime, tempo);
         double endBeat = Math.Max(startBeat, MusicalTime.DurationToBeats(endTime, tempo));
         double visibleStartBeat = Math.Max(startBeat, windowStartBeat);
@@ -145,12 +147,12 @@ public static class GrandStaffLayout
         int firstVisibleMeasure = GetLiveFirstVisibleMeasure(now, timeSignature, tempo);
         var lines = new List<GridLine>();
 
-        foreach (float barlineX in GetScoreBarlineXs(firstVisibleMeasure, firstVisibleMeasure + VisibleMeasureCount))
+        foreach (float barlineX in GetScoreBarlineXs(firstVisibleMeasure, firstVisibleMeasure + DefaultVisibleMeasureCount))
         {
             lines.Add(new GridLine(barlineX, GridLineKind.Barline));
         }
 
-        int visibleBeatCount = VisibleMeasureCount * timeSignature.Numerator;
+        int visibleBeatCount = DefaultVisibleMeasureCount * timeSignature.Numerator;
         for (int beatIndex = 1; beatIndex < visibleBeatCount; beatIndex++)
         {
             if (beatIndex % timeSignature.Numerator == 0)
@@ -176,9 +178,10 @@ public static class GrandStaffLayout
     public static ScoreNoteLayout? GetScoreNoteLayout(
         ScoreNote note,
         TimeSignature timeSignature,
-        int firstVisibleMeasure)
+        int firstVisibleMeasure,
+        int visibleMeasureCount = DefaultVisibleMeasureCount)
     {
-        if (note.MeasureIndex < firstVisibleMeasure || note.MeasureIndex >= firstVisibleMeasure + VisibleMeasureCount)
+        if (note.MeasureIndex < firstVisibleMeasure || note.MeasureIndex >= firstVisibleMeasure + visibleMeasureCount)
         {
             return null;
         }
@@ -186,7 +189,7 @@ public static class GrandStaffLayout
         var position = GetPosition(note.Pitch, note.Staff);
         var stemDirection = ResolveStemDirection(note.StemDirection, position);
         return new ScoreNoteLayout(
-            MapScoreOnsetToX(note.MeasureIndex, note.BeatOffset, timeSignature, firstVisibleMeasure),
+            MapScoreOnsetToX(note.MeasureIndex, note.BeatOffset, timeSignature, firstVisibleMeasure, visibleMeasureCount),
             position,
             note.NoteValue.Denominator <= 2 ? NoteHeadStyle.Hollow : NoteHeadStyle.Filled,
             stemDirection,
@@ -200,13 +203,16 @@ public static class GrandStaffLayout
             });
     }
 
-    public static IReadOnlyList<float> GetScoreBarlineXs(int firstVisibleMeasure, int measureCount)
+    public static IReadOnlyList<float> GetScoreBarlineXs(
+        int firstVisibleMeasure,
+        int measureCount,
+        int visibleMeasureCount = DefaultVisibleMeasureCount)
     {
-        int visibleMeasures = Math.Min(VisibleMeasureCount, Math.Max(0, measureCount - firstVisibleMeasure));
+        int visibleMeasures = Math.Min(visibleMeasureCount, Math.Max(0, measureCount - firstVisibleMeasure));
         return Enumerable.Range(0, visibleMeasures + 1)
-            .Select(boundary => boundary == VisibleMeasureCount
+            .Select(boundary => boundary == visibleMeasureCount
                 ? ScoreX1
-                : ScoreX0 + (boundary * (ScoreX1 - ScoreX0) / VisibleMeasureCount))
+                : ScoreX0 + (boundary * (ScoreX1 - ScoreX0) / visibleMeasureCount))
             .ToArray();
     }
 
@@ -304,9 +310,33 @@ public static class GrandStaffLayout
         ScoreFermata fermata,
         double noteY,
         ScoreNoteLayout layout,
-        double? beamStemEndY)
+        double? beamStemEndY) =>
+        GetOuterGlyphY(
+            fermata == ScoreFermata.Upright,
+            noteY,
+            layout,
+            beamStemEndY,
+            FermataClearanceInStaffSpaces);
+
+    /// <summary>
+    /// Y for a point-glyph notation (articulation, ornament, accidental-mark) that has no
+    /// MusicXML orientation of its own (unlike <see cref="ScoreFermata"/>'s explicit
+    /// upright/inverted type) — always placed above the note, outside its stem/beam, using the
+    /// same outer-clearance placement as <see cref="GetFermataY"/>.
+    /// </summary>
+    public static double GetPointGlyphY(
+        double noteY,
+        ScoreNoteLayout layout,
+        double? beamStemEndY) =>
+        GetOuterGlyphY(isUpright: true, noteY, layout, beamStemEndY, PointGlyphClearanceInStaffSpaces);
+
+    private static double GetOuterGlyphY(
+        bool isUpright,
+        double noteY,
+        ScoreNoteLayout layout,
+        double? beamStemEndY,
+        double clearanceInStaffSpaces)
     {
-        bool isUpright = fermata == ScoreFermata.Upright;
         IReadOnlyList<float> staffLines = layout.Position.Staff == Staff.Treble ? TrebleLineYs : BassLineYs;
         double staffEdgeY = SeparateStaffY(isUpright ? staffLines[^1] : staffLines[0], layout.Position.Staff);
         double outerY = isUpright
@@ -327,7 +357,7 @@ public static class GrandStaffLayout
         }
 
         double direction = isUpright ? 1 : -1;
-        return outerY + (direction * FermataClearanceInStaffSpaces * GetRenderedStaffSpace(layout.Position.Staff));
+        return outerY + (direction * clearanceInStaffSpaces * GetRenderedStaffSpace(layout.Position.Staff));
     }
 
     public static double GetNotationBottomY(

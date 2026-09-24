@@ -28,6 +28,7 @@ public sealed class GrandStaffSceneContractTests
         Assert.Equal(2, (int)GrandStaffLineKind.Barline);
         Assert.Equal(3, (int)GrandStaffLineKind.Cursor);
         Assert.Equal(4, (int)GrandStaffLineKind.Beat);
+        Assert.Equal(5, (int)GrandStaffLineKind.Glissando);
     }
 
     [Fact]

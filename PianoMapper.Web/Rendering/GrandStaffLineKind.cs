@@ -7,4 +7,5 @@ public enum GrandStaffLineKind
     Barline,
     Cursor,
     Beat,
+    Glissando,
 }

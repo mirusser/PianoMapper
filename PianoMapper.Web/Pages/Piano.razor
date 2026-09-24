@@ -248,7 +248,7 @@
                             <span class="measure-window">
                                 Measures @(selectedFirstMeasure + ActiveScoreFirstMeasure + 1)–@(
                                     selectedFirstMeasure + Math.Min(
-                                        ActiveScoreFirstMeasure + GrandStaffLayout.VisibleMeasureCount,
+                                        ActiveScoreFirstMeasure + visibleMeasureCount,
                                         selectedScore.Measures.Count))
                             </span>
                             <button type="button"
@@ -338,6 +338,15 @@
                                        disabled="@(isFingeringEditing || IsSightReadingExerciseActive)"
                                        @onchange="SetShowFingeringsAsync" />
                                 Fingering
+                            </label>
+                            <label class="timing-field">
+                                <span>Measures per page</span>
+                                <input type="number"
+                                       min="@MinimumVisibleMeasureCount"
+                                       max="@MaximumVisibleMeasureCount"
+                                       step="1"
+                                       value="@visibleMeasureCount"
+                                       @onchange="SelectVisibleMeasureCountAsync" />
                             </label>
                             @if (loadedScore is not null && selectedScore is not null &&
                                 sightReadingExerciseScore is null && !showPianoRoll)
@@ -457,6 +466,13 @@
     private const string TestNoteId = "test-note";
     private const int MinimumMeterNumerator = 1;
     private const int MaximumMeterNumerator = 12;
+    private const int MinimumVisibleMeasureCount = 1;
+    // The fixed per-notehead clearance constants (GrandStaffSceneBuilder.MapScoreNotationBeatToX)
+    // only hit a hard, arithmetic zero-width collapse at count = 38, but a note-dense measure (many
+    // notes/chords packed into one measure, e.g. a stepwise scale run) runs out of usable room well
+    // before that: screenshot-verified against a real dense score, 20 already renders as an
+    // illegible blob. 12 was chosen from that same visual check, not the arithmetic alone.
+    private const int MaximumVisibleMeasureCount = 12;
     private const int MinimumTempoBeatsPerMinute = 30;
     private const int MaximumTempoBeatsPerMinute = 300;
     private const int StrictToleranceMilliseconds = 30;
@@ -509,6 +525,7 @@
     private bool showPianoRoll;
     private bool showNoteLabels = true;
     private bool showFingerings = true;
+    private int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount;
     private bool isFingeringEditing;
     private bool isFingeringGenerating;
     private NoteReadingMode idleNoteReadingMode = NoteReadingMode.PitchAndOrder;
@@ -561,7 +578,7 @@
     private int NotationMeasureNumberOffset => IsSightReadingExerciseActive ? 0 : selectedFirstMeasure;
 
     private int ActiveScoreFirstMeasure => scoreWindowPair is { } pair
-        ? pair.ActivePageIndex * GrandStaffLayout.VisibleMeasureCount
+        ? pair.ActivePageIndex * visibleMeasureCount
         : 0;
 
     private bool CanShowPreviousMeasures => !IsSightReadingExerciseActive && selectedScore is { } score && CanChangeScorePage(
@@ -569,14 +586,16 @@
         scoreWindowPair?.ActivePageIndex ?? 0,
         pageDelta: -1,
         ScorePlaybackSession.IsActive,
-        practiceCoordinator.IsActive);
+        practiceCoordinator.IsActive,
+        visibleMeasureCount);
 
     private bool CanShowNextMeasures => !IsSightReadingExerciseActive && selectedScore is { } score && CanChangeScorePage(
         score.Measures.Count,
         scoreWindowPair?.ActivePageIndex ?? 0,
         pageDelta: 1,
         ScorePlaybackSession.IsActive,
-        practiceCoordinator.IsActive);
+        practiceCoordinator.IsActive,
+        visibleMeasureCount);
 
     private bool CanResetHighlights =>
         !isFingeringEditing &&
@@ -628,7 +647,7 @@
         }
 
         int lastMeasure = Math.Min(
-            firstMeasure.Value + GrandStaffLayout.VisibleMeasureCount,
+            firstMeasure.Value + visibleMeasureCount,
             score.Measures.Count);
         return $"Measures {NotationMeasureNumberOffset + firstMeasure.Value + 1}–{NotationMeasureNumberOffset + lastMeasure}";
     }
@@ -659,7 +678,7 @@
         foreach (int firstMeasure in firstMeasures.OfType<int>())
         {
             int lastMeasure = Math.Min(
-                firstMeasure + GrandStaffLayout.VisibleMeasureCount,
+                firstMeasure + visibleMeasureCount,
                 score.Measures.Count);
             for (int measureIndex = firstMeasure; measureIndex < lastMeasure; measureIndex++)
             {
@@ -713,15 +732,15 @@
         int activePageIndex,
         int pageDelta,
         bool isScorePlaybackActive,
-        bool isPracticeActive)
+        bool isPracticeActive,
+        int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount)
     {
         if (measureCount <= 0 || isScorePlaybackActive || isPracticeActive)
         {
             return false;
         }
 
-        int pageCount = (measureCount + GrandStaffLayout.VisibleMeasureCount - 1)
-            / GrandStaffLayout.VisibleMeasureCount;
+        int pageCount = (measureCount + visibleMeasureCount - 1) / visibleMeasureCount;
         int requestedPageIndex = activePageIndex + pageDelta;
         return requestedPageIndex >= 0 && requestedPageIndex < pageCount;
     }
@@ -1231,7 +1250,8 @@
         selectedScoreNoteAddress = null;
         scoreWindowPair = ScoreGrandStaffWindowPair.FromPageIndex(
             selectedScore.Measures.Count,
-            (scoreWindowPair?.ActivePageIndex ?? 0) - 1);
+            (scoreWindowPair?.ActivePageIndex ?? 0) - 1,
+            visibleMeasureCount);
         if (!showPianoRoll)
         {
             RefreshCanvasScene(GetAnchorTime());
@@ -1248,7 +1268,8 @@
         selectedScoreNoteAddress = null;
         scoreWindowPair = ScoreGrandStaffWindowPair.FromPageIndex(
             selectedScore.Measures.Count,
-            (scoreWindowPair?.ActivePageIndex ?? 0) + 1);
+            (scoreWindowPair?.ActivePageIndex ?? 0) + 1,
+            visibleMeasureCount);
         if (!showPianoRoll)
         {
             RefreshCanvasScene(GetAnchorTime());
@@ -1274,7 +1295,8 @@
             firstVisibleMeasure,
             anchor.CompletionSeconds,
             cursorY0,
-            cursorY1);
+            cursorY1,
+            visibleMeasureCount);
     }
 
     private void UpdateScoreCursorStates()
@@ -1295,7 +1317,7 @@
     private void ResetScoreWindowPair()
     {
         scoreWindowPair = NotationScore is { Measures.Count: > 0 } score
-            ? ScoreGrandStaffWindowPair.FromPageIndex(score.Measures.Count, activePageIndex: 0)
+            ? ScoreGrandStaffWindowPair.FromPageIndex(score.Measures.Count, activePageIndex: 0, visibleMeasureCount)
             : null;
         UpdateScoreCursorStates();
     }
@@ -1310,7 +1332,8 @@
         var updatedPair = ScoreGrandStaffWindowPair.FromCursorBeats(
             score.Measures.Count,
             cursorBeats,
-            score.TimeSignature.Numerator);
+            score.TimeSignature.Numerator,
+            visibleMeasureCount);
         if (updatedPair == scoreWindowPair)
         {
             return false;
@@ -1477,6 +1500,32 @@
     private Task SetShowFingeringsAsync(ChangeEventArgs eventArgs)
     {
         showFingerings = eventArgs.Value is true;
+        return RefreshNotationVisibilityAsync();
+    }
+
+    // A count change only re-windows which measures are drawn — it changes nothing about the
+    // score's own data or timing — so it follows the lightweight RefreshNotationVisibilityAsync
+    // pattern rather than ApplyTimingAsync's playback-stopping one. The page index is recomputed
+    // from the previously active first measure (not reset to page 0) so the user's place in the
+    // score is preserved across the count change.
+    private Task SelectVisibleMeasureCountAsync(ChangeEventArgs eventArgs)
+    {
+        int oldFirstMeasure = scoreWindowPair?.UpperFirstMeasure ?? 0;
+        visibleMeasureCount = ParseClampedInteger(
+            eventArgs,
+            visibleMeasureCount,
+            MinimumVisibleMeasureCount,
+            MaximumVisibleMeasureCount);
+
+        if (selectedScore is { Measures.Count: > 0 } score)
+        {
+            scoreWindowPair = ScoreGrandStaffWindowPair.FromPageIndex(
+                score.Measures.Count,
+                oldFirstMeasure / visibleMeasureCount,
+                visibleMeasureCount);
+            UpdateScoreCursorStates();
+        }
+
         return RefreshNotationVisibilityAsync();
     }
 
@@ -2156,7 +2205,8 @@
             performedNoteBeats,
             showNoteLabels && !IsSightReadingExerciseActive,
             showFingerings && !IsSightReadingExerciseActive,
-            expectedNotes);
+            expectedNotes,
+            visibleMeasureCount);
         secondaryCanvasScene = scoreWindowPair?.LowerFirstMeasure is { } lowerFirstMeasure
             ? lowerGrandStaffSceneCache.BuildScore(
                 notationScore,
@@ -2171,7 +2221,8 @@
                 performedNoteBeats,
                 showNoteLabels && !IsSightReadingExerciseActive,
                 showFingerings && !IsSightReadingExerciseActive,
-                expectedNotes)
+                expectedNotes,
+                visibleMeasureCount)
             : null;
     }
 

@@ -13,6 +13,7 @@ import {
     beatLineKind,
     clefGlyphKind,
     cursorLineKind,
+    glissandoLineKind,
     grandStaffSceneKind,
     ledgerLineKind,
     mapAbsoluteBeatToScoreX,
@@ -33,6 +34,7 @@ test("line kind constants match GrandStaffLineKind ordinals", () => {
     assert.equal(barlineKind, 2);
     assert.equal(cursorLineKind, 3);
     assert.equal(beatLineKind, 4);
+    assert.equal(glissandoLineKind, 5);
 });
 
 test("clef glyph kind constant matches GrandStaffGlyphKind.Clef ordinal", () => {

@@ -36,4 +36,21 @@ public sealed class MetronomeGridTests
         Assert.Equal(2.0 / 3.0, grid.BeatDuration.TotalSeconds, 6);
         Assert.Equal(1.5, grid.GetBeatsElapsed(TimeSpan.FromSeconds(1)), 6);
     }
+
+    [Fact]
+    public void GetNearestBeatIndex_OnsetAfterEighthNoteTriplet_AgreesWithScoreDerivedBeat()
+    {
+        // A quarter note (beat 0) followed by an eighth-note triplet (beat 1, occupying exactly
+        // one beat across its three notes) lands the next note's onset back on integer beat 2 —
+        // the tuplet ratio must not leave a fractional drift in the independently-computed
+        // metronome grid used for playback/grading.
+        var grid = new MetronomeGrid(TimeSpan.Zero, new Tempo(120), new TimeSignature(4, new NoteValue(4)));
+        TimeSpan onsetAfterTriplet = MusicalTime.BeatsToDuration(2, new Tempo(120));
+
+        long beatIndex = grid.GetNearestBeatIndex(onsetAfterTriplet);
+        TimeSpan deviation = grid.GetDeviation(onsetAfterTriplet);
+
+        Assert.Equal(2, beatIndex);
+        Assert.Equal(TimeSpan.Zero, deviation);
+    }
 }

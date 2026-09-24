@@ -114,6 +114,273 @@ public sealed class MusicXmlScoreReaderTests
         Assert.Equal(ScoreFermata.Inverted, note.Fermata);
     }
 
+    [Theory]
+    [InlineData("staccato", ScoreArticulation.Staccato)]
+    [InlineData("tenuto", ScoreArticulation.Tenuto)]
+    [InlineData("accent", ScoreArticulation.Accent)]
+    [InlineData("staccatissimo", ScoreArticulation.Staccatissimo)]
+    public void Read_SupportedArticulation_ImportsMatchingEnumValue(string element, ScoreArticulation expected)
+    {
+        var score = ReadNotes($$"""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><articulations><{{element}} /></articulations></notations>
+            </note>
+            """);
+
+        var note = Assert.Single(Assert.Single(score.Measures).Notes);
+
+        Assert.Equal(expected, note.Articulation);
+    }
+
+    [Fact]
+    public void Read_UnsupportedArticulation_ThrowsMessageNamingElement()
+    {
+        var exception = Assert.Throws<NotSupportedException>(() => ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><articulations><strong-accent /></articulations></notations>
+            </note>
+            """));
+
+        Assert.Contains("<strong-accent>", exception.Message);
+    }
+
+    [Fact]
+    public void Read_TrillMarkOrnament_ImportsTrillMark()
+    {
+        var score = ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><ornaments><trill-mark /></ornaments></notations>
+            </note>
+            """);
+
+        var note = Assert.Single(Assert.Single(score.Measures).Notes);
+
+        Assert.Equal(ScoreOrnament.TrillMark, note.Ornament);
+    }
+
+    [Fact]
+    public void Read_UnsupportedOrnament_ThrowsMessageNamingElement()
+    {
+        var exception = Assert.Throws<NotSupportedException>(() => ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><ornaments><mordent /></ornaments></notations>
+            </note>
+            """));
+
+        Assert.Contains("<mordent>", exception.Message);
+    }
+
+    [Fact]
+    public void Read_AccidentalMark_ImportsMatchingAccidentalSeparatelyFromPrintedAccidental()
+    {
+        var score = ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><accidental-mark>sharp</accidental-mark></notations>
+            </note>
+            """);
+
+        var note = Assert.Single(Assert.Single(score.Measures).Notes);
+
+        Assert.Equal(ScoreAccidental.Sharp, note.AccidentalMark);
+        Assert.Null(note.Accidental);
+    }
+
+    [Fact]
+    public void Read_InvalidAccidentalMarkValue_ThrowsMessageNamingElement()
+    {
+        var exception = Assert.Throws<NotSupportedException>(() => ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><accidental-mark>quarter-sharp</accidental-mark></notations>
+            </note>
+            """));
+
+        Assert.Contains("<accidental-mark>", exception.Message);
+    }
+
+    [Fact]
+    public void Read_SlurStartAndStop_ImportsMatchingPairingData()
+    {
+        var score = ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><slur type="start" number="1" /></notations>
+            </note>
+            <note>
+              <pitch><step>D</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><slur type="stop" number="1" /></notations>
+            </note>
+            """);
+
+        var notes = Assert.Single(score.Measures).Notes;
+
+        Assert.Equal(new ScoreSlur(IsStart: true, Number: 1), notes[0].Slur);
+        Assert.Equal(new ScoreSlur(IsStart: false, Number: 1), notes[1].Slur);
+    }
+
+    [Fact]
+    public void Read_OverlappingSlursWithDifferentNumbers_ImportEachIndependently()
+    {
+        var score = ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><slur type="start" number="1" /></notations>
+            </note>
+            <note>
+              <pitch><step>D</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><slur type="start" number="2" /></notations>
+            </note>
+            <note>
+              <pitch><step>E</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><slur type="stop" number="1" /></notations>
+            </note>
+            <note>
+              <pitch><step>F</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><slur type="stop" number="2" /></notations>
+            </note>
+            """);
+
+        var notes = Assert.Single(score.Measures).Notes;
+
+        Assert.Equal(new ScoreSlur(true, 1), notes[0].Slur);
+        Assert.Equal(new ScoreSlur(true, 2), notes[1].Slur);
+        Assert.Equal(new ScoreSlur(false, 1), notes[2].Slur);
+        Assert.Equal(new ScoreSlur(false, 2), notes[3].Slur);
+    }
+
+    [Fact]
+    public void Read_SlurWithoutNumberAttribute_DefaultsToNumberOne()
+    {
+        var score = ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><slur type="start" /></notations>
+            </note>
+            """);
+
+        var note = Assert.Single(Assert.Single(score.Measures).Notes);
+
+        Assert.Equal(new ScoreSlur(true, 1), note.Slur);
+    }
+
+    [Fact]
+    public void Read_InvalidSlurType_ThrowsMessageNamingElement()
+    {
+        var exception = Assert.Throws<InvalidDataException>(() => ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><slur type="continue" number="1" /></notations>
+            </note>
+            """));
+
+        Assert.Contains("<slur>", exception.Message);
+    }
+
+    [Fact]
+    public void Read_Arpeggiate_ImportsArpeggiateMark()
+    {
+        var score = ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><arpeggiate /></notations>
+            </note>
+            """);
+
+        var note = Assert.Single(Assert.Single(score.Measures).Notes);
+
+        Assert.Equal(ScoreArpeggio.Arpeggiate, note.Arpeggio);
+    }
+
+    [Fact]
+    public void Read_NonArpeggiate_ImportsNonArpeggiateMark()
+    {
+        var score = ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><non-arpeggiate type="bottom" /></notations>
+            </note>
+            """);
+
+        var note = Assert.Single(Assert.Single(score.Measures).Notes);
+
+        Assert.Equal(ScoreArpeggio.NonArpeggiate, note.Arpeggio);
+    }
+
+    [Theory]
+    [InlineData("glissando", ScoreGlissandoKind.Glissando)]
+    [InlineData("slide", ScoreGlissandoKind.Slide)]
+    public void Read_GlissandoOrSlideStartAndStop_ImportsMatchingPairingDataAndKind(
+        string element,
+        ScoreGlissandoKind expectedKind)
+    {
+        var score = ReadNotes($$"""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><{{element}} type="start" number="1" /></notations>
+            </note>
+            <note>
+              <pitch><step>G</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><{{element}} type="stop" number="1" /></notations>
+            </note>
+            """);
+
+        var notes = Assert.Single(score.Measures).Notes;
+
+        Assert.Equal(new ScoreGlissando(true, 1, expectedKind), notes[0].Glissando);
+        Assert.Equal(new ScoreGlissando(false, 1, expectedKind), notes[1].Glissando);
+    }
+
+    [Fact]
+    public void Read_InvalidGlissandoType_ThrowsMessageNamingElement()
+    {
+        var exception = Assert.Throws<InvalidDataException>(() => ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><glissando type="continue" number="1" /></notations>
+            </note>
+            """));
+
+        Assert.Contains("<glissando>", exception.Message);
+    }
+
+    [Fact]
+    public void Read_InvalidSlideType_ThrowsMessageNamingElement()
+    {
+        var exception = Assert.Throws<InvalidDataException>(() => ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>eighth</type>
+              <notations><slide type="continue" number="1" /></notations>
+            </note>
+            """));
+
+        Assert.Contains("<slide>", exception.Message);
+    }
+
     [Fact]
     public void Read_UnsupportedSemanticElement_ThrowsMessageNamingElement()
     {
@@ -125,7 +392,6 @@ public sealed class MusicXmlScoreReaderTests
     }
 
     [Theory]
-    [InlineData("unsupported-time-modification.musicxml", "<time-modification>")]
     [InlineData("unsupported-transpose.musicxml", "<transpose>")]
     [InlineData("unsupported-multipart.musicxml", "<part>")]
     [InlineData("unsupported-timewise.musicxml", "<score-timewise>")]
@@ -140,6 +406,84 @@ public sealed class MusicXmlScoreReaderTests
         var exception = Assert.Throws<NotSupportedException>(() => reader.Read(Fixture(fixture)));
 
         Assert.Contains(expectedElement, exception.Message);
+    }
+
+    [Fact]
+    public void Read_EighthNoteTriplet_PreservesRatioAndFollowingBeatOffset()
+    {
+        var score = new MusicXmlScoreReader().Read(Fixture("eighth-note-triplet.musicxml"));
+
+        var notes = Assert.Single(score.Measures).Notes;
+        Assert.Collection(
+            notes,
+            note => Assert.Equal(new NoteValue(4), note.NoteValue),
+            note =>
+            {
+                Assert.Equal(new NoteValue(8, tupletActualNotes: 3, tupletNormalNotes: 2), note.NoteValue);
+                Assert.Equal(1, note.BeatOffset);
+            },
+            note => Assert.Equal(4.0 / 3.0, note.BeatOffset, 6),
+            note => Assert.Equal(5.0 / 3.0, note.BeatOffset, 6),
+            note =>
+            {
+                Assert.Equal(new NoteValue(4), note.NoteValue);
+                Assert.Equal(2, note.BeatOffset);
+            },
+            note => Assert.Equal(3, note.BeatOffset));
+    }
+
+    [Fact]
+    public void Read_TimeModificationWithoutTupletMarker_StillImports()
+    {
+        var score = ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>quarter</type>
+              <time-modification><actual-notes>2</actual-notes><normal-notes>1</normal-notes></time-modification>
+            </note>
+            """);
+
+        var note = Assert.Single(Assert.Single(score.Measures).Notes);
+
+        Assert.Equal(new NoteValue(4, tupletActualNotes: 2, tupletNormalNotes: 1), note.NoteValue);
+    }
+
+    [Theory]
+    [InlineData("<actual-notes>3</actual-notes>", "<normal-notes>")]
+    [InlineData("<normal-notes>2</normal-notes>", "<actual-notes>")]
+    [InlineData("<actual-notes>0</actual-notes><normal-notes>2</normal-notes>", "<actual-notes>")]
+    [InlineData("<actual-notes>3</actual-notes><normal-notes>0</normal-notes>", "<normal-notes>")]
+    public void Read_MalformedTimeModification_ThrowsMessageNamingElement(
+        string timeModificationChildren,
+        string expectedElement)
+    {
+        var exception = Assert.Throws<InvalidDataException>(() => ReadNotes($$"""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>quarter</type>
+              <time-modification>{{timeModificationChildren}}</time-modification>
+            </note>
+            """));
+
+        Assert.Contains(expectedElement, exception.Message);
+    }
+
+    [Fact]
+    public void Read_OtherNotation_IsAcceptedButNeverRendered()
+    {
+        // <other-notation> is MusicXML's arbitrary vendor-extension escape hatch (a `type`
+        // attribute plus free text, no fixed visual meaning) — parsed for validity so a malformed
+        // one still errors, but deliberately never given a rendered glyph. See CONTEXT.md/README.md
+        // for the documented decision.
+        var score = ReadNotes("""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>2</duration><type>quarter</type>
+              <notations><other-notation type="single">pedal mark</other-notation></notations>
+            </note>
+            """);
+
+        Assert.Single(Assert.Single(score.Measures).Notes);
     }
 
     [Fact]

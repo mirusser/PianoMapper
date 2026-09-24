@@ -13,4 +13,8 @@ public sealed record GrandStaffScene(
     public IReadOnlyList<GrandStaffTie> Ties { get; init; } = [];
 
     public IReadOnlyList<GrandStaffBand> Bands { get; init; } = [];
+
+    public IReadOnlyList<GrandStaffSlur> Slurs { get; init; } = [];
+
+    public IReadOnlyList<GrandStaffArpeggioMark> ArpeggioMarks { get; init; } = [];
 }

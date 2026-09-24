@@ -4,15 +4,18 @@ namespace PianoMapper.Web.Rendering;
 
 internal static class ScoreGrandStaffWindowPair
 {
-    internal static State FromPageIndex(int measureCount, int activePageIndex)
+    internal static State FromPageIndex(
+        int measureCount,
+        int activePageIndex,
+        int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(measureCount);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(visibleMeasureCount);
 
-        int pageCount = (measureCount + GrandStaffLayout.VisibleMeasureCount - 1)
-            / GrandStaffLayout.VisibleMeasureCount;
+        int pageCount = (measureCount + visibleMeasureCount - 1) / visibleMeasureCount;
         int clampedPageIndex = Math.Clamp(activePageIndex, 0, pageCount - 1);
         bool isUpperActive = clampedPageIndex % 2 == 0;
-        int activeFirstMeasure = clampedPageIndex * GrandStaffLayout.VisibleMeasureCount;
+        int activeFirstMeasure = clampedPageIndex * visibleMeasureCount;
 
         if (pageCount == 1)
         {
@@ -22,7 +25,7 @@ internal static class ScoreGrandStaffWindowPair
         int adjacentPageIndex = clampedPageIndex + 1 < pageCount
             ? clampedPageIndex + 1
             : clampedPageIndex - 1;
-        int adjacentFirstMeasure = adjacentPageIndex * GrandStaffLayout.VisibleMeasureCount;
+        int adjacentFirstMeasure = adjacentPageIndex * visibleMeasureCount;
 
         return isUpperActive
             ? new State(clampedPageIndex, activeFirstMeasure, adjacentFirstMeasure, PhysicalRow.Upper)
@@ -32,14 +35,16 @@ internal static class ScoreGrandStaffWindowPair
     internal static State FromCursorBeats(
         int measureCount,
         double cursorBeats,
-        int beatsPerMeasure)
+        int beatsPerMeasure,
+        int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(beatsPerMeasure);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(visibleMeasureCount);
 
         double nonNegativeBeats = Math.Max(0, cursorBeats);
         int measureIndex = (int)Math.Floor(nonNegativeBeats / beatsPerMeasure);
-        int pageIndex = measureIndex / GrandStaffLayout.VisibleMeasureCount;
-        return FromPageIndex(measureCount, pageIndex);
+        int pageIndex = measureIndex / visibleMeasureCount;
+        return FromPageIndex(measureCount, pageIndex, visibleMeasureCount);
     }
 
     internal enum PhysicalRow

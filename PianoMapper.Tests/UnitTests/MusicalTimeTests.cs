@@ -59,4 +59,29 @@ public sealed class MusicalTimeTests
 
         Assert.Equal(beats, actualBeats, 6);
     }
+
+    [Fact]
+    public void GetBeats_EighthNoteTriplet_ReturnsTwoThirdsOfPlainEighthNoteBeats()
+    {
+        var triplet = new NoteValue(8, tupletActualNotes: 3, tupletNormalNotes: 2);
+        var plainEighth = new NoteValue(8);
+        var timeSignature = new TimeSignature(4, new NoteValue(4));
+
+        double tripletBeats = MusicalTime.GetBeats(triplet, timeSignature);
+        double plainBeats = MusicalTime.GetBeats(plainEighth, timeSignature);
+
+        Assert.Equal(plainBeats * 2.0 / 3.0, tripletBeats, 6);
+    }
+
+    [Fact]
+    public void ToDuration_EighthNoteTriplet_ScalesByTupletRatio()
+    {
+        var triplet = new NoteValue(8, tupletActualNotes: 3, tupletNormalNotes: 2);
+        var timeSignature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+
+        var duration = MusicalTime.ToDuration(triplet, timeSignature, tempo);
+
+        Assert.Equal(1.0 / 6.0, duration.TotalSeconds, 6);
+    }
 }

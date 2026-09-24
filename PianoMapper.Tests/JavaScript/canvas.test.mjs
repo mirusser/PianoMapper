@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
     dispose,
+    glissandoLineKind,
     hitTestScoreNote,
     initialize,
     initializeScoreCanvas,
@@ -36,6 +37,7 @@ class FakeCanvasContext {
     ellipseCalls = [];
     curveCalls = [];
     filledPathCalls = [];
+    strokedPathCalls = [];
     fillTextCalls = [];
     lineSegments = [];
     measureTextCalls = 0;
@@ -44,6 +46,12 @@ class FakeCanvasContext {
     rectCalls = [];
     pathStart = undefined;
     currentPath = undefined;
+    // Real Canvas2D measureText returns different bounding boxes per character/font — a "flat"
+    // glyph (a dash, centered near the baseline) measures a much smaller actualBoundingBoxAscent+
+    // Descent than a letter-like one. Default to the previous fixed stub (a normal, letter-like
+    // box) for every text, and let a test override specific strings via metricsByText to
+    // reproduce that real-world variation (see the "flat glyph" regression test below).
+    metricsByText = {};
 
     setTransform() { }
     clearRect() { }
@@ -52,9 +60,9 @@ class FakeCanvasContext {
     fillText(...args) {
         this.fillTextCalls.push({ args, font: this.font, fillStyle: this.fillStyle });
     }
-    measureText() {
+    measureText(text) {
         this.measureTextCalls++;
-        return {
+        return this.metricsByText[text] ?? {
             actualBoundingBoxAscent: 80,
             actualBoundingBoxDescent: 20,
             actualBoundingBoxRight: 50,
@@ -140,6 +148,15 @@ class FakeCanvasContext {
 
     stroke() {
         this.strokeCalls++;
+        if (this.currentPath?.bezierCurves.length > 0) {
+            const strokedPath = {
+                ...this.currentPath,
+                strokeStyle: this.strokeStyle,
+                lineWidth: this.lineWidth,
+            };
+            this.strokedPathCalls.push(strokedPath);
+            this.operations.push({ kind: "strokedPath", strokedPath });
+        }
     }
 
     drawImage() {
@@ -349,6 +366,7 @@ test("score cursor exact boundary belongs only to incoming canvas", async () => 
         completionSeconds: 40,
         cursorY0: -0.5,
         cursorY1: 0.5,
+        visibleMeasureCount: 5,
     };
 
     try {
@@ -357,6 +375,32 @@ test("score cursor exact boundary belongs only to incoming canvas", async () => 
 
         assert.equal(outgoingCanvas.context.lineSegments.length, 0);
         assert.equal(incomingCanvas.context.lineSegments.length, 1);
+    } finally {
+        await harness.dispose();
+    }
+});
+
+test("score cursor X reflects a non-default visibleMeasureCount", async () => {
+    const harness = await createScoreCursorHarness(2);
+    const defaultCanvas = harness.createCanvas();
+    const narrowedCanvas = harness.createCanvas();
+    const cursor = {
+        anchorSeconds: 0,
+        beatsPerMinute: 60,
+        beatsPerMeasure: 4,
+        firstVisibleMeasure: 0,
+        completionSeconds: 10,
+        cursorY0: -0.5,
+        cursorY1: 0.5,
+    };
+
+    try {
+        startScoreCursor(defaultCanvas, { ...cursor, visibleMeasureCount: 5 });
+        startScoreCursor(narrowedCanvas, { ...cursor, visibleMeasureCount: 2 });
+
+        const defaultX = defaultCanvas.context.lineSegments.at(-1).x;
+        const narrowedX = narrowedCanvas.context.lineSegments.at(-1).x;
+        assert.notEqual(narrowedX, defaultX);
     } finally {
         await harness.dispose();
     }
@@ -373,6 +417,7 @@ test("score cursor animates without analysis panels and stops at completion or r
         completionSeconds: 2,
         cursorY0: -0.5,
         cursorY1: 0.5,
+        visibleMeasureCount: 5,
     };
 
     try {
@@ -432,6 +477,7 @@ test("score playback highlights a chord only inside its half-open beat interval"
             completionSeconds: 5,
             cursorY0: -0.5,
             cursorY1: 0.5,
+            visibleMeasureCount: 5,
         });
 
         assert.equal(canvas.context.ellipseCalls.length, 2);
@@ -500,13 +546,16 @@ function withCanvasMocks(callback, { width = 640, height = 240, onCreateElement 
     }
 }
 
-function renderGrandStaffScene(scene, width = 640, height = 240) {
+function renderGrandStaffScene(scene, width = 640, height = 240, metricsByText = undefined) {
     return withCanvasMocks(({ createdCanvases }) => {
         const canvas = new FakeCanvas();
         canvas.clientWidth = width;
         canvas.clientHeight = height;
         try {
             initialize(canvas, new FakeCanvas(), new FakeCanvas(), { spectrumVisibleBinCount: 32 });
+            if (metricsByText) {
+                createdCanvases[0].context.metricsByText = metricsByText;
+            }
             render(canvas, scene);
             return createdCanvases[0].context;
         } finally {
@@ -624,6 +673,37 @@ test("grand staff sizes signature glyphs to their requested heights", () => {
     assert.ok(Math.abs(Number.parseFloat(scoreContext.fillTextCalls[0].font) - 20.4) < 1e-9);
     assert.equal(scoreContext.fillTextCalls[1].args[0], "4");
     assert.ok(Math.abs(Number.parseFloat(scoreContext.fillTextCalls[1].font) - 20.4) < 1e-9);
+});
+
+test("grand staff clamps a flat glyph's computed font size instead of blowing it up", () => {
+    // Regression test for a real bug found by screenshot-verifying the tenuto articulation mark
+    // (an en dash "–") against the running app: its actualBoundingBoxAscent+Descent measures far
+    // smaller than a normal letter/digit/musical-symbol glyph (a "flat" mark, centered near the
+    // baseline), which inflated the computed font size unboundedly and rendered as an oversized
+    // blob overlapping neighboring notes. drawGlyph now floors the measured-height divisor.
+    const normalGlyph = { text: "X", x: 0, y: 0, kind: 5, height: 0.2 };
+    const flatGlyph = { text: "-", x: 0, y: 0, kind: 5, height: 0.2 };
+    const baseScene = { kind: 0, lines: [], notes: [], beams: [], shouldClipNotesAtClefs: false };
+
+    const normalContext = renderGrandStaffScene(
+        { ...baseScene, glyphs: [normalGlyph] },
+        640,
+        240,
+        { X: { actualBoundingBoxAscent: 60, actualBoundingBoxDescent: 15, actualBoundingBoxRight: 40 } });
+    const flatContext = renderGrandStaffScene(
+        { ...baseScene, glyphs: [flatGlyph] },
+        640,
+        240,
+        { "-": { actualBoundingBoxAscent: 5, actualBoundingBoxDescent: 1, actualBoundingBoxRight: 40 } });
+
+    const normalFontSize = Number.parseFloat(normalContext.fillTextCalls[0].font);
+    const flatFontSize = Number.parseFloat(flatContext.fillTextCalls[0].font);
+    // Unclamped, this would be a 75/6 ≈ 12.5x blowup relative to the normal glyph. The floor
+    // bounds it to 75/20 = 3.75x.
+    assert.ok(
+        flatFontSize <= normalFontSize * 4,
+        `expected the flat glyph's font size (${flatFontSize}) to stay within a bounded multiple ` +
+            `of the normal glyph's (${normalFontSize}), not blow up unbounded`);
 });
 
 test("grand staff colors an accidental glyph to match its note, not clef white", () => {
@@ -835,4 +915,144 @@ test("grand staff scenes without ties keep their previous canvas operations", ()
     assert.equal(omittedTies.strokeCalls, emptyTies.strokeCalls);
     assert.equal(omittedTies.ellipseCalls.length, emptyTies.ellipseCalls.length);
     assert.deepEqual(omittedTies.lineSegments, emptyTies.lineSegments);
+});
+
+test("grand staff draws a slur as a thin stroked arc, distinct from a tie's filled shape", () => {
+    const context = renderGrandStaffScene({
+        kind: 0,
+        lines: [
+            { x0: -0.8, y0: 0.2, x1: 0.8, y1: 0.2, kind: 0 },
+            { x0: -0.8, y0: 0.1, x1: 0.8, y1: 0.1, kind: 0 },
+        ],
+        glyphs: [],
+        notes: [
+            { x: -0.2, y: 0, isActive: false, isFilled: true, label: "C4" },
+            { x: 0.2, y: 0.05, isActive: false, isFilled: true, label: "E4" },
+        ],
+        beams: [],
+        slurs: [{ x0: -0.2, y0: 0, x1: 0.2, y1: 0.05, curveDirection: 1 }],
+        shouldClipNotesAtClefs: false,
+    });
+
+    assert.equal(context.filledPathCalls.length, 0);
+    const slurStroke = context.strokedPathCalls[0];
+    assert.ok(slurStroke, "expected a stroked bezier path for the slur");
+    assert.equal(slurStroke.bezierCurves.length, 1);
+    assert.equal(slurStroke.start.x, 18 + (0.8 / 2) * 604);
+});
+
+test("grand staff slurs curve away from the note group, opposite a downward automatic stem", () => {
+    const context = renderGrandStaffScene({
+        kind: 0,
+        lines: [
+            { x0: -0.8, y0: 0.2, x1: 0.8, y1: 0.2, kind: 0 },
+            { x0: -0.8, y0: 0.1, x1: 0.8, y1: 0.1, kind: 0 },
+        ],
+        glyphs: [],
+        notes: [],
+        beams: [],
+        // curveDirection 0 = StemDirection.Up: canvas.js bows the curve toward negative scene-Y
+        // (screen-down) when the direction constant is Up (see drawTie's identical convention).
+        slurs: [{ x0: -0.2, y0: 0, x1: 0.2, y1: 0, curveDirection: 0 }],
+        shouldClipNotesAtClefs: false,
+    });
+
+    const slurStroke = context.strokedPathCalls[0];
+    const midpointY = (slurStroke.start.y + slurStroke.bezierCurves[0].y1) / 2;
+    const curveMidY = (slurStroke.bezierCurves[0].controlY1 + slurStroke.bezierCurves[0].controlY2) / 2;
+    assert.ok(curveMidY < midpointY);
+});
+
+test("grand staff scenes without slurs keep their previous canvas operations", () => {
+    const scene = {
+        kind: 0,
+        lines: [{ x0: -0.8, y0: 0.2, x1: 0.8, y1: 0.2, kind: 0 }],
+        glyphs: [],
+        notes: [{ x: 0, y: 0, isActive: false, isFilled: true, label: "C4" }],
+        beams: [],
+        shouldClipNotesAtClefs: false,
+    };
+
+    const omittedSlurs = renderGrandStaffScene(scene);
+    const emptySlurs = renderGrandStaffScene({ ...scene, slurs: [] });
+
+    assert.equal(omittedSlurs.strokedPathCalls.length, 0);
+    assert.equal(emptySlurs.strokedPathCalls.length, 0);
+    assert.equal(omittedSlurs.strokeCalls, emptySlurs.strokeCalls);
+});
+
+test("grand staff draws an arpeggiate mark as a wavy line using curves", () => {
+    const context = renderGrandStaffScene({
+        kind: 0,
+        lines: [
+            { x0: -0.8, y0: 0.2, x1: 0.8, y1: 0.2, kind: 0 },
+            { x0: -0.8, y0: 0.1, x1: 0.8, y1: 0.1, kind: 0 },
+        ],
+        glyphs: [],
+        notes: [],
+        beams: [],
+        arpeggioMarks: [{ x: -0.3, y0: -0.1, y1: 0.1, isNonArpeggiate: false }],
+        shouldClipNotesAtClefs: false,
+    });
+
+    assert.ok(context.curveCalls.length > 0, "expected the wavy arpeggiate mark to use curves");
+});
+
+test("grand staff draws a non-arpeggiate mark as a straight bracket, distinct from the wavy line", () => {
+    const context = renderGrandStaffScene({
+        kind: 0,
+        lines: [
+            { x0: -0.8, y0: 0.2, x1: 0.8, y1: 0.2, kind: 0 },
+            { x0: -0.8, y0: 0.1, x1: 0.8, y1: 0.1, kind: 0 },
+        ],
+        glyphs: [],
+        notes: [],
+        beams: [],
+        arpeggioMarks: [{ x: -0.3, y0: -0.1, y1: 0.1, isNonArpeggiate: true }],
+        shouldClipNotesAtClefs: false,
+    });
+
+    assert.equal(context.curveCalls.length, 0, "a bracket should not use any curves");
+    assert.ok(context.lineSegments.length > 0, "expected straight bracket line segments");
+});
+
+test("grand staff draws a glissando/slide line straight between noteheads, distinct from other line kinds", () => {
+    const context = renderGrandStaffScene({
+        kind: 0,
+        lines: [
+            { x0: -0.8, y0: 0.2, x1: 0.8, y1: 0.2, kind: 0 },
+            { x0: -0.8, y0: 0.1, x1: 0.8, y1: 0.1, kind: 0 },
+            { x0: -0.2, y0: 0, x1: 0.2, y1: 0.05, kind: glissandoLineKind },
+        ],
+        glyphs: [],
+        notes: [],
+        beams: [],
+        shouldClipNotesAtClefs: false,
+    });
+
+    const glissandoSegment = context.lineSegments.find(
+        segment => segment.x === mapXForTest(-0.2) && segment.x1 === mapXForTest(0.2));
+    assert.ok(glissandoSegment, "expected a straight line segment between the two note X positions");
+});
+
+function mapXForTest(value) {
+    const padding = 18;
+    return padding + ((value + 1) / 2) * Math.max(0, 640 - (padding * 2));
+}
+
+test("grand staff scenes without arpeggio marks keep their previous canvas operations", () => {
+    const scene = {
+        kind: 0,
+        lines: [{ x0: -0.8, y0: 0.2, x1: 0.8, y1: 0.2, kind: 0 }],
+        glyphs: [],
+        notes: [{ x: 0, y: 0, isActive: false, isFilled: true, label: "C4" }],
+        beams: [],
+        shouldClipNotesAtClefs: false,
+    };
+
+    const omittedMarks = renderGrandStaffScene(scene);
+    const emptyMarks = renderGrandStaffScene({ ...scene, arpeggioMarks: [] });
+
+    assert.equal(omittedMarks.curveCalls.length, emptyMarks.curveCalls.length);
+    assert.equal(omittedMarks.strokeCalls, emptyMarks.strokeCalls);
 });
