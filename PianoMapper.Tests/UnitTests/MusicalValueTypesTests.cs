@@ -54,4 +54,22 @@ public sealed class MusicalValueTypesTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new TimeSignature(0, new NoteValue(4)));
     }
+
+    [Fact]
+    public void ScoreNoteConstructor_NoOctaveShift_DefaultsToZeroAndSupportsRecordCopy()
+    {
+        var note = new ScoreNote(
+            new Pitch(NoteLetter.C, 0, 4),
+            new NoteValue(4),
+            MeasureIndex: 0,
+            BeatOffset: 0,
+            Staff.Treble);
+
+        Assert.Equal(0, note.SoundingOctavesAboveNotated);
+
+        var shiftedNote = note with { SoundingOctavesAboveNotated = 1 };
+
+        Assert.Equal(1, shiftedNote.SoundingOctavesAboveNotated);
+        Assert.Equal(note, shiftedNote with { SoundingOctavesAboveNotated = 0 });
+    }
 }

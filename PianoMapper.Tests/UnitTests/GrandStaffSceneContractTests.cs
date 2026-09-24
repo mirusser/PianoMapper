@@ -29,6 +29,7 @@ public sealed class GrandStaffSceneContractTests
         Assert.Equal(3, (int)GrandStaffLineKind.Cursor);
         Assert.Equal(4, (int)GrandStaffLineKind.Beat);
         Assert.Equal(5, (int)GrandStaffLineKind.Glissando);
+        Assert.Equal(6, (int)GrandStaffLineKind.OctaveShift);
     }
 
     [Fact]
@@ -41,6 +42,12 @@ public sealed class GrandStaffSceneContractTests
     public void GrandStaffGlyphKind_AccidentalMatchesCanvasJsAccidentalGlyphKindConstant()
     {
         Assert.Equal(1, (int)GrandStaffGlyphKind.Accidental);
+    }
+
+    [Fact]
+    public void GrandStaffGlyphKind_OctaveShiftNumeralMatchesCanvasJsConstant()
+    {
+        Assert.Equal(9, (int)GrandStaffGlyphKind.OctaveShiftNumeral);
     }
 
     [Fact]

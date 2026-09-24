@@ -714,6 +714,30 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
+    public void BuildScore_OctaveShiftedNote_AutoSelectsStaffFromNotatedPitch()
+    {
+        var sourceNote = new ScoreNote(
+            new Pitch(NoteLetter.B, 0, 4),
+            new NoteValue(4),
+            0,
+            0,
+            Staff.Treble,
+            SoundingOctavesAboveNotated: 1);
+        var score = SingleNoteScore(sourceNote);
+        StaffPlacement expectedPosition = GrandStaffLayout.GetPosition(
+            new Pitch(NoteLetter.B, 0, 3),
+            Staff.Bass);
+
+        var renderedNote = Assert.Single(
+            GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0).Notes);
+
+        Assert.Equal(
+            GrandStaffLayout.SeparateStaffY(expectedPosition.Y, Staff.Bass),
+            renderedNote.Y,
+            precision: 6);
+    }
+
+    [Fact]
     public void BuildScore_LowBassNote_AnnotationsStayBelowBassStaff()
     {
         var sourceNote = new ScoreNote(
@@ -1567,6 +1591,67 @@ public sealed class GrandStaffSceneBuilderTests
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
         Assert.DoesNotContain(scene.Lines, line => line.Kind == GrandStaffLineKind.Glissando);
+    }
+
+    [Fact]
+    public void BuildScore_OctaveShift8VaFixture_ReturnsBracketAboveShiftedNotes()
+    {
+        string fixture = Path.Combine(AppContext.BaseDirectory, "Fixtures", "octave-shift-8va.musicxml");
+        var score = new MusicXmlScoreReader().Read(fixture);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        var line = Assert.Single(scene.Lines, candidate => candidate.Kind == GrandStaffLineKind.OctaveShift);
+        var numeral = Assert.Single(
+            scene.Glyphs,
+            glyph => glyph.Kind == GrandStaffGlyphKind.OctaveShiftNumeral);
+        GrandStaffNote firstShiftedNote = Assert.Single(scene.Notes, note => note.Label == "D5");
+        GrandStaffNote lastShiftedNote = Assert.Single(scene.Notes, note => note.Label == "F5");
+        double trebleTopLineY = scene.Lines
+            .Where(candidate => candidate.Kind == GrandStaffLineKind.Staff)
+            .Take(5)
+            .Max(candidate => candidate.Y0);
+
+        Assert.Equal(firstShiftedNote.X, line.X0);
+        Assert.Equal(lastShiftedNote.X, line.X1);
+        Assert.Equal(line.Y0, line.Y1);
+        Assert.True(line.Y0 > trebleTopLineY);
+        Assert.Equal("8", numeral.Text);
+        Assert.Equal(line.X0, numeral.X);
+        Assert.Equal(line.Y0, numeral.Y);
+    }
+
+    [Fact]
+    public void BuildScore_OctaveShift8VbFixture_ReturnsBracketBelowShiftedNotes()
+    {
+        string fixture = Path.Combine(AppContext.BaseDirectory, "Fixtures", "octave-shift-8vb.musicxml");
+        var score = new MusicXmlScoreReader().Read(fixture);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        var line = Assert.Single(scene.Lines, candidate => candidate.Kind == GrandStaffLineKind.OctaveShift);
+        var numeral = Assert.Single(
+            scene.Glyphs,
+            glyph => glyph.Kind == GrandStaffGlyphKind.OctaveShiftNumeral);
+        GrandStaffNote firstShiftedNote = Assert.Single(scene.Notes, note => note.Label == "B2");
+        GrandStaffNote lastShiftedNote = Assert.Single(scene.Notes, note => note.Label == "G2");
+        double bassBottomLineY = scene.Lines
+            .Where(candidate => candidate.Kind == GrandStaffLineKind.Staff)
+            .Skip(5)
+            .Min(candidate => candidate.Y0);
+
+        Assert.Equal(firstShiftedNote.X, line.X0);
+        Assert.Equal(lastShiftedNote.X, line.X1);
+        Assert.Equal(line.Y0, line.Y1);
+        Assert.True(line.Y0 < bassBottomLineY);
+        Assert.Equal("8", numeral.Text);
+        Assert.Equal(line.X0, numeral.X);
+        Assert.Equal(line.Y0, numeral.Y);
+        double bassLabelY = Assert.IsType<double>(firstShiftedNote.LabelY);
+        GrandStaffBand bassAnnotationBand = Assert.Single(
+            scene.Bands,
+            band => bassLabelY >= band.Y0 && bassLabelY <= band.Y1);
+        Assert.True(line.Y0 > bassAnnotationBand.Y1);
     }
 
     [Fact]

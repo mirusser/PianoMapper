@@ -57,6 +57,8 @@ internal static class GrandStaffSceneBuilder
     // tuplet's numeral and the beam itself — mirrors GrandStaffLayout.FermataClearanceInStaffSpaces'
     // role of pushing a glyph just outside the notation it annotates.
     private const double TupletGlyphClearanceInStaffSpaces = 0.6;
+    private const double OctaveShiftClearanceInStaffSpaces = 1.5;
+    private const double OctaveShiftNumeralHalfHeightInStaffSpaces = 0.75;
     private const double ViewY0 = -0.9;
     private const double ViewY1 = 0.9;
     private const int TrebleClefHeightInStaffSpaces = 7;
@@ -153,13 +155,13 @@ internal static class GrandStaffSceneBuilder
             ScoreMeasure measure = score.Measures[measureIndex];
             bool hasBassRegisterNote = measure.Notes.Any(candidate =>
                 candidate.Staff == Staff.Bass &&
-                GrandStaffLayout.GetLivePosition(candidate.Pitch).Staff == Staff.Bass);
+                GrandStaffLayout.GetLivePosition(GrandStaffLayout.GetNotatedPitch(candidate)).Staff == Staff.Bass);
             for (int noteIndex = 0; noteIndex < measure.Notes.Count; noteIndex++)
             {
                 ScoreNote note = measure.Notes[noteIndex];
                 Staff notationStaff = note.Staff == Staff.Bass && hasBassRegisterNote
                     ? Staff.Bass
-                    : GrandStaffLayout.GetLivePosition(note.Pitch).Staff;
+                    : GrandStaffLayout.GetLivePosition(GrandStaffLayout.GetNotatedPitch(note)).Staff;
                 ScoreNote notationNote = note with { Staff = notationStaff };
                 if (GrandStaffLayout.GetScoreNoteLayout(
                         notationNote,
@@ -192,16 +194,24 @@ internal static class GrandStaffSceneBuilder
         var chordOverrides = new Dictionary<ScoreNote, ChordNoteOverride>();
         ApplyChordLayout(visibleNotes, chordOverrides, beamOverrides);
         int[] labelRowIndexes = GrandStaffLayout.GetLabelRowIndexes(visibleNotes);
+        double trebleNotationBottomY = IncludeDownwardOctaveShiftInNotationBottom(
+            Staff.Treble,
+            visibleNotes,
+            GrandStaffLayout.GetNotationBottomY(Staff.Treble, visibleNotes, beamOverrides));
         AnnotationRows trebleAnnotationRows = GrandStaffLayout.GetAnnotationRows(
             Staff.Treble,
             visibleNotes,
-            GrandStaffLayout.GetNotationBottomY(Staff.Treble, visibleNotes, beamOverrides),
+            trebleNotationBottomY,
             showNoteLabels ? GrandStaffLayout.GetLabelRowCount(Staff.Treble, visibleNotes, labelRowIndexes) : 0,
             showFingerings);
+        double bassNotationBottomY = IncludeDownwardOctaveShiftInNotationBottom(
+            Staff.Bass,
+            visibleNotes,
+            GrandStaffLayout.GetNotationBottomY(Staff.Bass, visibleNotes, beamOverrides));
         AnnotationRows bassAnnotationRows = GrandStaffLayout.GetAnnotationRows(
             Staff.Bass,
             visibleNotes,
-            GrandStaffLayout.GetNotationBottomY(Staff.Bass, visibleNotes, beamOverrides),
+            bassNotationBottomY,
             showNoteLabels ? GrandStaffLayout.GetLabelRowCount(Staff.Bass, visibleNotes, labelRowIndexes) : 0,
             showFingerings);
 
@@ -342,6 +352,7 @@ internal static class GrandStaffSceneBuilder
         IReadOnlyList<GrandStaffSlur> slurs = BuildSlurs(visibleNotes, renderedNotes);
         IReadOnlyList<GrandStaffArpeggioMark> arpeggioMarks = BuildArpeggioMarks(visibleNotes, renderedNotes);
         lines.AddRange(BuildGlissandoLines(visibleNotes, renderedNotes));
+        AddOctaveShiftMarks(visibleNotes, renderedNotes, lines, glyphs);
         return new GrandStaffStaticScoreParts(
             lines,
             glyphs,
@@ -491,6 +502,94 @@ internal static class GrandStaffSceneBuilder
         }
 
         return lines;
+    }
+
+    private static void AddOctaveShiftMarks(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> notes,
+        IReadOnlyList<GrandStaffNote> renderedNotes,
+        ICollection<GrandStaffLine> lines,
+        ICollection<GrandStaffGlyph> glyphs)
+    {
+        foreach (Staff staff in Enum.GetValues<Staff>())
+        {
+            int[] orderedIndexes = Enumerable.Range(0, notes.Count)
+                .Where(index => notes[index].Layout.Position.Staff == staff)
+                .OrderBy(index => notes[index].Note.MeasureIndex)
+                .ThenBy(index => notes[index].Note.BeatOffset)
+                .ThenBy(index => index)
+                .ToArray();
+            int orderedIndex = 0;
+            while (orderedIndex < orderedIndexes.Length)
+            {
+                int shift = notes[orderedIndexes[orderedIndex]].Note.SoundingOctavesAboveNotated;
+                if (shift == 0)
+                {
+                    orderedIndex++;
+                    continue;
+                }
+
+                int runEnd = orderedIndex;
+                while (runEnd + 1 < orderedIndexes.Length &&
+                    notes[orderedIndexes[runEnd + 1]].Note.SoundingOctavesAboveNotated == shift)
+                {
+                    runEnd++;
+                }
+
+                // Start/stop boundary markers are intentionally not stored on ScoreNote. As a
+                // result, immediately adjacent spans with the same shift merge into one visual run.
+                int firstNoteIndex = orderedIndexes[orderedIndex];
+                int lastNoteIndex = orderedIndexes[runEnd];
+                double y = GetOctaveShiftY(staff, shift);
+                string numeral = Math.Abs(shift) switch
+                {
+                    1 => "8",
+                    2 => "15",
+                    3 => "22",
+                    _ => throw new InvalidOperationException($"Unsupported octave shift value '{shift}'."),
+                };
+
+                lines.Add(new GrandStaffLine(
+                    renderedNotes[firstNoteIndex].X,
+                    y,
+                    renderedNotes[lastNoteIndex].X,
+                    y,
+                    GrandStaffLineKind.OctaveShift));
+                glyphs.Add(new GrandStaffGlyph(
+                    numeral,
+                    renderedNotes[firstNoteIndex].X,
+                    y,
+                    GrandStaffGlyphKind.OctaveShiftNumeral));
+                orderedIndex = runEnd + 1;
+            }
+        }
+    }
+
+    private static double IncludeDownwardOctaveShiftInNotationBottom(
+        Staff staff,
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> notes,
+        double notationBottomY)
+    {
+        if (!notes.Any(item =>
+                item.Layout.Position.Staff == staff &&
+                item.Note.SoundingOctavesAboveNotated < 0))
+        {
+            return notationBottomY;
+        }
+
+        double numeralBottomY = GetOctaveShiftY(staff, shift: -1) -
+            (OctaveShiftNumeralHalfHeightInStaffSpaces * GrandStaffLayout.GetRenderedStaffSpace(staff));
+        return Math.Min(notationBottomY, numeralBottomY);
+    }
+
+    private static double GetOctaveShiftY(Staff staff, int shift)
+    {
+        IReadOnlyList<float> staffLineYs = staff == Staff.Treble
+            ? GrandStaffLayout.TrebleLineYs
+            : GrandStaffLayout.BassLineYs;
+        double staffEdgeY = shift > 0 ? staffLineYs[^1] : staffLineYs[0];
+        return GrandStaffLayout.SeparateStaffY(staffEdgeY, staff) +
+            (Math.Sign(shift) * OctaveShiftClearanceInStaffSpaces *
+                GrandStaffLayout.GetRenderedStaffSpace(staff));
     }
 
     /// <summary>

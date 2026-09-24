@@ -17,6 +17,8 @@ import {
     grandStaffSceneKind,
     ledgerLineKind,
     mapAbsoluteBeatToScoreX,
+    octaveShiftLineKind,
+    octaveShiftNumeralGlyphKind,
     pianoRollSceneKind,
     staffLineKind,
     stemDirectionUp,
@@ -35,6 +37,7 @@ test("line kind constants match GrandStaffLineKind ordinals", () => {
     assert.equal(cursorLineKind, 3);
     assert.equal(beatLineKind, 4);
     assert.equal(glissandoLineKind, 5);
+    assert.equal(octaveShiftLineKind, 6);
 });
 
 test("clef glyph kind constant matches GrandStaffGlyphKind.Clef ordinal", () => {
@@ -43,6 +46,10 @@ test("clef glyph kind constant matches GrandStaffGlyphKind.Clef ordinal", () => 
 
 test("accidental glyph kind constant matches GrandStaffGlyphKind.Accidental ordinal", () => {
     assert.equal(accidentalGlyphKind, 1);
+});
+
+test("octave-shift numeral kind constant matches GrandStaffGlyphKind ordinal", () => {
+    assert.equal(octaveShiftNumeralGlyphKind, 9);
 });
 
 test("stem direction up constant matches StemDirection.Up ordinal", () => {

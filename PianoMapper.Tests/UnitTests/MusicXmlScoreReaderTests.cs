@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Text;
 using PianoMapper.Music;
+using PianoMapper.Practice;
 
 namespace PianoMapper.Tests.UnitTests;
 
@@ -572,6 +573,171 @@ public sealed class MusicXmlScoreReaderTests
         var score = new MusicXmlScoreReader().Read(stream, "six-eight.musicxml");
 
         Assert.Equal(new Tempo(180), score.Tempo);
+    }
+
+    [Fact]
+    public void Read_OctaveShift8VaFixture_UsesSoundingPitchOnlyInsideSpan()
+    {
+        var score = new MusicXmlScoreReader().Read(Fixture("octave-shift-8va.musicxml"));
+
+        var notes = Assert.Single(score.Measures).Notes;
+        Assert.Collection(
+            notes,
+            note => Assert.Equal((new Pitch(NoteLetter.C, 0, 4), 0), (note.Pitch, note.SoundingOctavesAboveNotated)),
+            note => Assert.Equal((new Pitch(NoteLetter.D, 0, 5), 1), (note.Pitch, note.SoundingOctavesAboveNotated)),
+            note => Assert.Equal((new Pitch(NoteLetter.E, 0, 5), 1), (note.Pitch, note.SoundingOctavesAboveNotated)),
+            note => Assert.Equal((new Pitch(NoteLetter.F, 0, 5), 1), (note.Pitch, note.SoundingOctavesAboveNotated)),
+            note => Assert.Equal((new Pitch(NoteLetter.G, 0, 4), 0), (note.Pitch, note.SoundingOctavesAboveNotated)));
+    }
+
+    [Fact]
+    public void Read_OctaveShift8VbFixture_UsesLowerSoundingPitchOnlyInsideSpan()
+    {
+        var score = new MusicXmlScoreReader().Read(Fixture("octave-shift-8vb.musicxml"));
+
+        var notes = Assert.Single(score.Measures).Notes;
+        Assert.Collection(
+            notes,
+            note => Assert.Equal((new Pitch(NoteLetter.C, 0, 4), 0), (note.Pitch, note.SoundingOctavesAboveNotated)),
+            note => Assert.Equal((new Pitch(NoteLetter.B, 0, 2), -1), (note.Pitch, note.SoundingOctavesAboveNotated)),
+            note => Assert.Equal((new Pitch(NoteLetter.A, 0, 2), -1), (note.Pitch, note.SoundingOctavesAboveNotated)),
+            note => Assert.Equal((new Pitch(NoteLetter.G, 0, 2), -1), (note.Pitch, note.SoundingOctavesAboveNotated)),
+            note => Assert.Equal((new Pitch(NoteLetter.F, 0, 3), 0), (note.Pitch, note.SoundingOctavesAboveNotated)));
+    }
+
+    [Theory]
+    [InlineData("down", 15, 2, 6)]
+    [InlineData("down", 22, 3, 7)]
+    [InlineData("up", 15, -2, 2)]
+    [InlineData("up", 22, -3, 1)]
+    public void Read_OctaveShiftSize_MapsToSignedOctaveOffset(
+        string type,
+        int size,
+        int expectedOffset,
+        int expectedSoundingOctave)
+    {
+        var score = ReadNotes($$"""
+            <direction>
+              <direction-type><octave-shift type="{{type}}" size="{{size}}" number="2" /></direction-type>
+            </direction>
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>2</duration><type>quarter</type>
+            </note>
+            """);
+
+        var note = Assert.Single(Assert.Single(score.Measures).Notes);
+
+        Assert.Equal(expectedOffset, note.SoundingOctavesAboveNotated);
+        Assert.Equal(expectedSoundingOctave, note.Pitch.Octave);
+    }
+
+    [Fact]
+    public void Read_UnsupportedOctaveShiftSize_ThrowsMessageNamingAttribute()
+    {
+        var exception = Assert.Throws<NotSupportedException>(() => ReadNotes("""
+            <direction>
+              <direction-type><octave-shift type="down" size="10" /></direction-type>
+            </direction>
+            """));
+
+        Assert.Contains("<octave-shift@size>", exception.Message);
+    }
+
+    [Fact]
+    public void Read_UnsupportedOctaveShiftContinue_ThrowsMessageNamingElement()
+    {
+        var exception = Assert.Throws<NotSupportedException>(() => ReadNotes("""
+            <direction>
+              <direction-type><octave-shift type="continue" size="8" /></direction-type>
+            </direction>
+            """));
+
+        Assert.Contains("<octave-shift>", exception.Message);
+    }
+
+    [Fact]
+    public void Read_OctaveShiftStopWithoutStart_ThrowsMessageNamingElement()
+    {
+        var exception = Assert.Throws<InvalidDataException>(() => ReadNotes("""
+            <direction>
+              <direction-type><octave-shift type="stop" number="1" /></direction-type>
+            </direction>
+            """));
+
+        Assert.Contains("<octave-shift>", exception.Message);
+    }
+
+    [Fact]
+    public void Read_OctaveShiftStopWithMismatchedNumber_ThrowsMessageNamingElement()
+    {
+        var exception = Assert.Throws<InvalidDataException>(() => ReadNotes("""
+            <direction>
+              <direction-type><octave-shift type="down" size="8" number="1" /></direction-type>
+            </direction>
+            <direction>
+              <direction-type><octave-shift type="stop" number="2" /></direction-type>
+            </direction>
+            """));
+
+        Assert.Contains("<octave-shift>", exception.Message);
+    }
+
+    [Fact]
+    public void Read_SecondOctaveShiftStartWhileActive_ThrowsMessageNamingElement()
+    {
+        var exception = Assert.Throws<NotSupportedException>(() => ReadNotes("""
+            <direction>
+              <direction-type><octave-shift type="down" size="8" number="1" /></direction-type>
+            </direction>
+            <direction>
+              <direction-type><octave-shift type="up" size="8" number="2" /></direction-type>
+            </direction>
+            """));
+
+        Assert.Contains("<octave-shift>", exception.Message);
+    }
+
+    [Fact]
+    public void Read_MultipleOctaveShiftsInOneDirection_ThrowsMessageNamingElement()
+    {
+        var exception = Assert.Throws<NotSupportedException>(() => ReadNotes("""
+            <direction>
+              <direction-type>
+                <octave-shift type="down" size="8" number="1" />
+                <octave-shift type="up" size="8" number="2" />
+              </direction-type>
+            </direction>
+            """));
+
+        Assert.Contains("<octave-shift>", exception.Message);
+    }
+
+    [Fact]
+    public void Read_OctaveShiftedNote_GradesAgainstSoundingPitch()
+    {
+        var score = new MusicXmlScoreReader().Read(Fixture("octave-shift-8va.musicxml"));
+        var expected = ScoreDerivation.Flatten(score)
+            .First(scoreEvent => scoreEvent.SourceNotes[0].SoundingOctavesAboveNotated == 1);
+        TimeSpan start = MusicalTime.BeatsToDuration(expected.OnsetBeats, score.Tempo);
+        TimeSpan duration = MusicalTime.BeatsToDuration(expected.DurationBeats, score.Tempo);
+        var performed = new PerformedNote
+        {
+            Pitch = expected.Pitch,
+            StartTime = start,
+            ReleaseTime = start + duration,
+        };
+
+        var result = Grader.Grade(
+            [expected],
+            score.Tempo,
+            [performed],
+            TimeSpan.Zero,
+            start + duration);
+
+        Assert.Equal(Verdict.Correct, Assert.Single(result.Events).Verdict);
+        Assert.Equal(1, expected.SourceNotes[0].SoundingOctavesAboveNotated);
+        Assert.Equal(new Pitch(NoteLetter.D, 0, 5), expected.Pitch);
     }
 
     [Theory]

@@ -8,4 +8,5 @@ public enum GrandStaffLineKind
     Cursor,
     Beat,
     Glissando,
+    OctaveShift,
 }

@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-24
 
-**Status:** Draft
+**Status:** Complete
 
 ## Goal
 
@@ -123,17 +123,17 @@ Parse `<octave-shift>` spans in imported MusicXML and render them on the **web**
 **Description:** Add `int SoundingOctavesAboveNotated = 0` as a new trailing optional parameter on the `ScoreNote` record (`PianoMapper.Core/Music/ScoreNote.cs`), after `Glissando`. Update the `ScoreNote` row in `CONTEXT.md`'s domain glossary to mention octave-shift (a sounding-vs-notated pitch offset), matching how the row already lists every other optional per-note mark.
 
 **Acceptance criteria:**
-- [ ] `ScoreNote` compiles with the new field; every existing call site that doesn't pass it keeps compiling (trailing optional parameter, matching every other optional mark already on this record).
-- [ ] A direct-construction unit test proves the field defaults to `0` and round-trips through record equality/`with`.
-- [ ] `CONTEXT.md`'s `ScoreNote` row mentions the new field.
+- [x] `ScoreNote` compiles with the new field; every existing call site that doesn't pass it keeps compiling (trailing optional parameter, matching every other optional mark already on this record).
+- [x] A direct-construction unit test proves the field defaults to `0` and round-trips through record equality/`with`.
+- [x] `CONTEXT.md`'s `ScoreNote` row mentions the new field.
 
 **Files likely touched:** `PianoMapper.Core/Music/ScoreNote.cs`, `CONTEXT.md`, `PianoMapper.Tests/UnitTests/MusicalValueTypesTests.cs` (or wherever bare `ScoreNote` construction is already tested).
 
 **Estimated scope:** Small (1-2 files)
 
 ### Checkpoint: Phase 1
-- [ ] `dotnet build PianoMapper.slnx` succeeds.
-- [ ] Existing fast test suite still passes (no behavior changed yet).
+- [x] `dotnet build PianoMapper.slnx` succeeds.
+- [x] Existing fast test suite still passes (no behavior changed yet).
 
 ## Phase 2: MusicXML reader
 
@@ -150,9 +150,9 @@ Parse `<octave-shift>` spans in imported MusicXML and render them on the **web**
 Back in `Read()`'s `"direction"` case, apply the parsed directive to `activeOctaveShiftOctaves`/`activeOctaveShiftNumber`: a start while one is already active throws `NotSupportedException`; a stop validates `activeOctaveShiftOctaves != 0` and that its `number` matches `activeOctaveShiftNumber`, else throws `InvalidDataException`, then resets `activeOctaveShiftOctaves = 0`. An octave-shift left active at end-of-score is tolerated (not an error), matching the "valid, already-imported data" precedent already established for unmatched slur/glissando/arpeggio marks elsewhere in this codebase.
 
 **Acceptance criteria:**
-- [ ] A `<direction><direction-type><octave-shift type="down" size="8" number="1"/></direction-type></direction>` heredoc fixture parses without error and does not affect notes before it.
-- [ ] Heredoc/fixture tests (new small `.musicxml` fixtures or `ReadNotes`-heredoc, matching this file's existing error-path test style) cover: `size="10"` (unsupported), `type="continue"` (unsupported), `type="stop"` with no active shift (invalid data), a `type="stop"` `number` that doesn't match the active start's `number` (invalid data), and a second `type="down"` start while one is already active (unsupported).
-- [ ] A `<direction>` with `<sound tempo="96"/>` still parses exactly as before (regression: this task doesn't touch `ParseTempo`'s own behavior).
+- [x] A `<direction><direction-type><octave-shift type="down" size="8" number="1"/></direction-type></direction>` heredoc fixture parses without error and does not affect notes before it.
+- [x] Heredoc/fixture tests (new small `.musicxml` fixtures or `ReadNotes`-heredoc, matching this file's existing error-path test style) cover: `size="10"` (unsupported), `type="continue"` (unsupported), `type="stop"` with no active shift (invalid data), a `type="stop"` `number` that doesn't match the active start's `number` (invalid data), and a second `type="down"` start while one is already active (unsupported).
+- [x] A `<direction>` with `<sound tempo="96"/>` still parses exactly as before (regression: this task doesn't touch `ParseTempo`'s own behavior).
 
 **Files likely touched:** `PianoMapper.Core/Music/MusicXmlScoreReader.cs`, `PianoMapper.Tests/UnitTests/MusicXmlScoreReaderTests.cs`, new fixtures under `PianoMapper.Tests/Fixtures/` if the heredoc pattern doesn't fit an error case cleanly.
 
@@ -165,10 +165,10 @@ Back in `Read()`'s `"direction"` case, apply the parsed directive to `activeOcta
 **Description:** Thread `activeOctaveShiftOctaves` (by value, not `ref` — only the `"direction"` case mutates it) into `ParseNote`. Compute the note's stored `Pitch` as the *notated* pitch (read verbatim from `<pitch>`, exactly as today) shifted by `activeOctaveShiftOctaves` octaves when nonzero (`new Pitch(letter, alter, notatedOctave + activeOctaveShiftOctaves)`), and set `SoundingOctavesAboveNotated: activeOctaveShiftOctaves` on the constructed `ScoreNote`. Add `PianoMapper.Tests/Fixtures/octave-shift-8va.musicxml`: one measure, an unshifted note, then `<octave-shift type="down" size="8" number="1"/>`, three or four shifted notes, `<octave-shift type="stop" size="8" number="1"/>`, then an unshifted closing note — directly matching what the `gama-C-major.jpg` passage needed. Add a second fixture (or a second `[Theory]` case) for the mirror-image `type="up"` (8va-bassa) direction, proving the sign is not backwards.
 
 **Acceptance criteria:**
-- [ ] `octave-shift-8va.musicxml`: notes before the shift have `SoundingOctavesAboveNotated == 0` and `Pitch` equal to their written `<pitch>`; notes inside the shift have `SoundingOctavesAboveNotated == 1` and `Pitch.Octave` one **higher** than their written `<pitch>`; notes after the stop revert to `0`/written pitch.
-- [ ] The mirror `type="up"` fixture: shifted notes have `SoundingOctavesAboveNotated == -1` and `Pitch.Octave` one **lower** than written.
-- [ ] `size="15"`/`size="22"` cases (heredoc, one each) produce `SoundingOctavesAboveNotated` of `±2`/`±3`.
-- [ ] A new end-to-end test proves a shifted note's `Pitch.MidiNumber` matches what `Grader.Classify`/`ScoreDerivation.Flatten` would grade as correct for the physically-higher/lower key — i.e., grading logic needs zero changes and already works (satisfies this plan's "no changes to Grader.cs" acceptance criterion with evidence, not assertion).
+- [x] `octave-shift-8va.musicxml`: notes before the shift have `SoundingOctavesAboveNotated == 0` and `Pitch` equal to their written `<pitch>`; notes inside the shift have `SoundingOctavesAboveNotated == 1` and `Pitch.Octave` one **higher** than their written `<pitch>`; notes after the stop revert to `0`/written pitch.
+- [x] The mirror `type="up"` fixture: shifted notes have `SoundingOctavesAboveNotated == -1` and `Pitch.Octave` one **lower** than written.
+- [x] `size="15"`/`size="22"` cases (heredoc, one each) produce `SoundingOctavesAboveNotated` of `±2`/`±3`.
+- [x] A new end-to-end test proves a shifted note's `Pitch.MidiNumber` matches what `Grader.Classify`/`ScoreDerivation.Flatten` would grade as correct for the physically-higher/lower key — i.e., grading logic needs zero changes and already works (satisfies this plan's "no changes to Grader.cs" acceptance criterion with evidence, not assertion).
 
 **Files likely touched:** `PianoMapper.Core/Music/MusicXmlScoreReader.cs`, `PianoMapper.Tests/UnitTests/MusicXmlScoreReaderTests.cs`, `PianoMapper.Tests/Fixtures/octave-shift-8va.musicxml`, `PianoMapper.Tests/Fixtures/octave-shift-8vb.musicxml` (or equivalent).
 
@@ -177,8 +177,8 @@ Back in `Read()`'s `"direction"` case, apply the parsed directive to `activeOcta
 **Dependencies:** Task 2.
 
 ### Checkpoint: Phase 2
-- [ ] `dotnet test PianoMapper.slnx --filter "Category!=Integration&Category!=LiveApi"` passes, including all new octave-shift reader tests.
-- [ ] Manual read-through: every acceptance criterion for Tasks 2-3 has a corresponding passing test, not just "should work."
+- [x] `dotnet test PianoMapper.slnx --filter "Category!=Integration&Category!=LiveApi"` passes, including all new octave-shift reader tests.
+- [x] Manual read-through: every acceptance criterion for Tasks 2-3 has a corresponding passing test, not just "should work."
 
 ## Phase 3: Persistence
 
@@ -187,8 +187,8 @@ Back in `Read()`'s `"direction"` case, apply the parsed directive to `activeOcta
 **Description:** In `PianoMapper.Server/Persistence/ScoreDocumentSerializer.cs`, add `SoundingOctavesAboveNotated` as a trailing `int ... = 0` field on the private `ScoreNoteDocument` record and thread it through `ToDocument`/`FromDocument`, matching exactly how `Arpeggio` (a bare enum, not wrapped) and `Slur`/`Glissando` (wrapped records) were added — trailing, defaulted, so old saved-score JSON with no such field still deserializes.
 
 **Acceptance criteria:**
-- [ ] A round-trip test (`Serialize` → `Deserialize`) proves a shifted note's `SoundingOctavesAboveNotated` survives.
-- [ ] A test deserializing a JSON string that predates this field (no `soundingOctavesAboveNotated` key) still succeeds and defaults to `0`, matching the existing "old saved scores still deserialize" pattern already tested for other optional fields.
+- [x] A round-trip test (`Serialize` → `Deserialize`) proves a shifted note's `SoundingOctavesAboveNotated` survives.
+- [x] A test deserializing a JSON string that predates this field (no `soundingOctavesAboveNotated` key) still succeeds and defaults to `0`, matching the existing "old saved scores still deserialize" pattern already tested for other optional fields.
 
 **Files likely touched:** `PianoMapper.Server/Persistence/ScoreDocumentSerializer.cs`, `PianoMapper.Tests/UnitTests/ScoreDocumentSerializerTests.cs`.
 
@@ -197,7 +197,7 @@ Back in `Read()`'s `"direction"` case, apply the parsed directive to `activeOcta
 **Dependencies:** Task 1.
 
 ### Checkpoint: Phase 3
-- [ ] Full fast `dotnet test` suite passes.
+- [x] Full fast `dotnet test` suite passes.
 
 ## Phase 4: Rendering geometry (Score path only)
 
@@ -206,9 +206,9 @@ Back in `Read()`'s `"direction"` case, apply the parsed directive to `activeOcta
 **Description:** Add `public static Pitch GetNotatedPitch(ScoreNote note)` to `GrandStaffLayout.cs`: returns `note.Pitch` unchanged when `SoundingOctavesAboveNotated == 0`, else `new Pitch(note.Pitch.Letter, note.Pitch.Alter, note.Pitch.Octave - note.SoundingOctavesAboveNotated)` (note: `Pitch` has no settable properties, so a `with` expression will not compile here — use the constructor). In `GetScoreNoteLayout` (`GrandStaffLayout.cs:189`), change `GetPosition(note.Pitch, note.Staff)` to `GetPosition(GetNotatedPitch(note), note.Staff)`. Leave `GetPosition`/`GetLivePosition` themselves unchanged (still take a raw `Pitch`) — this keeps the Live path, which never calls `GetNotatedPitch`, completely untouched.
 
 **Acceptance criteria:**
-- [ ] A new `GrandStaffLayoutTests.cs` case: a note with `Pitch` = (sounding, e.g. C6) and `SoundingOctavesAboveNotated = 1` renders at the same `StaffPlacement`/ledger-line set as an otherwise-identical unshifted note at the notated pitch (C5) — i.e., proves the *position* comes from the notated pitch, not the sounding one.
-- [ ] A companion test proves that same shifted note's `Pitch` (used for anything *other* than `GetScoreNoteLayout`) is still the unmodified sounding pitch — the field isn't mutated, only read differently by rendering.
-- [ ] Every existing `GrandStaffLayoutTests.cs`/`GrandStaffSceneBuilderTests.cs` case for `SoundingOctavesAboveNotated == 0` notes is byte-identical to before (regression).
+- [x] A new `GrandStaffLayoutTests.cs` case: a note with `Pitch` = (sounding, e.g. C6) and `SoundingOctavesAboveNotated = 1` renders at the same `StaffPlacement`/ledger-line set as an otherwise-identical unshifted note at the notated pitch (C5) — i.e., proves the *position* comes from the notated pitch, not the sounding one.
+- [x] A companion test proves that same shifted note's `Pitch` (used for anything *other* than `GetScoreNoteLayout`) is still the unmodified sounding pitch — the field isn't mutated, only read differently by rendering.
+- [x] Every existing `GrandStaffLayoutTests.cs`/`GrandStaffSceneBuilderTests.cs` case for `SoundingOctavesAboveNotated == 0` notes is byte-identical to before (regression).
 
 **Files likely touched:** `PianoMapper.Core/Rendering/GrandStaffLayout.cs`, `PianoMapper.Tests/UnitTests/GrandStaffLayoutTests.cs`.
 
@@ -221,8 +221,8 @@ Back in `Read()`'s `"direction"` case, apply the parsed directive to `activeOcta
 **Description:** In `GrandStaffSceneBuilder.BuildStaticScoreParts` (`GrandStaffSceneBuilder.cs:154-163`), change both `GrandStaffLayout.GetLivePosition(candidate.Pitch)` and `GrandStaffLayout.GetLivePosition(note.Pitch)` to `GrandStaffLayout.GetLivePosition(GrandStaffLayout.GetNotatedPitch(candidate))` / `(note)`. This is the pitch-based treble/bass auto-selection heuristic (lessons.md: "choose treble or bass notation from pitch") — it must use the same notated pitch as the actual staff-position calculation, or a shifted note near the treble/bass boundary could be auto-assigned to the wrong staff relative to where it's actually drawn.
 
 **Acceptance criteria:**
-- [ ] A new `GrandStaffSceneBuilderTests.cs` case: a note notated near the treble/bass boundary (e.g. notated B3) that sounds well into treble range under an 8va shift (sounding B4) is still auto-assigned to the staff its *notated* position would pick, not its sounding position — constructed to actually differ between the two, so the test would fail without this task's fix.
-- [ ] Every existing (non-shifted) staff-auto-selection test is unaffected (regression).
+- [x] A new `GrandStaffSceneBuilderTests.cs` case: a note notated near the treble/bass boundary (e.g. notated B3) that sounds well into treble range under an 8va shift (sounding B4) is still auto-assigned to the staff its *notated* position would pick, not its sounding position — constructed to actually differ between the two, so the test would fail without this task's fix.
+- [x] Every existing (non-shifted) staff-auto-selection test is unaffected (regression).
 
 **Files likely touched:** `PianoMapper.Web/Rendering/GrandStaffSceneBuilder.cs`, `PianoMapper.Tests/UnitTests/GrandStaffSceneBuilderTests.cs`.
 
@@ -231,8 +231,8 @@ Back in `Read()`'s `"direction"` case, apply the parsed directive to `activeOcta
 **Dependencies:** Task 5.
 
 ### Checkpoint: Phase 4
-- [ ] Full fast `dotnet test` suite passes.
-- [ ] Manual confirmation (read-through, not yet visual): a shifted note's computed `ScoreNoteLayout.Position` has few/no ledger lines compared to what it would have had at its sounding pitch.
+- [x] Full fast `dotnet test` suite passes.
+- [x] Manual confirmation (read-through, not yet visual): a shifted note's computed `ScoreNoteLayout.Position` has few/no ledger lines compared to what it would have had at its sounding pitch.
 
 ## Phase 5: Rendering — the bracket
 
@@ -241,10 +241,10 @@ Back in `Read()`'s `"direction"` case, apply the parsed directive to `activeOcta
 **Description:** Append `OctaveShift` to `GrandStaffLineKind` and `OctaveShiftNumeral` to `GrandStaffGlyphKind` (append only — both cross the JS interop boundary as pinned ordinals; do not insert). Add a method in `GrandStaffSceneBuilder.cs` (e.g. `BuildOctaveShiftMarks`, alongside `BuildSlurs`/`BuildGlissandoLines`) that, given the same `(ScoreNote Note, ScoreNoteLayout Layout)` list and rendered notes `BuildStaticScoreParts` already has: groups notes by `Staff`, in onset order, into maximal contiguous runs sharing the same nonzero `Note.SoundingOctavesAboveNotated` (mirroring `BuildBeams`/`AddBeam`'s contiguous-run grouping over `BeamState`, not a start/stop-marker scan). For each run, emit one `GrandStaffLine` (`Kind = OctaveShift`, `X0`/`Y0` at the first note, `X1`/`Y1` at the last note, `Y` set to a fixed clearance above the staff's top line for a positive value or below its bottom line for a negative one — see Assumptions) and one `GrandStaffGlyph` (`Kind = OctaveShiftNumeral`, `Text` = `"8"`/`"15"`/`"22"` from `Math.Abs(value)`, positioned at the run's start). Append both into `staticParts.Lines`/`staticParts.Glyphs` in `BuildStaticScoreParts`, same as glissando lines and tuplet glyphs already are.
 
 **Acceptance criteria:**
-- [ ] A `GrandStaffSceneBuilderTests.cs` case: the fixture from Task 3, built through `BuildScore`, produces exactly one `GrandStaffLine` with `Kind == OctaveShift` spanning the shifted notes' X range, and one `GrandStaffGlyph` with `Kind == OctaveShiftNumeral` and `Text == "8"`.
-- [ ] A companion case for the `type="up"` fixture proves the line/glyph Y sits **below** the staff instead of above.
-- [ ] `GrandStaffSceneContractTests.cs`/`scene-contract.test.mjs` gain a case for the two new ordinal values, proving the C#-to-JS ordinal mapping stays in sync (matching this project's existing pinning discipline for these two enums).
-- [ ] The two immediately-adjacent-same-magnitude-spans edge case (Out of Scope, below) is left unhandled and not silently "fixed" by accident — a note documenting why, next to the grouping logic.
+- [x] A `GrandStaffSceneBuilderTests.cs` case: the fixture from Task 3, built through `BuildScore`, produces exactly one `GrandStaffLine` with `Kind == OctaveShift` spanning the shifted notes' X range, and one `GrandStaffGlyph` with `Kind == OctaveShiftNumeral` and `Text == "8"`.
+- [x] A companion case for the `type="up"` fixture proves the line/glyph Y sits **below** the staff instead of above.
+- [x] `GrandStaffSceneContractTests.cs`/`scene-contract.test.mjs` gain a case for the two new ordinal values, proving the C#-to-JS ordinal mapping stays in sync (matching this project's existing pinning discipline for these two enums).
+- [x] The two immediately-adjacent-same-magnitude-spans edge case (Out of Scope, below) is left unhandled and not silently "fixed" by accident — a note documenting why, next to the grouping logic.
 
 **Files likely touched:** `PianoMapper.Web/Rendering/GrandStaffLineKind.cs`, `PianoMapper.Web/Rendering/GrandStaffGlyphKind.cs`, `PianoMapper.Web/Rendering/GrandStaffSceneBuilder.cs`, `PianoMapper.Tests/UnitTests/GrandStaffSceneBuilderTests.cs`, `PianoMapper.Tests/UnitTests/GrandStaffSceneContractTests.cs`, `PianoMapper.Tests/JavaScript/scene-contract.test.mjs`.
 
@@ -257,8 +257,8 @@ Back in `Read()`'s `"direction"` case, apply the parsed directive to `activeOcta
 **Description:** In `canvas.js`'s `drawLine`, add a `line.kind === octaveShiftLineKind` branch: set `context.setLineDash([...])` (a small, staff-space-scaled dash/gap pair — this codebase's first use of `setLineDash`) before stroking, and reset with `context.setLineDash([])` immediately after (every other line kind must remain solid; a forgotten reset would silently dash barlines/staff lines drawn afterward in the same canvas pass). Give it a distinct color constant, following `glissandoLineColor`'s precedent. In `drawGlyph`, no new branch should be strictly necessary if `OctaveShiftNumeral` reuses the default glyph styling (`#f8fafc`) — confirm this reads clearly against the staff in the visual check (Task 10); add a dedicated style only if it doesn't.
 
 **Acceptance criteria:**
-- [ ] `canvas.test.mjs` gains a case asserting `setLineDash` is called with a non-empty pattern for an `octaveShiftLineKind` line and reset to `[]` afterward (mock-canvas-context assertion, matching this file's existing style for other `drawX` functions).
-- [ ] Every existing `canvas.test.mjs` case for other line kinds still passes unmodified (proves the dash reset doesn't leak into other lines).
+- [x] `canvas.test.mjs` gains a case asserting `setLineDash` is called with a non-empty pattern for an `octaveShiftLineKind` line and reset to `[]` afterward (mock-canvas-context assertion, matching this file's existing style for other `drawX` functions).
+- [x] Every existing `canvas.test.mjs` case for other line kinds still passes unmodified (proves the dash reset doesn't leak into other lines).
 
 **Files likely touched:** `PianoMapper.Web/wwwroot/js/canvas.js`, `PianoMapper.Tests/JavaScript/canvas.test.mjs`.
 
@@ -267,8 +267,8 @@ Back in `Read()`'s `"direction"` case, apply the parsed directive to `activeOcta
 **Dependencies:** Task 7.
 
 ### Checkpoint: Phase 5
-- [ ] `dotnet test PianoMapper.slnx --filter "Category!=Integration&Category!=LiveApi"` passes.
-- [ ] `node --test PianoMapper.Tests/JavaScript/*.test.mjs` passes.
+- [x] `dotnet test PianoMapper.slnx --filter "Category!=Integration&Category!=LiveApi"` passes.
+- [x] `node --test PianoMapper.Tests/JavaScript/*.test.mjs` passes.
 
 ## Phase 6: Docs and verification
 
@@ -277,8 +277,8 @@ Back in `Read()`'s `"direction"` case, apply the parsed directive to `activeOcta
 **Description:** README.md line ~12 currently lists the supported `<notations>` marks (fermata, articulation, ornament, accidental-mark, slur, arpeggio, glissando/slide) as a single sentence about per-note marks. Octave-shift is not a `<notations>` mark — add a **new** sentence/bullet describing the supported `<direction>`-level mark (ottava/8va-15ma-22a, both directions, rendered as a dashed bracket with a numeral) rather than folding it into the existing `<notations>` sentence, to keep the documentation structurally accurate.
 
 **Acceptance criteria:**
-- [ ] README.md describes octave-shift support distinctly from the `<notations>` list, including both directions and the three sizes.
-- [ ] CONTEXT.md's `ScoreNote` row (Task 1) is consistent with this description.
+- [x] README.md describes octave-shift support distinctly from the `<notations>` list, including both directions and the three sizes.
+- [x] CONTEXT.md's `ScoreNote` row (Task 1) is consistent with this description.
 
 **Files likely touched:** `README.md`, `CONTEXT.md`.
 
@@ -291,8 +291,10 @@ Back in `Read()`'s `"direction"` case, apply the parsed directive to `activeOcta
 **Description:** Per this project's established practice (project memory: "verify grand-staff spacing in real pixels at the smallest clamped canvas height" via the headless-Firefox screenshot recipe), render the `octave-shift-8va.musicxml` fixture (and ideally the corrected `gama-C-major` data, if convenient) in the running web app and screenshot it, confirming: the shifted notes sit compactly near the staff (not stacked in ledger lines), the dashed bracket is visually distinguishable from a slur/tie/glissando line, the numeral is legible and correctly positioned (above for 8va, below for 8va-bassa), and nothing overlaps the annotation band/fingering rows below the staff.
 
 **Acceptance criteria:**
-- [ ] Screenshot evidence exists for both the 8va and 8va-bassa cases, at minimum at the default canvas height and the smallest CSS-clamped height (matching the project's own "smallest clamped canvas height" verification convention, since canvas text doesn't scale down with scene geometry — see lessons.md).
-- [ ] If the fixed-clearance bracket Y-position (Assumptions) fails to clear a note's stem/beam in the rendered fixture, this is recorded and either fixed (extending toward `GetNotationBottomY`-style scanning) or explicitly deferred with a reason.
+- [x] Screenshot evidence exists for both the 8va and 8va-bassa cases, at minimum at the default canvas height and the smallest CSS-clamped height (matching the project's own "smallest clamped canvas height" verification convention, since canvas text doesn't scale down with scene geometry — see lessons.md).
+- [x] If the fixed-clearance bracket Y-position (Assumptions) fails to clear a note's stem/beam in the rendered fixture, this is recorded and either fixed (extending toward `GetNotationBottomY`-style scanning) or explicitly deferred with a reason.
+
+**Verification result (2026-09-24):** Headless Firefox screenshots were captured under `test-results/octave-shift-visual/` for 8va and 8vb at 19rem/304px and 15rem/240px canvas heights. The first pass exposed the 8vb numeral and line overlapping the bass annotation band; the renderer now includes a downward octave-shift mark in the staff's notation-bottom calculation, moving labels and fingerings below it. The second pass confirmed both directions are legible, compact, distinct from solid notation lines, and clear of stems and annotation rows at both heights.
 
 **Files likely touched:** None (verification only); may produce follow-up findings that reopen Task 7.
 
@@ -304,11 +306,11 @@ Back in `Read()`'s `"direction"` case, apply the parsed directive to `activeOcta
 
 ### Final Checkpoint
 
-- [ ] Every acceptance criterion in this plan is satisfied with recorded command/test output, not assumed.
-- [ ] `dotnet test PianoMapper.slnx --filter "Category!=Integration&Category!=LiveApi"` passes in full.
-- [ ] `node --test PianoMapper.Tests/JavaScript/*.test.mjs` passes in full.
-- [ ] `dotnet build PianoMapper.slnx --configuration Release` succeeds.
-- [ ] Visual verification (Task 10) is either complete with screenshot evidence, or explicitly flagged as not yet done — never silently claimed.
+- [x] Every acceptance criterion in this plan is satisfied with recorded command/test output, not assumed.
+- [x] `dotnet test PianoMapper.slnx --filter "Category!=Integration&Category!=LiveApi"` passes in full.
+- [x] `node --test PianoMapper.Tests/JavaScript/*.test.mjs` passes in full.
+- [x] `dotnet build PianoMapper.slnx --configuration Release` succeeds.
+- [x] Visual verification (Task 10) is either complete with screenshot evidence, or explicitly flagged as not yet done — never silently claimed.
 
 ## Risks and Mitigations
 

@@ -9,6 +9,7 @@ import {
     initializeScoreCanvas,
     mapAbsoluteBeatToScoreX,
     mapScoreNotationBeatToX,
+    octaveShiftLineKind,
     render,
     startScoreCursor,
     stopScoreCursor,
@@ -44,6 +45,7 @@ class FakeCanvasContext {
     clipCalls = 0;
     operations = [];
     rectCalls = [];
+    lineDashCalls = [];
     pathStart = undefined;
     currentPath = undefined;
     // Real Canvas2D measureText returns different bounding boxes per character/font — a "flat"
@@ -57,6 +59,9 @@ class FakeCanvasContext {
     clearRect() { }
     fillRect() { }
     strokeRect() { }
+    setLineDash(pattern) {
+        this.lineDashCalls.push([...pattern]);
+    }
     fillText(...args) {
         this.fillTextCalls.push({ args, font: this.font, fillStyle: this.fillStyle });
     }
@@ -673,6 +678,21 @@ test("grand staff sizes signature glyphs to their requested heights", () => {
     assert.ok(Math.abs(Number.parseFloat(scoreContext.fillTextCalls[0].font) - 20.4) < 1e-9);
     assert.equal(scoreContext.fillTextCalls[1].args[0], "4");
     assert.ok(Math.abs(Number.parseFloat(scoreContext.fillTextCalls[1].font) - 20.4) < 1e-9);
+});
+
+test("grand staff draws octave-shift lines dashed and resets the dash pattern", () => {
+    const scoreContext = renderGrandStaffScene({
+        kind: 0,
+        lines: [{ x0: -0.4, y0: 0.6, x1: 0.4, y1: 0.6, kind: octaveShiftLineKind }],
+        glyphs: [],
+        notes: [],
+        beams: [],
+        shouldClipNotesAtClefs: false,
+    });
+
+    assert.equal(scoreContext.lineDashCalls.length, 2);
+    assert.ok(scoreContext.lineDashCalls[0].length > 0);
+    assert.deepEqual(scoreContext.lineDashCalls[1], []);
 });
 
 test("grand staff clamps a flat glyph's computed font size instead of blowing it up", () => {

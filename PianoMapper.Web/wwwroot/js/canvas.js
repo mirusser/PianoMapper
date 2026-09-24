@@ -15,8 +15,10 @@ export const barlineKind = 2; // GrandStaffLineKind.Barline
 export const cursorLineKind = 3; // GrandStaffLineKind.Cursor
 export const beatLineKind = 4; // GrandStaffLineKind.Beat
 export const glissandoLineKind = 5; // GrandStaffLineKind.Glissando
+export const octaveShiftLineKind = 6; // GrandStaffLineKind.OctaveShift
 export const clefGlyphKind = 0; // PianoMapper.Web.Rendering.GrandStaffGlyphKind.Clef
 export const accidentalGlyphKind = 1; // GrandStaffGlyphKind.Accidental
+export const octaveShiftNumeralGlyphKind = 9; // GrandStaffGlyphKind.OctaveShiftNumeral
 export const stemDirectionUp = 0; // PianoMapper.Rendering.StemDirection.Up (also used for GrandStaffTie.CurveDirection)
 // Index i must hold the color for PianoMapper.Core.Practice.Verdict's i-th ordinal.
 export const verdictColors = [
@@ -69,6 +71,9 @@ const arpeggioMarkWaveSegmentHeightInStaffSpaces = 0.5;
 const arpeggioMarkBracketTickWidthInStaffSpaces = 0.35;
 const arpeggioMarkColor = "#e2e8f0";
 const glissandoLineColor = "#f472b6";
+const octaveShiftLineColor = "#60a5fa";
+const octaveShiftDashLengthInStaffSpaces = 0.7;
+const octaveShiftDashGapInStaffSpaces = 0.45;
 const staffLineWidth = 1.5;
 const spectrumReleaseClearMilliseconds = 120;
 const scorePlaybackHighlightColor = "#a78bfa";
@@ -725,7 +730,9 @@ function drawLine(context, line, width, height, staffSpace) {
             ? "#64748b"
             : line.kind === staffLineKind
                 ? "#94a3b8"
-                : line.kind === glissandoLineKind ? glissandoLineColor : "#cbd5e1";
+                : line.kind === glissandoLineKind
+                    ? glissandoLineColor
+                    : line.kind === octaveShiftLineKind ? octaveShiftLineColor : "#cbd5e1";
     context.lineWidth = line.kind === staffLineKind
         ? staffLineWidth
         : line.kind === cursorLineKind
@@ -741,10 +748,19 @@ function drawLine(context, line, width, height, staffSpace) {
         x0 = centerX - halfWidth;
         x1 = centerX + halfWidth;
     }
+    if (line.kind === octaveShiftLineKind) {
+        context.setLineDash([
+            staffSpace * octaveShiftDashLengthInStaffSpaces,
+            staffSpace * octaveShiftDashGapInStaffSpaces,
+        ]);
+    }
     context.beginPath();
     context.moveTo(x0, mapY(line.y0, height));
     context.lineTo(x1, mapY(line.y1, height));
     context.stroke();
+    if (line.kind === octaveShiftLineKind) {
+        context.setLineDash([]);
+    }
 }
 
 function drawGlyph(context, glyph, width, height) {

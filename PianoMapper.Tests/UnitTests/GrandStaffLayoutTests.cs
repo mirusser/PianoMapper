@@ -240,6 +240,66 @@ public sealed class GrandStaffLayoutTests
         Assert.True(layout.Value.Position.NeedsAccidental);
     }
 
+    [Fact]
+    public void GetScoreNoteLayout_OctaveShiftedNote_UsesNotatedPitchPosition()
+    {
+        var shiftedNote = new ScoreNote(
+            new Pitch(NoteLetter.C, 0, 6),
+            new NoteValue(4),
+            0,
+            0,
+            Staff.Treble,
+            SoundingOctavesAboveNotated: 1);
+        var notatedNote = shiftedNote with
+        {
+            Pitch = new Pitch(NoteLetter.C, 0, 5),
+            SoundingOctavesAboveNotated = 0,
+        };
+
+        var shiftedLayout = GrandStaffLayout.GetScoreNoteLayout(
+            shiftedNote,
+            new TimeSignature(4, new NoteValue(4)),
+            0);
+        var notatedLayout = GrandStaffLayout.GetScoreNoteLayout(
+            notatedNote,
+            new TimeSignature(4, new NoteValue(4)),
+            0);
+
+        Assert.NotNull(shiftedLayout);
+        Assert.NotNull(notatedLayout);
+        Assert.Equal(notatedLayout.Value.Position.Staff, shiftedLayout.Value.Position.Staff);
+        Assert.Equal(notatedLayout.Value.Position.Y, shiftedLayout.Value.Position.Y);
+        Assert.Equal(notatedLayout.Value.Position.NeedsAccidental, shiftedLayout.Value.Position.NeedsAccidental);
+        Assert.Equal(
+            notatedLayout.Value.Position.DiatonicPosition.DiatonicOffset,
+            shiftedLayout.Value.Position.DiatonicPosition.DiatonicOffset);
+        Assert.Equal(
+            notatedLayout.Value.Position.LedgerLineYs.ToArray(),
+            shiftedLayout.Value.Position.LedgerLineYs.ToArray());
+        Assert.Empty(shiftedLayout.Value.Position.LedgerLineYs);
+        Assert.NotEmpty(GrandStaffLayout.GetPosition(shiftedNote.Pitch, Staff.Treble).LedgerLineYs);
+    }
+
+    [Fact]
+    public void GetScoreNoteLayout_OctaveShiftedNote_PreservesSoundingPitch()
+    {
+        var shiftedNote = new ScoreNote(
+            new Pitch(NoteLetter.C, 0, 6),
+            new NoteValue(4),
+            0,
+            0,
+            Staff.Treble,
+            SoundingOctavesAboveNotated: 1);
+
+        _ = GrandStaffLayout.GetScoreNoteLayout(
+            shiftedNote,
+            new TimeSignature(4, new NoteValue(4)),
+            0);
+
+        Assert.Equal(new Pitch(NoteLetter.C, 0, 6), shiftedNote.Pitch);
+        Assert.Equal(new Pitch(NoteLetter.C, 0, 5), GrandStaffLayout.GetNotatedPitch(shiftedNote));
+    }
+
     [Theory]
     [InlineData("D5", ScoreStemDirection.Up, StemDirection.Up)]
     [InlineData("G4", ScoreStemDirection.Down, StemDirection.Down)]

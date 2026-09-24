@@ -82,7 +82,8 @@ internal static class ScoreDocumentSerializer
             note.Arpeggio,
             note.Glissando is null
                 ? null
-                : new ScoreGlissandoDocument(note.Glissando.IsStart, note.Glissando.Number, note.Glissando.Kind));
+                : new ScoreGlissandoDocument(note.Glissando.IsStart, note.Glissando.Number, note.Glissando.Kind),
+            note.SoundingOctavesAboveNotated);
 
     private static ScoreRestDocument ToDocument(ScoreRest rest) =>
         new(
@@ -119,7 +120,8 @@ internal static class ScoreDocumentSerializer
             note.Arpeggio,
             note.Glissando is null
                 ? null
-                : new ScoreGlissando(note.Glissando.IsStart, note.Glissando.Number, note.Glissando.Kind));
+                : new ScoreGlissando(note.Glissando.IsStart, note.Glissando.Number, note.Glissando.Kind),
+            note.SoundingOctavesAboveNotated);
 
     private static ScoreRest FromDocument(ScoreRestDocument rest) =>
         new(
@@ -163,7 +165,8 @@ internal static class ScoreDocumentSerializer
         ScoreAccidental? AccidentalMark = null,
         ScoreSlurDocument? Slur = null,
         ScoreArpeggio? Arpeggio = null,
-        ScoreGlissandoDocument? Glissando = null);
+        ScoreGlissandoDocument? Glissando = null,
+        int SoundingOctavesAboveNotated = 0);
 
     private sealed record ScoreRestDocument(
         NoteValueDocument NoteValue,

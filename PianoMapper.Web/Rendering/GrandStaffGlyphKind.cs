@@ -11,4 +11,5 @@ public enum GrandStaffGlyphKind
     Articulation,
     Ornament,
     AccidentalMark,
+    OctaveShiftNumeral,
 }

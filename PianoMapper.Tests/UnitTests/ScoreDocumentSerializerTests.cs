@@ -34,7 +34,8 @@ public sealed class ScoreDocumentSerializerTests
                             AccidentalMark: ScoreAccidental.Flat,
                             Slur: new ScoreSlur(IsStart: true, Number: 2),
                             Arpeggio: ScoreArpeggio.Arpeggiate,
-                            Glissando: new ScoreGlissando(IsStart: false, Number: 3, ScoreGlissandoKind.Slide)),
+                            Glissando: new ScoreGlissando(IsStart: false, Number: 3, ScoreGlissandoKind.Slide),
+                            SoundingOctavesAboveNotated: 1),
                         new ScoreNote(
                             new Pitch(NoteLetter.B, -1, 2),
                             new NoteValue(16),
@@ -64,6 +65,7 @@ public sealed class ScoreDocumentSerializerTests
         Assert.Equal(expected.KeyFifths, actual.KeyFifths);
         Assert.Equal(expected.Measures[0].Notes, actual.Measures[0].Notes);
         Assert.Equal(expected.Measures[0].Rests, actual.Measures[0].Rests);
+        Assert.Equal(1, actual.Measures[0].Notes[0].SoundingOctavesAboveNotated);
         Assert.DoesNotContain("midiNumber", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("frequency", json, StringComparison.OrdinalIgnoreCase);
     }
@@ -115,6 +117,7 @@ public sealed class ScoreDocumentSerializerTests
         Assert.Null(note.Slur);
         Assert.Null(note.Arpeggio);
         Assert.Null(note.Glissando);
+        Assert.Equal(0, note.SoundingOctavesAboveNotated);
     }
 
     [Fact]

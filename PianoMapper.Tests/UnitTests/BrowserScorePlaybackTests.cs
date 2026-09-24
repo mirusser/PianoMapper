@@ -22,6 +22,24 @@ public sealed class BrowserScorePlaybackTests
     }
 
     [Fact]
+    public async Task StartAsync_OctaveShiftedScore_SchedulesSoundingFrequency()
+    {
+        var audio = new FakeScoreAudio(TimeSpan.FromSeconds(10));
+        var playback = new BrowserScorePlayback(audio);
+        var score = new MusicXmlScoreReader().Read(Fixture("octave-shift-8va.musicxml"));
+        int shiftedEventIndex = ScoreDerivation.Flatten(score)
+            .Select((scoreEvent, index) => (Event: scoreEvent, Index: index))
+            .First(item => item.Event.SourceNotes[0].SoundingOctavesAboveNotated == 1)
+            .Index;
+
+        await playback.StartAsync(score);
+
+        var shiftedAudioEvent = audio.ScheduledEvents[shiftedEventIndex];
+        Assert.Equal(new Pitch(NoteLetter.D, 0, 5).Frequency, shiftedAudioEvent.Frequency);
+        Assert.NotEqual(new Pitch(NoteLetter.D, 0, 4).Frequency, shiftedAudioEvent.Frequency);
+    }
+
+    [Fact]
     public async Task GetCursorBeats_RunningAndCompleted_MapsAnchorAndUpdatesState()
     {
         var audio = new FakeScoreAudio(TimeSpan.FromSeconds(10));
@@ -101,6 +119,8 @@ public sealed class BrowserScorePlaybackTests
         Assert.Equal(TimeSpan.FromSeconds(10.05), note.StartTime);
         Assert.Equal(TimeSpan.FromSeconds(10.55), note.ReleaseTime);
     }
+
+    private static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
     private static Score CreateScore(double beatOffset) =>
         new(

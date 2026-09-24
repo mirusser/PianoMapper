@@ -18,4 +18,5 @@ public sealed record ScoreNote(
     ScoreAccidental? AccidentalMark = null,
     ScoreSlur? Slur = null,
     ScoreArpeggio? Arpeggio = null,
-    ScoreGlissando? Glissando = null);
+    ScoreGlissando? Glissando = null,
+    int SoundingOctavesAboveNotated = 0);

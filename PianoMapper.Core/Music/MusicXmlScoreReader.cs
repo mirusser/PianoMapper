@@ -17,12 +17,14 @@ public sealed class MusicXmlScoreReader
     private const string CompressedMusicXmlExtension = ".mxl";
     private const string ContainerEntryName = "META-INF/container.xml";
     private const string DotElementName = "dot";
+    private const string DirectionTypeElementName = "direction-type";
     private const string DurationElementName = "duration";
     private const string FermataElementName = "fermata";
     private const string FingeringElementName = "fingering";
     private const string NormalNotesElementName = "normal-notes";
     private const string NotationsElementName = "notations";
     private const string OrnamentsElementName = "ornaments";
+    private const string OctaveShiftElementName = "octave-shift";
     private const string PitchElementName = "pitch";
     private const string RepeatElementName = "repeat";
     private const string RestElementName = "rest";
@@ -73,7 +75,7 @@ public sealed class MusicXmlScoreReader
 
     private static readonly FrozenSet<string> IgnoredDirectionElements = new[]
     {
-        "direction-type",
+        DirectionTypeElementName,
         "footnote",
         "level",
         StaffElementName,
@@ -136,6 +138,8 @@ public sealed class MusicXmlScoreReader
         double quarterNotesPerMinute = DefaultQuarterNotesPerMinute;
         bool timeSpecified = false;
         bool tempoSpecified = false;
+        int activeOctaveShiftOctaves = 0;
+        int activeOctaveShiftNumber = 1;
         var measures = new List<ScoreMeasure>();
 
         int measureIndex = 0;
@@ -176,6 +180,40 @@ public sealed class MusicXmlScoreReader
                             tempoSpecified = true;
                         }
 
+                        if (ParseOctaveShiftDirective(element) is { } directive)
+                        {
+                            if (directive.IsStart)
+                            {
+                                if (activeOctaveShiftOctaves != 0)
+                                {
+                                    throw new NotSupportedException(
+                                        $"Unsupported MusicXML <{OctaveShiftElementName}>: " +
+                                        "overlapping octave shifts are not supported.");
+                                }
+
+                                activeOctaveShiftOctaves = directive.Octaves;
+                                activeOctaveShiftNumber = directive.Number;
+                            }
+                            else
+                            {
+                                if (activeOctaveShiftOctaves == 0)
+                                {
+                                    throw new InvalidDataException(
+                                        $"Invalid MusicXML <{OctaveShiftElementName}>: stop has no active octave shift.");
+                                }
+
+                                if (directive.Number != activeOctaveShiftNumber)
+                                {
+                                    throw new InvalidDataException(
+                                        $"Invalid MusicXML <{OctaveShiftElementName}>: stop number " +
+                                        $"'{directive.Number}' does not match active number '{activeOctaveShiftNumber}'.");
+                                }
+
+                                activeOctaveShiftOctaves = 0;
+                                activeOctaveShiftNumber = 1;
+                            }
+                        }
+
                         break;
                     case "barline":
                         ValidateBarline(element);
@@ -186,6 +224,7 @@ public sealed class MusicXmlScoreReader
                             measureIndex,
                             divisions,
                             timeSignature,
+                            activeOctaveShiftOctaves,
                             ref cursorDivisions,
                             ref lastNoteOnsetDivisions,
                             notes,
@@ -387,11 +426,58 @@ public sealed class MusicXmlScoreReader
         return quarterNotesPerMinute;
     }
 
+    private static (bool IsStart, int Octaves, int Number)? ParseOctaveShiftDirective(XElement direction)
+    {
+        var octaveShifts = direction.Elements()
+            .Where(element => element.Name.LocalName == DirectionTypeElementName)
+            .SelectMany(element => element.Elements())
+            .Where(element => element.Name.LocalName == OctaveShiftElementName)
+            .ToArray();
+        if (octaveShifts.Length == 0)
+        {
+            return null;
+        }
+
+        if (octaveShifts.Length > 1)
+        {
+            throw new NotSupportedException(
+                $"Unsupported MusicXML <{OctaveShiftElementName}>: " +
+                "exactly one octave shift per direction is required.");
+        }
+
+        var octaveShift = octaveShifts[0];
+        string? type = octaveShift.Attribute("type")?.Value;
+        int number = ParsePairingNumber(octaveShift, OctaveShiftElementName);
+        return type switch
+        {
+            "down" => (true, ParseOctaveShiftSize(octaveShift), number),
+            "up" => (true, -ParseOctaveShiftSize(octaveShift), number),
+            "stop" => (false, 0, number),
+            "continue" => throw new NotSupportedException(
+                $"Unsupported MusicXML <{OctaveShiftElementName}> type 'continue'."),
+            _ => throw new InvalidDataException(
+                $"Invalid MusicXML <{OctaveShiftElementName}> type '{type ?? string.Empty}'."),
+        };
+    }
+
+    private static int ParseOctaveShiftSize(XElement octaveShift)
+    {
+        string value = octaveShift.Attribute("size")?.Value ?? "8";
+        return value switch
+        {
+            "8" => 1,
+            "15" => 2,
+            "22" => 3,
+            _ => throw Unsupported($"{OctaveShiftElementName}@size"),
+        };
+    }
+
     private static void ParseNote(
         XElement noteElement,
         int measureIndex,
         int divisions,
         TimeSignature timeSignature,
+        int soundingOctavesAboveNotated,
         ref int cursorDivisions,
         ref int lastNoteOnsetDivisions,
         ICollection<ScoreNote> notes,
@@ -414,8 +500,15 @@ public sealed class MusicXmlScoreReader
         else
         {
             var pitchElement = RequiredChild(noteElement, PitchElementName);
+            Pitch notatedPitch = ParsePitch(pitchElement);
+            var soundingPitch = soundingOctavesAboveNotated == 0
+                ? notatedPitch
+                : new Pitch(
+                    notatedPitch.Letter,
+                    notatedPitch.Alter,
+                    notatedPitch.Octave + soundingOctavesAboveNotated);
             notes.Add(new ScoreNote(
-                ParsePitch(pitchElement),
+                soundingPitch,
                 noteValue,
                 measureIndex,
                 beatOffset,
@@ -432,7 +525,8 @@ public sealed class MusicXmlScoreReader
                 AccidentalMark: ParseAccidentalMark(noteElement),
                 Slur: ParseSlur(noteElement),
                 Arpeggio: ParseArpeggio(noteElement),
-                Glissando: ParseGlissando(noteElement)));
+                Glissando: ParseGlissando(noteElement),
+                SoundingOctavesAboveNotated: soundingOctavesAboveNotated));
         }
 
         if (!isChord)

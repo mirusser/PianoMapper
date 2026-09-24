@@ -41,6 +41,14 @@ public static class GrandStaffLayout
     public static StaffPlacement GetLivePosition(Pitch pitch) =>
         GetPosition(pitch, pitch.MidiNumber >= 60 ? Staff.Treble : Staff.Bass);
 
+    public static Pitch GetNotatedPitch(ScoreNote note) =>
+        note.SoundingOctavesAboveNotated == 0
+            ? note.Pitch
+            : new Pitch(
+                note.Pitch.Letter,
+                note.Pitch.Alter,
+                note.Pitch.Octave - note.SoundingOctavesAboveNotated);
+
     public static float MapTimeToX(TimeSpan time, TimeSpan now) =>
         PianoRollLayout.MapTimeToX(time.TotalSeconds, now.TotalSeconds);
 
@@ -186,7 +194,7 @@ public static class GrandStaffLayout
             return null;
         }
 
-        var position = GetPosition(note.Pitch, note.Staff);
+        var position = GetPosition(GetNotatedPitch(note), note.Staff);
         var stemDirection = ResolveStemDirection(note.StemDirection, position);
         return new ScoreNoteLayout(
             MapScoreOnsetToX(note.MeasureIndex, note.BeatOffset, timeSignature, firstVisibleMeasure, visibleMeasureCount),
