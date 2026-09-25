@@ -57,7 +57,8 @@ internal static class GrandStaffSceneBuilder
     // tuplet's numeral and the beam itself — mirrors GrandStaffLayout.FermataClearanceInStaffSpaces'
     // role of pushing a glyph just outside the notation it annotates.
     private const double TupletGlyphClearanceInStaffSpaces = 0.6;
-    private const double OctaveShiftClearanceInStaffSpaces = 1.5;
+    private const double OctaveShiftClearanceInStaffSpaces = 2.25;
+    private const double OctaveShiftPeakRiseInStaffSpaces = 0.75;
     private const double OctaveShiftNumeralHalfHeightInStaffSpaces = 0.75;
     private const double ViewY0 = -0.9;
     private const double ViewY1 = 0.9;
@@ -156,10 +157,15 @@ internal static class GrandStaffSceneBuilder
             bool hasBassRegisterNote = measure.Notes.Any(candidate =>
                 candidate.Staff == Staff.Bass &&
                 GrandStaffLayout.GetLivePosition(GrandStaffLayout.GetNotatedPitch(candidate)).Staff == Staff.Bass);
+            bool isGrandStaffChordOnlyMeasure = measure.Notes.Count > 1 &&
+                measure.Notes.Any(candidate => candidate.Staff == Staff.Treble) &&
+                measure.Notes.Any(candidate => candidate.Staff == Staff.Bass) &&
+                measure.Notes.Skip(1).All(candidate => candidate.BeatOffset == measure.Notes[0].BeatOffset);
             for (int noteIndex = 0; noteIndex < measure.Notes.Count; noteIndex++)
             {
                 ScoreNote note = measure.Notes[noteIndex];
-                Staff notationStaff = note.Staff == Staff.Bass && hasBassRegisterNote
+                Staff notationStaff = note.Staff == Staff.Bass &&
+                    (hasBassRegisterNote || isGrandStaffChordOnlyMeasure)
                     ? Staff.Bass
                     : GrandStaffLayout.GetLivePosition(GrandStaffLayout.GetNotatedPitch(note)).Staff;
                 ScoreNote notationNote = note with { Staff = notationStaff };
@@ -187,8 +193,9 @@ internal static class GrandStaffSceneBuilder
         var glyphs = CreateClefGlyphs();
         AddScoreSignatures(glyphs, score);
 
-        // Score pitch determines notation placement for bass voices without a bass-register anchor.
-        // The source hand still controls R/L fingerings independently of notation placement.
+        // Score pitch determines notation placement for unanchored bass-hand notes. A bass-register
+        // note or isolated grand-staff chord anchors the explicit bass staff assignment. The source
+        // hand still controls R/L fingerings independently of notation placement.
         var beamOverrides = new Dictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)>();
         IReadOnlyList<GrandStaffBeam> beams = BuildBeams(visibleNotes, beamOverrides, glyphs);
         var chordOverrides = new Dictionary<ScoreNote, ChordNoteOverride>();
@@ -540,6 +547,12 @@ internal static class GrandStaffSceneBuilder
                 int firstNoteIndex = orderedIndexes[orderedIndex];
                 int lastNoteIndex = orderedIndexes[runEnd];
                 double y = GetOctaveShiftY(staff, shift);
+                double startX = renderedNotes[firstNoteIndex].X;
+                double endX = renderedNotes[lastNoteIndex].X;
+                double peakX = (startX + endX) / 2d;
+                double peakY = y +
+                    (Math.Sign(shift) * OctaveShiftPeakRiseInStaffSpaces *
+                        GrandStaffLayout.GetRenderedStaffSpace(staff));
                 string numeral = Math.Abs(shift) switch
                 {
                     1 => "8",
@@ -549,14 +562,20 @@ internal static class GrandStaffSceneBuilder
                 };
 
                 lines.Add(new GrandStaffLine(
-                    renderedNotes[firstNoteIndex].X,
+                    startX,
                     y,
-                    renderedNotes[lastNoteIndex].X,
+                    peakX,
+                    peakY,
+                    GrandStaffLineKind.OctaveShift));
+                lines.Add(new GrandStaffLine(
+                    peakX,
+                    peakY,
+                    endX,
                     y,
                     GrandStaffLineKind.OctaveShift));
                 glyphs.Add(new GrandStaffGlyph(
                     numeral,
-                    renderedNotes[firstNoteIndex].X,
+                    startX,
                     y,
                     GrandStaffGlyphKind.OctaveShiftNumeral));
                 orderedIndex = runEnd + 1;

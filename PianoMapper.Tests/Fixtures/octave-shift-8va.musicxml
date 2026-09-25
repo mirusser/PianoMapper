@@ -13,9 +13,9 @@
           <octave-shift type="down" size="8" number="1" default-y="20" dash-length="5" space-length="5" />
         </direction-type>
       </direction>
-      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
-      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
-      <note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>F</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
       <direction placement="above">
         <direction-type><octave-shift type="stop" size="8" number="1" /></direction-type>
       </direction>

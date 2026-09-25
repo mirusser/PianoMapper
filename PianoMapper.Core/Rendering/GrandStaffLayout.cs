@@ -15,6 +15,9 @@ public static class GrandStaffLayout
     // Grand-staff annotation/notation geometry policy. These match the Canvas 2D notehead and
     // beam/stem proportions in wwwroot/js/canvas.js.
     public const double GrandStaffVerticalScale = 0.82;
+    // Canvas scene Y grows upward. Move the full grand-staff system down to reserve headroom for
+    // notation above the treble staff, including octave-shift guides and high ledger notes.
+    private const double GrandStaffVerticalOffset = -0.12;
     public const double StemLength = DiatonicStep * GrandStaffVerticalScale * 6;
     public const double StaffSeparationOffset = DiatonicStep * 6;
     public const double NoteLabelOffsetBelowStaff = DiatonicStep * 5;
@@ -300,7 +303,7 @@ public static class GrandStaffLayout
     /// </summary>
     public static double SeparateStaffY(double y, Staff staff) =>
         (y + (staff == Staff.Treble ? StaffSeparationOffset : -StaffSeparationOffset))
-        * GrandStaffVerticalScale;
+        * GrandStaffVerticalScale + GrandStaffVerticalOffset;
 
     public static double GetRenderedStaffSpace(Staff staff)
     {

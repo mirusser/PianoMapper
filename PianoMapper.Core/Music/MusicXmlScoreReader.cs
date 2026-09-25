@@ -500,13 +500,7 @@ public sealed class MusicXmlScoreReader
         else
         {
             var pitchElement = RequiredChild(noteElement, PitchElementName);
-            Pitch notatedPitch = ParsePitch(pitchElement);
-            var soundingPitch = soundingOctavesAboveNotated == 0
-                ? notatedPitch
-                : new Pitch(
-                    notatedPitch.Letter,
-                    notatedPitch.Alter,
-                    notatedPitch.Octave + soundingOctavesAboveNotated);
+            Pitch soundingPitch = ParsePitch(pitchElement);
             notes.Add(new ScoreNote(
                 soundingPitch,
                 noteValue,

@@ -11,9 +11,9 @@
       <direction placement="below">
         <direction-type><octave-shift type="up" size="8" number="1" /></direction-type>
       </direction>
-      <note><pitch><step>B</step><octave>3</octave></pitch><duration>1</duration><type>quarter</type></note>
-      <note><pitch><step>A</step><octave>3</octave></pitch><duration>1</duration><type>quarter</type></note>
-      <note><pitch><step>G</step><octave>3</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>B</step><octave>2</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>A</step><octave>2</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>G</step><octave>2</octave></pitch><duration>1</duration><type>quarter</type></note>
       <direction placement="below">
         <direction-type><octave-shift type="stop" size="8" number="1" /></direction-type>
       </direction>

@@ -576,7 +576,7 @@ public sealed class MusicXmlScoreReaderTests
     }
 
     [Fact]
-    public void Read_OctaveShift8VaFixture_UsesSoundingPitchOnlyInsideSpan()
+    public void Read_OctaveShift8VaFixture_PreservesSoundingPitchInsideSpan()
     {
         var score = new MusicXmlScoreReader().Read(Fixture("octave-shift-8va.musicxml"));
 
@@ -591,7 +591,7 @@ public sealed class MusicXmlScoreReaderTests
     }
 
     [Fact]
-    public void Read_OctaveShift8VbFixture_UsesLowerSoundingPitchOnlyInsideSpan()
+    public void Read_OctaveShift8VbFixture_PreservesLowerSoundingPitchInsideSpan()
     {
         var score = new MusicXmlScoreReader().Read(Fixture("octave-shift-8vb.musicxml"));
 
@@ -610,18 +610,18 @@ public sealed class MusicXmlScoreReaderTests
     [InlineData("down", 22, 3, 7)]
     [InlineData("up", 15, -2, 2)]
     [InlineData("up", 22, -3, 1)]
-    public void Read_OctaveShiftSize_MapsToSignedOctaveOffset(
+    public void Read_OctaveShiftSize_MapsOffsetWithoutChangingSoundingPitch(
         string type,
         int size,
         int expectedOffset,
-        int expectedSoundingOctave)
+        int soundingOctave)
     {
         var score = ReadNotes($$"""
             <direction>
               <direction-type><octave-shift type="{{type}}" size="{{size}}" number="2" /></direction-type>
             </direction>
             <note>
-              <pitch><step>C</step><octave>4</octave></pitch>
+              <pitch><step>C</step><octave>{{soundingOctave}}</octave></pitch>
               <duration>2</duration><type>quarter</type>
             </note>
             """);
@@ -629,7 +629,7 @@ public sealed class MusicXmlScoreReaderTests
         var note = Assert.Single(Assert.Single(score.Measures).Notes);
 
         Assert.Equal(expectedOffset, note.SoundingOctavesAboveNotated);
-        Assert.Equal(expectedSoundingOctave, note.Pitch.Octave);
+        Assert.Equal(soundingOctave, note.Pitch.Octave);
     }
 
     [Fact]

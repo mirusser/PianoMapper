@@ -801,6 +801,32 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
+    public void BuildScore_SimultaneousTrebleAndMiddleCBass_PreservesSeparateStaves()
+    {
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.C, 0, 5), new NoteValue(4), 0, 0, Staff.Treble),
+            new(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Bass),
+        ];
+        var score = ScoreWithNotes(notes);
+        StaffPlacement expectedTreblePosition = GrandStaffLayout.GetPosition(notes[0].Pitch, Staff.Treble);
+        StaffPlacement expectedBassPosition = GrandStaffLayout.GetPosition(notes[1].Pitch, Staff.Bass);
+
+        var renderedNotes = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0).Notes;
+        var renderedTrebleNote = Assert.Single(renderedNotes, note => note.Label == "C5");
+        var renderedBassNote = Assert.Single(renderedNotes, note => note.Label == "C4");
+
+        Assert.Equal(
+            GrandStaffLayout.SeparateStaffY(expectedTreblePosition.Y, Staff.Treble),
+            renderedTrebleNote.Y,
+            precision: 6);
+        Assert.Equal(
+            GrandStaffLayout.SeparateStaffY(expectedBassPosition.Y, Staff.Bass),
+            renderedBassNote.Y,
+            precision: 6);
+    }
+
+    [Fact]
     public void BuildScore_NoteWithoutFingering_LeavesFingeringFieldsNull()
     {
         var sourceNote = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
@@ -1601,24 +1627,39 @@ public sealed class GrandStaffSceneBuilderTests
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
-        var line = Assert.Single(scene.Lines, candidate => candidate.Kind == GrandStaffLineKind.OctaveShift);
+        GrandStaffLine[] lines = scene.Lines
+            .Where(candidate => candidate.Kind == GrandStaffLineKind.OctaveShift)
+            .OrderBy(candidate => candidate.X0)
+            .ToArray();
+        Assert.Equal(2, lines.Length);
+        GrandStaffLine firstSide = lines[0];
+        GrandStaffLine secondSide = lines[1];
         var numeral = Assert.Single(
             scene.Glyphs,
             glyph => glyph.Kind == GrandStaffGlyphKind.OctaveShiftNumeral);
         GrandStaffNote firstShiftedNote = Assert.Single(scene.Notes, note => note.Label == "D5");
         GrandStaffNote lastShiftedNote = Assert.Single(scene.Notes, note => note.Label == "F5");
-        double trebleTopLineY = scene.Lines
+        double[] trebleStaffLineYs = scene.Lines
             .Where(candidate => candidate.Kind == GrandStaffLineKind.Staff)
             .Take(5)
-            .Max(candidate => candidate.Y0);
+            .Select(candidate => candidate.Y0)
+            .Order()
+            .ToArray();
+        double trebleTopLineY = trebleStaffLineYs[^1];
+        double staffSpace = trebleStaffLineYs[1] - trebleStaffLineYs[0];
 
-        Assert.Equal(firstShiftedNote.X, line.X0);
-        Assert.Equal(lastShiftedNote.X, line.X1);
-        Assert.Equal(line.Y0, line.Y1);
-        Assert.True(line.Y0 > trebleTopLineY);
+        Assert.Equal(firstShiftedNote.X, firstSide.X0);
+        Assert.Equal(lastShiftedNote.X, secondSide.X1);
+        Assert.Equal((firstShiftedNote.X + lastShiftedNote.X) / 2d, firstSide.X1, precision: 10);
+        Assert.Equal(firstSide.X1, secondSide.X0);
+        Assert.Equal(firstSide.Y0, secondSide.Y1);
+        Assert.Equal(firstSide.Y1, secondSide.Y0);
+        Assert.True(firstSide.Y1 > firstSide.Y0);
+        Assert.True(firstSide.Y0 >= trebleTopLineY + (2.25 * staffSpace));
+        Assert.True(firstSide.Y1 < 1);
         Assert.Equal("8", numeral.Text);
-        Assert.Equal(line.X0, numeral.X);
-        Assert.Equal(line.Y0, numeral.Y);
+        Assert.Equal(firstSide.X0, numeral.X);
+        Assert.Equal(firstSide.Y0, numeral.Y);
     }
 
     [Fact]
@@ -1629,29 +1670,43 @@ public sealed class GrandStaffSceneBuilderTests
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
-        var line = Assert.Single(scene.Lines, candidate => candidate.Kind == GrandStaffLineKind.OctaveShift);
+        GrandStaffLine[] lines = scene.Lines
+            .Where(candidate => candidate.Kind == GrandStaffLineKind.OctaveShift)
+            .OrderBy(candidate => candidate.X0)
+            .ToArray();
+        Assert.Equal(2, lines.Length);
+        GrandStaffLine firstSide = lines[0];
+        GrandStaffLine secondSide = lines[1];
         var numeral = Assert.Single(
             scene.Glyphs,
             glyph => glyph.Kind == GrandStaffGlyphKind.OctaveShiftNumeral);
         GrandStaffNote firstShiftedNote = Assert.Single(scene.Notes, note => note.Label == "B2");
         GrandStaffNote lastShiftedNote = Assert.Single(scene.Notes, note => note.Label == "G2");
-        double bassBottomLineY = scene.Lines
+        double[] bassStaffLineYs = scene.Lines
             .Where(candidate => candidate.Kind == GrandStaffLineKind.Staff)
             .Skip(5)
-            .Min(candidate => candidate.Y0);
+            .Select(candidate => candidate.Y0)
+            .Order()
+            .ToArray();
+        double bassBottomLineY = bassStaffLineYs[0];
+        double staffSpace = bassStaffLineYs[1] - bassStaffLineYs[0];
 
-        Assert.Equal(firstShiftedNote.X, line.X0);
-        Assert.Equal(lastShiftedNote.X, line.X1);
-        Assert.Equal(line.Y0, line.Y1);
-        Assert.True(line.Y0 < bassBottomLineY);
+        Assert.Equal(firstShiftedNote.X, firstSide.X0);
+        Assert.Equal(lastShiftedNote.X, secondSide.X1);
+        Assert.Equal((firstShiftedNote.X + lastShiftedNote.X) / 2d, firstSide.X1, precision: 10);
+        Assert.Equal(firstSide.X1, secondSide.X0);
+        Assert.Equal(firstSide.Y0, secondSide.Y1);
+        Assert.Equal(firstSide.Y1, secondSide.Y0);
+        Assert.True(firstSide.Y1 < firstSide.Y0);
+        Assert.True(firstSide.Y0 <= bassBottomLineY - (2.25 * staffSpace));
         Assert.Equal("8", numeral.Text);
-        Assert.Equal(line.X0, numeral.X);
-        Assert.Equal(line.Y0, numeral.Y);
+        Assert.Equal(firstSide.X0, numeral.X);
+        Assert.Equal(firstSide.Y0, numeral.Y);
         double bassLabelY = Assert.IsType<double>(firstShiftedNote.LabelY);
         GrandStaffBand bassAnnotationBand = Assert.Single(
             scene.Bands,
             band => bassLabelY >= band.Y0 && bassLabelY <= band.Y1);
-        Assert.True(line.Y0 > bassAnnotationBand.Y1);
+        Assert.True(firstSide.Y1 > bassAnnotationBand.Y1);
     }
 
     [Fact]
