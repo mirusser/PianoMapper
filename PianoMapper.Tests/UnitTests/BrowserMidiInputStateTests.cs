@@ -17,7 +17,7 @@ public sealed class BrowserMidiInputStateTests
         int expectedOctave)
     {
         var timeline = new NoteTimeline();
-        var state = new BrowserMidiInputState(timeline);
+        var state = new BrowserMidiInputState(new BrowserNoteInputState(timeline));
         var midiEvent = CreateEvent($"midi:roland:0:{midiNumber}", midiNumber, velocity: 96, isNoteOn: true);
 
         var command = state.Handle(midiEvent, TimeSpan.FromSeconds(1));
@@ -32,7 +32,7 @@ public sealed class BrowserMidiInputStateTests
     public void Handle_NoteOff_CompletesTrackedNote()
     {
         var timeline = new NoteTimeline();
-        var state = new BrowserMidiInputState(timeline);
+        var state = new BrowserMidiInputState(new BrowserNoteInputState(timeline));
         const string noteId = "midi:roland:0:60";
         var noteOn = state.Handle(CreateEvent(noteId, 60, velocity: 80, isNoteOn: true), TimeSpan.FromSeconds(1));
 
@@ -48,7 +48,7 @@ public sealed class BrowserMidiInputStateTests
     public void Clear_HeldNotes_RemovesThemFromTimeline()
     {
         var timeline = new NoteTimeline();
-        var state = new BrowserMidiInputState(timeline);
+        var state = new BrowserMidiInputState(new BrowserNoteInputState(timeline));
         state.Handle(CreateEvent("midi:roland:0:60", 60, velocity: 80, isNoteOn: true), TimeSpan.FromSeconds(1));
 
         var command = state.Clear(TimeSpan.FromSeconds(2));
@@ -62,7 +62,7 @@ public sealed class BrowserMidiInputStateTests
     public void ReleaseAll_DeviceDisconnected_CompletesEveryHeldNote()
     {
         var timeline = new NoteTimeline();
-        var state = new BrowserMidiInputState(timeline);
+        var state = new BrowserMidiInputState(new BrowserNoteInputState(timeline));
         state.Handle(CreateEvent("midi:roland:0:60", 60, velocity: 80, isNoteOn: true), TimeSpan.FromSeconds(1));
         state.Handle(CreateEvent("midi:roland:0:64", 64, velocity: 80, isNoteOn: true), TimeSpan.FromSeconds(1));
         var releaseTime = TimeSpan.FromSeconds(2);
@@ -72,6 +72,23 @@ public sealed class BrowserMidiInputStateTests
         Assert.Equal(BrowserInputCommandKind.ReleaseHeldNotes, command.Kind);
         Assert.Equal(0, state.ActiveNoteCount);
         Assert.All(timeline.Snapshot(releaseTime), note => Assert.Equal(releaseTime, note.ReleaseTime));
+    }
+
+    [Fact]
+    public void Handle_SharedNoteInputStateAlsoHoldingAPointerNote_TracksBothIndependently()
+    {
+        var timeline = new NoteTimeline();
+        var sharedState = new BrowserNoteInputState(timeline);
+        var midiState = new BrowserMidiInputState(sharedState);
+        sharedState.StartNote("pointer:1", new Pitch(NoteLetter.C, 0, 4), TimeSpan.FromSeconds(1), 90);
+
+        var command = midiState.Handle(
+            CreateEvent("midi:roland:0:64", 64, velocity: 80, isNoteOn: true),
+            TimeSpan.FromSeconds(1));
+
+        Assert.Equal(BrowserInputCommandKind.NoteOn, command.Kind);
+        Assert.Equal(2, midiState.ActiveNoteCount);
+        Assert.Equal(2, sharedState.ActiveNoteCount);
     }
 
     private static BrowserMidiEvent CreateEvent(

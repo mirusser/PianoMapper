@@ -151,7 +151,9 @@
 
     @if (isKeyboardVisible)
     {
-        <FullPianoKeyboard ActiveMidiNumbers="@ActiveKeyboardMidiNumbers" />
+        <FullPianoKeyboard ActiveMidiNumbers="@ActiveKeyboardMidiNumbers"
+                           PointerNoteOn="PointerNoteOn"
+                           PointerNoteOff="PointerNoteOff" />
     }
 
     <details class="learning-disclosure visualization-help">
@@ -293,6 +295,12 @@
 
     [Parameter, EditorRequired]
     public IReadOnlySet<int> ActiveKeyboardMidiNumbers { get; set; } = new HashSet<int>();
+
+    [Parameter]
+    public EventCallback<BrowserPointerNoteOnEvent> PointerNoteOn { get; set; }
+
+    [Parameter]
+    public EventCallback<BrowserPointerNoteOffEvent> PointerNoteOff { get; set; }
 
     private ScoreCursorPlaybackState? lastPushedScoreCursor;
     private ScoreCursorPlaybackState? lastPushedSecondaryScoreCursor;

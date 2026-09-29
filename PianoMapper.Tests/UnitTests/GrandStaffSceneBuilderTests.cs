@@ -355,6 +355,44 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
+    public void BuildScore_TrebleNoteWellBelowMiddleC_StaysOnTrebleStaffWithLedgerLines()
+    {
+        // Regression test: a treble-only exercise (e.g. the "ledger lines" preset, which deliberately
+        // requires at least one prompt below the staff) can legitimately compose a note as low as A3 —
+        // still Staff.Treble throughout, notated with ledger lines below the staff, never Staff.Bass.
+        // GrandStaffLayout.GetLivePosition (MIDI < 60 => Bass) exists for *live*, un-scored pitches with
+        // no authored staff at all; it must not override an explicitly authored Staff.Treble note just
+        // because the pitch alone would read as "bass register" in isolation.
+        var lowNote = new ScoreNote(new Pitch(NoteLetter.A, 0, 3), new NoteValue(4), 0, 0, Staff.Treble);
+        var higherNote = new ScoreNote(new Pitch(NoteLetter.G, 0, 4), new NoteValue(4), 0, 1, Staff.Treble);
+        var score = new Score(
+            "test",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure([lowNote, higherNote], [])]);
+
+        GrandStaffScene scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        GrandStaffNote renderedLowNote = scene.Notes.Single(note => note.Address == new ScoreNoteAddress(0, 0));
+
+        // GetPosition's raw Y is staff-independent by design (both staves share one continuous diatonic
+        // pitch axis) — only GrandStaffLayout.SeparateStaffY's staff-specific push actually splits the two
+        // staff systems apart on screen. So the visible symptom of this bug isn't a slightly-off Y among
+        // extra ledger lines: a misclassified note gets yanked by a full 2 * StaffSeparationOffset into the
+        // other staff's block, exactly matching the reported screenshot (a note sitting on the bass staff,
+        // not just under-ledgered on the treble staff).
+        double expectedTrebleY = GrandStaffLayout.SeparateStaffY(
+            GrandStaffLayout.GetPosition(lowNote.Pitch, Staff.Treble).Y,
+            Staff.Treble);
+        double bassY = GrandStaffLayout.SeparateStaffY(
+            GrandStaffLayout.GetPosition(lowNote.Pitch, Staff.Bass).Y,
+            Staff.Bass);
+        Assert.NotEqual(bassY, expectedTrebleY); // sanity: the two staves really do render this pitch differently
+        Assert.Equal(expectedTrebleY, renderedLowNote.Y, 6);
+    }
+
+    [Fact]
     public void Build_LivePerformedNote_HasNoScoreNoteAddress()
     {
         var note = new PerformedNote
@@ -583,6 +621,71 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.NotNull(renderedNote.FingeringY);
         Assert.True(renderedNote.LabelY > renderedNote.FingeringY);
         Assert.True(renderedNote.LabelY - renderedNote.FingeringY >= staffSpace);
+    }
+
+    [Theory]
+    [InlineData(NoteLetter.C, 4)] // five-note preset's lowest possible note: one ledger line below the staff
+    [InlineData(NoteLetter.A, 3)] // ledger-lines preset's lowest possible note: two ledger lines below the staff
+    public void BuildScore_LowTrebleNoteWithBothLabelAndFingering_FingeringClearsTheBassStaff(
+        NoteLetter letter,
+        int octave)
+    {
+        // Regression test for a reported bug: with both the note-name and fingering rows shown at once for a
+        // low treble note (needing ledger lines below the staff), the fingering row could run far enough down
+        // to visually overlap the bass staff below it — most visible at the smallest clamped canvas height.
+        // Asserts the fix's invariant (a real, positive clearance above the bass staff's top line) rather than
+        // recomputing the exact clamped value the production code itself computes.
+        var sourceNote = new ScoreNote(
+            new Pitch(letter, 0, octave),
+            new NoteValue(4),
+            0,
+            0,
+            Staff.Treble,
+            Fingering: new ScoreFingering(3));
+        var score = SingleNoteScore(sourceNote);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+        var renderedNote = Assert.Single(scene.Notes);
+        var staffLines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Staff).ToArray();
+        double bassTopLineY = staffLines.Skip(5).Max(line => line.Y0);
+        double staffSpace = staffLines[1].Y0 - staffLines[0].Y0;
+
+        Assert.NotNull(renderedNote.FingeringY);
+        Assert.True(
+            renderedNote.FingeringY!.Value > bassTopLineY,
+            $"Fingering Y ({renderedNote.FingeringY}) must stay above the bass staff's top line ({bassTopLineY}).");
+        Assert.True(
+            renderedNote.FingeringY!.Value - bassTopLineY >= staffSpace / 2,
+            "Fingering must clear the bass staff by a real margin, not just barely avoid touching it.");
+    }
+
+    [Fact]
+    public void BuildScore_ThreeNoteTrebleChordWithLabelsAndFingering_NoAnnotationCrossesIntoBassStaff()
+    {
+        // Regression test for a reported bug, worst-case variant: a 3-note chord (e.g. the "Chords" exercise
+        // preset's triads) stacks three label rows, and together with a fingering row that adds up to more
+        // depth than a single label row ever needed — confirmed (via manual reproduction against the
+        // unfixed code) to spill directly onto the bass staff's lines. The fix compresses stacked label
+        // spacing and clamps the fingering row so nothing crosses below the bass staff's top line. It does
+        // NOT claim three label rows plus a fingering row all stay legibly separated *from each other* in
+        // this extreme case — that would need more room than a fixed-size grand staff has at its smallest
+        // clamped canvas height, and is a separate, known limitation this test doesn't attempt to solve.
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble, Fingering: new ScoreFingering(5)),
+            new(new Pitch(NoteLetter.E, 0, 4), new NoteValue(4), 0, 0, Staff.Treble, Fingering: new ScoreFingering(3)),
+            new(new Pitch(NoteLetter.G, 0, 4), new NoteValue(4), 0, 0, Staff.Treble, Fingering: new ScoreFingering(1)),
+        ];
+        var score = ScoreWithNotes(notes);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+        var staffLines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Staff).ToArray();
+        double bassTopLineY = staffLines.Skip(5).Max(line => line.Y0);
+
+        Assert.All(scene.Notes, note => Assert.NotNull(note.LabelY));
+        Assert.All(scene.Notes, note => Assert.NotNull(note.FingeringY));
+        Assert.All(scene.Notes, note => Assert.True(note.LabelY!.Value >= bassTopLineY));
+        Assert.All(scene.Notes, note => Assert.True(note.FingeringY!.Value >= bassTopLineY));
     }
 
     [Theory]

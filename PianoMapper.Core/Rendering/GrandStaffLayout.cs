@@ -462,12 +462,27 @@ public static class GrandStaffLayout
         return rowCount;
     }
 
+    /// <summary>
+    /// <paramref name="floorY"/> is the lowest Y this staff's annotation rows may reach — in practice, a small
+    /// margin above the next staff down (only meaningful for the treble staff, since only its downward-growing
+    /// annotations can run into the staff below; bass has nothing below it to protect, so its caller passes
+    /// null). Two things can push annotation content past a tight fixed gap between the two staff systems, most
+    /// visibly at the smallest clamped canvas height: (1) a label row plus a fingering row together, and (2)
+    /// several *stacked* label rows from simultaneous notes (e.g. a chord) alone. Both are guarded: stacked
+    /// label rows compress their spacing (via <see cref="AnnotationRows.EffectiveLabelRowSeparation"/>, which
+    /// <see cref="GrandStaffSceneBuilder"/> must use instead of the raw <see cref="LabelRowSeparation"/> constant
+    /// when placing each note's own label) just enough to keep the lowest one at or above the floor, and the
+    /// fingering row is separately clamped up to the floor instead of running past it. Both guards are no-ops
+    /// whenever there's already enough room, so every case that fit before (no floor given, a single row, or a
+    /// tall enough canvas) renders pixel-identically to before this parameter existed.
+    /// </summary>
     public static AnnotationRows GetAnnotationRows(
         Staff staff,
         IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> visibleNotes,
         double notationBottomY,
         int labelRowCount,
-        bool showFingerings)
+        bool showFingerings,
+        double? floorY = null)
     {
         bool hasLabel = labelRowCount > 0;
         bool hasFingering = showFingerings
@@ -479,17 +494,34 @@ public static class GrandStaffLayout
 
         double firstRowY = notationBottomY - AnnotationNotationGap - AnnotationBandPadding;
         double? labelY = hasLabel ? firstRowY : null;
+
+        // Compress the per-row label spacing only enough to keep the lowest stacked label row from crossing
+        // floorY — e.g. a two- or three-note chord's label stack. A single row (the overwhelmingly common case)
+        // never compresses, since there's nothing to compress between just one row.
+        double effectiveLabelRowSeparation = LabelRowSeparation;
+        if (hasLabel && labelRowCount > 1 && floorY is { } labelFloor)
+        {
+            double naturalLowestLabelY = firstRowY - ((labelRowCount - 1) * LabelRowSeparation);
+            if (naturalLowestLabelY < labelFloor)
+            {
+                effectiveLabelRowSeparation = Math.Max(0, (firstRowY - labelFloor) / (labelRowCount - 1));
+            }
+        }
+
         double? lowestLabelY = hasLabel
-            ? firstRowY - ((labelRowCount - 1) * LabelRowSeparation)
+            ? firstRowY - ((labelRowCount - 1) * effectiveLabelRowSeparation)
             : null;
-        double? fingeringY = hasFingering
+        double? naturalFingeringY = hasFingering
             ? (lowestLabelY ?? firstRowY) - (hasLabel ? FingeringRowSeparation : 0)
             : null;
+        double? fingeringY = naturalFingeringY is { } naturalY && floorY is { } floor
+            ? Math.Max(naturalY, floor)
+            : naturalFingeringY;
         double bandY0 = Math.Min(lowestLabelY ?? double.MaxValue, fingeringY ?? double.MaxValue)
             - AnnotationBandPadding;
         double bandY1 = Math.Max(labelY ?? double.MinValue, fingeringY ?? double.MinValue)
             + AnnotationBandPadding;
-        return new AnnotationRows(labelY, fingeringY, bandY0, bandY1);
+        return new AnnotationRows(labelY, fingeringY, bandY0, bandY1, effectiveLabelRowSeparation);
     }
 }
 
@@ -501,4 +533,5 @@ public readonly record struct AnnotationRows(
     double? LabelY,
     double? FingeringY,
     double? BandY0,
-    double? BandY1);
+    double? BandY1,
+    double EffectiveLabelRowSeparation = GrandStaffLayout.LabelRowSeparation);

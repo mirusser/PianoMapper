@@ -1,0 +1,85 @@
+<details class="control-card settings-card" aria-labelledby="sight-reading-history-heading">
+    <summary class="control-card-heading">
+        <h2 id="sight-reading-history-heading">Progress</h2>
+        <span>Local history and pitch mastery</span>
+    </summary>
+    <section aria-labelledby="recent-sessions-heading">
+        <h3 id="recent-sessions-heading">Recent sessions</h3>
+        @if (RecentSessions.Count == 0)
+        {
+            <p class="control-note">No completed exercises yet. Finish one to start building history.</p>
+        }
+        else
+        {
+            <ul class="history-session-list">
+                @foreach (SightReadingSessionSummary session in RecentSessions)
+                {
+                    <li>
+                        @session.CompletedAt.ToLocalTime().ToString("g", CultureInfo.InvariantCulture) ·
+                        @session.PresetId (@session.Staff) ·
+                        @session.FirstTryCorrectCount of @session.PromptCount first-try correct ·
+                        @session.WrongAttemptCount mistake(s) ·
+                        @session.ElapsedTime.ToString(@"m\:ss", CultureInfo.InvariantCulture) elapsed
+                    </li>
+                }
+            </ul>
+        }
+    </section>
+    <section aria-labelledby="pitch-mastery-heading">
+        <h3 id="pitch-mastery-heading">Pitch mastery</h3>
+        @if (WeakestPitches.Count == 0)
+        {
+            <p class="control-note">Not enough attempts yet to rank individual pitches.</p>
+        }
+        else
+        {
+            <ul class="history-mastery-list">
+                @foreach (PitchMastery mastery in WeakestPitches)
+                {
+                    <li>
+                        @mastery.Pitch.ToString() —
+                        @mastery.AccuracyPercent.ToString("F0", CultureInfo.InvariantCulture)% first-try
+                        (@mastery.CorrectFirstTryCount of @mastery.AttemptCount)
+                    </li>
+                }
+            </ul>
+        }
+        @if (InsufficientDataPitchCount > 0)
+        {
+            <p class="control-note">
+                @InsufficientDataPitchCount more pitch(es) need more attempts before mastery is meaningful.
+            </p>
+        }
+    </section>
+    <button class="button-quiet" type="button" @onclick="ClearHistoryAsync" disabled="@(RecentSessions.Count == 0)">
+        Clear local history
+    </button>
+</details>
+
+@code {
+    [Parameter]
+    public IReadOnlyList<SightReadingSessionSummary> RecentSessions { get; set; } = [];
+
+    [Parameter]
+    public IReadOnlyList<PitchMastery> WeakestPitches { get; set; } = [];
+
+    [Parameter]
+    public int InsufficientDataPitchCount { get; set; }
+
+    [Parameter]
+    public EventCallback ClearHistory { get; set; }
+
+    [Inject]
+    private IJSRuntime JS { get; set; } = null!;
+
+    private async Task ClearHistoryAsync()
+    {
+        bool confirmed = await JS.InvokeAsync<bool>(
+            "confirm",
+            "Clear your local note-reading history? This can't be undone and doesn't affect saved scores.");
+        if (confirmed)
+        {
+            await ClearHistory.InvokeAsync();
+        }
+    }
+}

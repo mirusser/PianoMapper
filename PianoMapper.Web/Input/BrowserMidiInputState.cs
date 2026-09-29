@@ -1,12 +1,17 @@
-using PianoMapper.Music;
-
 namespace PianoMapper.Web.Input;
 
-internal sealed class BrowserMidiInputState(NoteTimeline timeline)
+/// <summary>
+/// Parses MIDI-specific events (note IDs, MIDI numbers 0-127, the "note-on with velocity 0 means note-off"
+/// convention) and drives the source-neutral <see cref="BrowserNoteInputState"/> with them. Existing MIDI behavior
+/// (88-key range, velocity handling, timeline updates, browser input commands) is unchanged by this adapter split —
+/// see <see cref="BrowserNoteInputState"/> for the actual note tracking.
+/// </summary>
+internal sealed class BrowserMidiInputState(BrowserNoteInputState noteInputState)
 {
-    private readonly Dictionary<string, PerformedNote> activeNotes = new(StringComparer.Ordinal);
+    private readonly BrowserNoteInputState noteInputState =
+        noteInputState ?? throw new ArgumentNullException(nameof(noteInputState));
 
-    internal int ActiveNoteCount => activeNotes.Count;
+    internal int ActiveNoteCount => noteInputState.ActiveNoteCount;
 
     internal BrowserInputCommand Handle(BrowserMidiEvent midiEvent, TimeSpan eventTime)
     {
@@ -19,91 +24,24 @@ internal sealed class BrowserMidiInputState(NoteTimeline timeline)
 
         if (!midiEvent.IsNoteOn)
         {
-            return Release(midiEvent.NoteId, eventTime);
+            return noteInputState.ReleaseNote(midiEvent.NoteId, eventTime);
         }
 
-        if (midiEvent.Velocity == 0 || activeNotes.ContainsKey(midiEvent.NoteId))
+        // MIDI convention: a note-on with velocity 0 means note-off. This is a MIDI-specific quirk, so it's handled
+        // here in the adapter rather than in the source-neutral state.
+        if (midiEvent.Velocity == 0)
         {
             return new BrowserInputCommand(BrowserInputCommandKind.None, IsHandled: true);
         }
 
-        Pitch pitch = CreatePitch(midiEvent.MidiNumber);
-        var note = timeline.Start(pitch, eventTime);
-        activeNotes.Add(midiEvent.NoteId, note);
-        return new BrowserInputCommand(
-            BrowserInputCommandKind.NoteOn,
-            IsHandled: true,
+        return noteInputState.StartNote(
             midiEvent.NoteId,
-            pitch,
-            note,
+            MidiPitchMapping.CreatePitch(midiEvent.MidiNumber),
             eventTime,
             midiEvent.Velocity);
     }
 
-    internal BrowserInputCommand Clear(TimeSpan eventTime)
-    {
-        timeline.Remove(activeNotes.Values.ToArray());
-        activeNotes.Clear();
-        return new BrowserInputCommand(
-            BrowserInputCommandKind.Clear,
-            IsHandled: true,
-            EventTime: eventTime);
-    }
+    internal BrowserInputCommand Clear(TimeSpan eventTime) => noteInputState.Clear(eventTime);
 
-    internal BrowserInputCommand ReleaseAll(TimeSpan eventTime)
-    {
-        if (activeNotes.Count == 0)
-        {
-            return new BrowserInputCommand(BrowserInputCommandKind.None, IsHandled: true);
-        }
-
-        foreach (PerformedNote note in activeNotes.Values)
-        {
-            timeline.Complete(note, eventTime);
-        }
-
-        activeNotes.Clear();
-        return new BrowserInputCommand(
-            BrowserInputCommandKind.ReleaseHeldNotes,
-            IsHandled: true,
-            EventTime: eventTime);
-    }
-
-    private BrowserInputCommand Release(string noteId, TimeSpan eventTime)
-    {
-        if (!activeNotes.Remove(noteId, out var note))
-        {
-            return new BrowserInputCommand(BrowserInputCommandKind.None, IsHandled: true);
-        }
-
-        timeline.Complete(note, eventTime);
-        return new BrowserInputCommand(
-            BrowserInputCommandKind.NoteOff,
-            IsHandled: true,
-            noteId,
-            note.Pitch,
-            note,
-            eventTime);
-    }
-
-    private static Pitch CreatePitch(int midiNumber)
-    {
-        int octave = (midiNumber / 12) - 1;
-        return (midiNumber % 12) switch
-        {
-            0 => new Pitch(NoteLetter.C, 0, octave),
-            1 => new Pitch(NoteLetter.C, 1, octave),
-            2 => new Pitch(NoteLetter.D, 0, octave),
-            3 => new Pitch(NoteLetter.D, 1, octave),
-            4 => new Pitch(NoteLetter.E, 0, octave),
-            5 => new Pitch(NoteLetter.F, 0, octave),
-            6 => new Pitch(NoteLetter.F, 1, octave),
-            7 => new Pitch(NoteLetter.G, 0, octave),
-            8 => new Pitch(NoteLetter.G, 1, octave),
-            9 => new Pitch(NoteLetter.A, 0, octave),
-            10 => new Pitch(NoteLetter.A, 1, octave),
-            11 => new Pitch(NoteLetter.B, 0, octave),
-            _ => throw new InvalidOperationException(),
-        };
-    }
+    internal BrowserInputCommand ReleaseAll(TimeSpan eventTime) => noteInputState.ReleaseAll(eventTime);
 }

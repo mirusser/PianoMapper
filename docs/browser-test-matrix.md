@@ -78,3 +78,23 @@ Use the Roland FP-10 through its USB COMPUTER port.
 | Note-off forms | Play and release notes normally. | Explicit note-off and zero-velocity note-on messages both release without sticking. | Automated pass, 2026-09-11 |
 | Hot disconnect | Hold a chord and unplug the USB cable. Reconnect it afterward. | Held app notes release, status changes to no input, and the reconnected piano is detected without a page reload. | Pending |
 | Computer note keys removed | Press the former note and octave shortcuts. | No note sounds and the notation focus does not change; remaining command shortcuts continue to work. | Automated pass, 2026-09-11 |
+
+## Note-reading exercise
+
+Covers the generated, self-paced note-reading exercise panel: transitions, review, every input source, local-storage
+history, representative presets, rhythm, and adaptive generation from mastery history. Automated coverage already
+exists for the underlying logic (composer, coordinator, session, input adapters — see `PianoMapper.Tests`); the rows
+below are the browser-only behaviors that logic can't verify by itself.
+
+| Scenario | Action | Expected result | Result |
+|---|---|---|---|
+| Clean Generate/Retry/End transitions | Generate an exercise, retry it, retry only the missed notes after completing it, then end it. Repeat starting a new exercise mid-review without ending first. | Each transition clears prior progress/mistakes as appropriate, never leaves a stuck note from the previous exercise, and the panel's buttons enable/disable correctly (Retry only while active, Retry missed only when review has misses, End only while active). | Pending |
+| Hidden until review, revealed on review | Play through an exercise, including at least one wrong attempt on a prompt. | Note names and fingerings stay hidden while the exercise is active. Once complete, the review shows accurate per-prompt first-try correct/incorrect feedback and reveals note names/fingerings. | Pending |
+| Input source: MIDI | Complete an exercise using only the connected MIDI piano. | Every prompt grades correctly; no stuck notes after completion. | Pending |
+| Input source: on-screen piano | Complete an exercise using only pointer/mouse clicks (and, on a touch device, touch) on the on-screen 88-key piano. | Every prompt grades correctly; no stuck notes; multitouch on a touch device can hold a chord prompt. | Pending |
+| Input source: computer keyboard | Enable the computer-key toggle and complete an exercise using only the keyboard. | Every prompt grades correctly; no stuck notes; releasing focus mid-hold (switch tabs, then return) does not leave a key permanently unresponsive. | Pending |
+| Local-storage history failure | Block or fill local storage (e.g. via browser dev tools), then complete an exercise. | The exercise still completes and grades normally; the app does not crash; history/mastery-based weighting silently falls back to the balanced generator instead of erroring. | Pending |
+| Representative presets | Generate one exercise each for five-note, ledger-lines, G major (key signature), and chords, on both treble and bass staff, and once with the grand-staff option on. | Each preset's notation matches its documented range/key/chord content; grand staff alternates hands correctly. | Pending |
+| 4/4 basic rhythm | Generate an exercise with the Basic rhythm preset. | The count-in plays for one full 4/4 measure before grading starts; note values (quarter/half/eighth pairs) render and grade correctly against tempo-relative timing. | Pending |
+| 6/8 compound rhythm | Generate an exercise with the Compound rhythm preset. | The count-in plays for one full 6/8 measure; dotted-quarter/eighth-triplet groupings render and grade correctly. | Pending |
+| Adaptive generation | Deliberately miss the same pitch repeatedly across a few completed exercises, then generate a new one. | The new exercise's prompts noticeably favor the repeatedly-missed pitch more than a fresh/neutral history would, while every pitch in the preset's palette still appears. | Pending |

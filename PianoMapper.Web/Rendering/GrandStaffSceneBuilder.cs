@@ -144,6 +144,17 @@ internal static class GrandStaffSceneBuilder
         int clampedMeasure = ClampFirstVisibleMeasure(score, firstVisibleMeasure);
         var visibleNotes = new List<(ScoreNote Note, ScoreNoteLayout Layout)>();
         var visibleNoteAddresses = new List<ScoreNoteAddress>();
+        // Pitch-based staff reassignment below exists for two genuinely ambiguous cases: (1) grand-staff
+        // (dual-hand) content, where e.g. a left-hand passage written high enough visually belongs with the
+        // right hand, and (2) an octave-shifted note (SoundingOctavesAboveNotated != 0), whose *notated*
+        // pitch can legitimately land on a different staff than its sounding pitch's authored Staff — that's
+        // how the octave-shift bracket feature decides which staff to draw it on. Neither case applies to a
+        // single-staff score's ordinary (non-shifted) notes: there, an authored Staff.Treble note must stay
+        // on the treble staff no matter how low its pitch is — ledger lines below the staff are ordinary
+        // treble notation, not "actually bass" — and symmetrically for a bass-only score. Scanning the whole
+        // score (not just the visible window) keeps this decision stable as the visible measure range changes.
+        bool scoreUsesBothStaves = score.Measures.Any(measure => measure.Notes.Any(note => note.Staff == Staff.Treble)) &&
+            score.Measures.Any(measure => measure.Notes.Any(note => note.Staff == Staff.Bass));
         // GetScoreNoteLayout below culls any note whose MeasureIndex falls outside
         // [clampedMeasure, clampedMeasure + visibleMeasureCount), so only that range can ever
         // contribute a note — bound the loop to it instead of scanning the whole score, which
@@ -164,10 +175,11 @@ internal static class GrandStaffSceneBuilder
             for (int noteIndex = 0; noteIndex < measure.Notes.Count; noteIndex++)
             {
                 ScoreNote note = measure.Notes[noteIndex];
-                Staff notationStaff = note.Staff == Staff.Bass &&
-                    (hasBassRegisterNote || isGrandStaffChordOnlyMeasure)
-                    ? Staff.Bass
-                    : GrandStaffLayout.GetLivePosition(GrandStaffLayout.GetNotatedPitch(note)).Staff;
+                Staff notationStaff = !scoreUsesBothStaves && note.SoundingOctavesAboveNotated == 0
+                    ? note.Staff
+                    : note.Staff == Staff.Bass && (hasBassRegisterNote || isGrandStaffChordOnlyMeasure)
+                        ? Staff.Bass
+                        : GrandStaffLayout.GetLivePosition(GrandStaffLayout.GetNotatedPitch(note)).Staff;
                 ScoreNote notationNote = note with { Staff = notationStaff };
                 if (GrandStaffLayout.GetScoreNoteLayout(
                         notationNote,
@@ -205,12 +217,29 @@ internal static class GrandStaffSceneBuilder
             Staff.Treble,
             visibleNotes,
             GrandStaffLayout.GetNotationBottomY(Staff.Treble, visibleNotes, beamOverrides));
+        // Guards the treble staff's annotation rows from running into the bass staff below when both a note-name
+        // row and a fingering row are shown at once — see GetAnnotationRows's floorY parameter doc comment.
+        // Margin reuses LabelRowSeparation (not the smaller AnnotationNotationGap/AnnotationBandPadding) because
+        // it's the constant already calibrated to keep a rendered text row legible at the minimum canvas height
+        // (see its own doc comment) — the smaller gap constants proved too thin to actually engage the clamp for
+        // realistic content (verified: for a C4/A3 ledger-line note, the natural fingering position sits at or a
+        // hair above that narrower floor, never below it).
+        // Guards the treble staff's annotation rows from running into the bass staff below when both a note-name
+        // row and a fingering row are shown at once — see GetAnnotationRows's floorY parameter doc comment.
+        // Margin reuses LabelRowSeparation (not the smaller AnnotationNotationGap/AnnotationBandPadding) because
+        // it's the constant already calibrated to keep a rendered text row legible at the minimum canvas height
+        // (see its own doc comment) — the smaller gap constants proved too thin to actually engage the clamp for
+        // realistic content (verified: for a C4/A3 ledger-line note, the natural fingering position sits at or a
+        // hair above that narrower floor, never below it).
+        double trebleAnnotationFloorY = GrandStaffLayout.SeparateStaffY(GrandStaffLayout.BassLineYs[^1], Staff.Bass)
+            + GrandStaffLayout.LabelRowSeparation;
         AnnotationRows trebleAnnotationRows = GrandStaffLayout.GetAnnotationRows(
             Staff.Treble,
             visibleNotes,
             trebleNotationBottomY,
             showNoteLabels ? GrandStaffLayout.GetLabelRowCount(Staff.Treble, visibleNotes, labelRowIndexes) : 0,
-            showFingerings);
+            showFingerings,
+            trebleAnnotationFloorY);
         double bassNotationBottomY = IncludeDownwardOctaveShiftInNotationBottom(
             Staff.Bass,
             visibleNotes,
@@ -277,7 +306,7 @@ internal static class GrandStaffSceneBuilder
                 verdict,
                 StemEndY: isBeamed ? beamOverride.StemEndY : null,
                 LabelY: showNoteLabels && annotationRows.LabelY is { } labelY
-                    ? labelY - (labelRowIndexes[visibleNoteIndex] * GrandStaffLayout.LabelRowSeparation)
+                    ? labelY - (labelRowIndexes[visibleNoteIndex] * annotationRows.EffectiveLabelRowSeparation)
                     : null,
                 ScoreOnsetBeats: scoreOnsetBeats,
                 ScoreEndBeats: scoreEndBeats,

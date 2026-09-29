@@ -5,9 +5,9 @@ PianoMapper captures piano performances and renders them as notation. The reposi
 ## Features
 
 - Browser USB MIDI input with velocity-sensitive note-on/note-off handling across an 88-key piano, plus MIDI output to the Roland FP-10 sound engine.
-- Computer-key note input and octave selection in the legacy desktop client.
+- Computer-key note input and octave selection in the desktop client. The browser app has an equivalent, opt-in toggle that maps a typing-piano-style row of keys to notes, without requiring MIDI.
 - Live grand staff and scrolling piano roll with clefs, ledger lines, accidentals, and note duration.
-- A full 88-key browser piano from A0 through C8 that highlights live input and score-playback notes while they sound.
+- A full 88-key browser piano from A0 through C8, playable by mouse, touch (including multitouch), or MIDI, that highlights live input and score-playback notes while they sound.
 - Strict MusicXML (`.mxl`, `.musicxml`, or `.xml`) import for one part and up to two staves, including chords, ties, rests, dotted values, beam groups, backup/forward timing, preserved `up`/`down` stem direction, tuplet ratios (with a rendered numeral for beamed triplets), and editable or automatically generated piano fingering numbers.
 - Rendered `<notations>` marks on the grand staff: fermata, a beginner-piano articulation subset (staccato, tenuto, accent, staccatissimo), a trill-mark ornament, accidental marks, slurs (a thin arc distinct from a tie), arpeggiated/non-arpeggiated chord marks (a wavy line or bracket to the left of the chord), and glissando/slide lines connecting two noteheads. An articulation or ornament outside the supported subset fails import with a readable error instead of being silently dropped.
 - MusicXML `<direction>`-level octave shifts in both directions and all standard sizes (8va/8vb, 15ma/15mb, and 22a/22b), preserving MusicXML's sounding `<pitch>` for playback and grading while rendering the written staff position with a dashed bracket and an `8`, `15`, or `22` numeral.
@@ -16,7 +16,7 @@ PianoMapper captures piano performances and renders them as notation. The reposi
 - Scheduled score playback, measure navigation, a tempo cursor, and random-measure playback. In the browser, imported scores keep a configurable grand-staff page size (a "Measures per page" control, defaulting to five measures, from one to twelve) and the next page visible together; playback and Practice alternate between those rows without replacing the row being played.
 - Count-in practice with pitch/timing/duration verdicts and an accuracy summary.
 - Selectable idle score checking for pitch/order only, written hold duration, or hold duration plus tempo-relative rhythm.
-- Generated, self-paced note-reading exercises with treble or bass ranges, highlighted prompts, first-try accuracy, and mistake counts.
+- Generated, self-paced note-reading exercises: treble, bass, or alternating grand-staff ranges; five-note, one-octave, ledger-line, G major, F major, and triad-chord presets; fixed quarter notes or variable 4/4 and 6/8 rhythm presets with a one-measure metronome count-in; and pitch-only, pitch-plus-hold-duration, or full rhythm grading modes. Playable by MIDI, the on-screen piano, or the optional computer-key toggle — MIDI is never required. Answers stay hidden while an exercise is active and are revealed in a per-prompt review once it completes, alongside first-try accuracy, mistake counts, elapsed time, and a **Retry missed notes** action. Completed exercises are saved to browser-local history (degrading safely if local storage is unavailable) and inform which pitches the next generated exercise favors, weighted toward pitches with lower recent first-try accuracy.
 - Optional browser metronome with accented downbeats, on-tempo feedback, and adjustable timing tolerance.
 - Piano-style multi-harmonic synthesis, oscilloscope, and spectrum.
 - Browser-local Web Audio, static publishing, and offline PWA startup after the first online load.
@@ -92,7 +92,7 @@ The browser keyboard listener belongs to the focused play surface. It ignores fo
 
 | Function | Desktop | Browser |
 |---|---|---|
-| Notes | `A W S E D F R J U K I L ;` | Connected USB MIDI piano |
+| Notes | `A W S E D F R J U K I L ;` | Connected USB MIDI piano, mouse/touch on the on-screen 88-key piano, or the optional computer-key toggle (`Z S X D C V G B H N J M , L .`) |
 | Clear notes | Space | `C` |
 | Octave down/up | Arrow Down/Up | On-page notation-focus buttons |
 | Select octave | `1` through `8` | On-page notation-focus selector |
@@ -104,7 +104,9 @@ The browser keyboard listener belongs to the focused play surface. It ignores fo
 | Random measure | `M` | `M` |
 | Exit | `Q` | Use the browser tab/window control |
 
-In the desktop app, changing octave while holding a note still releases the pitch that originally started. In the browser, an active practice session aborts on visibility loss and can be retried with T or the visible button. Disconnecting a MIDI device releases any notes it was holding in PianoMapper.
+In the desktop app, changing octave while holding a note still releases the pitch that originally started. In the browser, an active practice session aborts on visibility loss and can be retried with T or the visible button. Disconnecting a MIDI device, or losing tab focus or visibility, releases any notes held by MIDI, the on-screen piano, or the computer-key toggle.
+
+The browser's computer-key toggle is off by default and its codes intentionally overlap a few existing shortcuts (`C`, `V`, `M`); when it's on, piano notes take priority on those codes over Clear notes, Toggle staff/roll, and Random measure. Its mapped octave follows the same notation-focus octave control the MIDI/on-screen piano uses.
 
 ## Publish the browser PWA
 
@@ -140,7 +142,7 @@ The manual browser checklist and current evidence are in [docs/browser-test-matr
 - Tuplets import and play back at the correct duration for any `actual:normal` ratio, but only a beamed triplet (3:2) gets a rendered numeral on the grand staff today; other ratios and unbeamed tuplets import and sound correctly without a visual indicator.
 - `<other-notation>`, MusicXML's arbitrary vendor-extension escape hatch (a `type` attribute plus free text, no fixed visual meaning), imports without error but is deliberately never rendered — inventing a generic visual for unknown vendor content would be guessing, not implementing a notation.
 - OMR output depends on scan quality and Audiveris recognition. The image importer corrects the narrow beginner-score case where an isolated fingering `3` is exported as an unbeamed quarter-note triplet. Fingering mistakes can be corrected on the grand staff; pitch, rhythm, and other recognition mistakes still require an external score editor.
-- A touch piano, accounts, backend synchronization, and mobile-specific layout are outside the current browser release.
+- The 88-key browser piano responds to touch and supports multitouch, but accounts, backend synchronization, and mobile-specific layout are outside the current browser release.
 - Web MIDI input and FP-10 output depend on browser support, MIDI permission, and a secure context; the browser app reports when any of these prevent connection.
 - Web MIDI sustain-pedal control changes are not interpreted; hold-duration checking ends a note when its key sends note-off.
 - The desktop app uses OpenAL PCM synthesis. The browser's Synth and PC piano sources use Web Audio with equivalent note lifecycle; the FP-10 source sends MIDI rather than browser audio.

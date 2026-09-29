@@ -16,6 +16,14 @@ export function attach(element, dotNetReference, handledCodes) {
         event.preventDefault();
         invoke(dotNetReference, "HandleKeyDownAsync", createKeyboardEvent(event));
     };
+    const keyUp = event => {
+        if (isEditableTarget(event.target) || !handledCodeSet.has(event.code)) {
+            return;
+        }
+
+        event.preventDefault();
+        invoke(dotNetReference, "HandleKeyUpAsync", createKeyboardEvent(event));
+    };
     const focusLost = event => {
         if (event?.relatedTarget && element.contains(event.relatedTarget)) {
             return;
@@ -31,9 +39,10 @@ export function attach(element, dotNetReference, handledCodes) {
     };
 
     element.addEventListener("keydown", keyDown);
+    element.addEventListener("keyup", keyUp);
     element.addEventListener("focusout", focusLost);
     document.addEventListener("visibilitychange", visibilityChanged);
-    attachedKeyboard = { element, keyDown, focusLost, visibilityChanged };
+    attachedKeyboard = { element, keyDown, keyUp, focusLost, visibilityChanged };
 }
 
 export function dispose() {
@@ -41,8 +50,9 @@ export function dispose() {
         return;
     }
 
-    const { element, keyDown, focusLost, visibilityChanged } = attachedKeyboard;
+    const { element, keyDown, keyUp, focusLost, visibilityChanged } = attachedKeyboard;
     element.removeEventListener("keydown", keyDown);
+    element.removeEventListener("keyup", keyUp);
     element.removeEventListener("focusout", focusLost);
     document.removeEventListener("visibilitychange", visibilityChanged);
     attachedKeyboard = undefined;

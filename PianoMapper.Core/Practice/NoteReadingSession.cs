@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using PianoMapper.Music;
 
 namespace PianoMapper.Practice;
@@ -14,11 +15,13 @@ public sealed class NoteReadingSession
     private readonly Dictionary<ScoreNote, Verdict> mutableVerdicts = [];
     private IReadOnlyDictionary<ScoreNote, Verdict> verdicts = new Dictionary<ScoreNote, Verdict>();
     private IReadOnlySet<ScoreNote> expectedNotes = new HashSet<ScoreNote>();
+    private IReadOnlyList<NoteReadingPromptResult> promptResults = [];
     private Tempo? tempo;
     private NoteReadingMode mode = NoteReadingMode.PitchAndOrder;
     private TimeSpan timingTolerance = DefaultTimingTolerance;
     private TimeSpan? rhythmAnchor;
     private long startTimestamp;
+    private long? firstAttemptTimestamp;
     private TimeSpan completedElapsedTime;
     private int stepIndex;
     private int completedPromptCount;
@@ -31,6 +34,8 @@ public sealed class NoteReadingSession
     public IReadOnlyDictionary<ScoreNote, Verdict> Verdicts => verdicts;
 
     public IReadOnlySet<ScoreNote> ExpectedNotes => expectedNotes;
+
+    public IReadOnlyList<NoteReadingPromptResult> PromptResults => promptResults;
 
     public double? CurrentOnsetBeats => stepIndex < steps.Count
         ? steps[stepIndex].OnsetBeats
@@ -54,12 +59,23 @@ public sealed class NoteReadingSession
         ? TimeSpan.Zero
         : IsComplete
             ? completedElapsedTime
-            : timeProvider.GetElapsedTime(startTimestamp);
+            : GetFairElapsedTime();
 
     public void Reset(Score? score) =>
         Reset(score, NoteReadingMode.PitchAndOrder, DefaultTimingTolerance);
 
-    public void Reset(Score? score, NoteReadingMode noteReadingMode, TimeSpan noteTimingTolerance)
+    /// <param name="explicitRhythmAnchor">
+    /// The audio-clock time, in the same time domain as the <c>eventTime</c> passed to <see cref="Check(Pitch, TimeSpan)"/>,
+    /// that beat zero of the score should be graded against (e.g. the instant a count-in ends). When supplied, the
+    /// very first prompt's onset is graded as early/on-time/late against it, exactly like every later prompt. When
+    /// omitted (the default), the existing lazy behavior is unchanged: the anchor is derived from the first played
+    /// event's own time, so that first prompt always grades as on-time.
+    /// </param>
+    public void Reset(
+        Score? score,
+        NoteReadingMode noteReadingMode,
+        TimeSpan noteTimingTolerance,
+        TimeSpan? explicitRhythmAnchor = null)
     {
         if (noteTimingTolerance < TimeSpan.Zero)
         {
@@ -74,7 +90,7 @@ public sealed class NoteReadingSession
         mode = noteReadingMode;
         timingTolerance = noteTimingTolerance;
         tempo = score?.Tempo;
-        rhythmAnchor = null;
+        rhythmAnchor = explicitRhythmAnchor;
         steps = BuildSteps(score);
         mutableVerdicts.Clear();
         PublishVerdicts();
@@ -85,8 +101,10 @@ public sealed class NoteReadingSession
         FirstTryCorrectCount = 0;
         WrongAttemptCount = 0;
         startTimestamp = timeProvider.GetTimestamp();
+        firstAttemptTimestamp = null;
         completedElapsedTime = TimeSpan.Zero;
         UpdateExpectedNotes();
+        PublishPromptResults();
     }
 
     public CheckResult Check(Pitch pitch) =>
@@ -94,6 +112,8 @@ public sealed class NoteReadingSession
 
     public CheckResult Check(Pitch pitch, TimeSpan eventTime)
     {
+        firstAttemptTimestamp ??= timeProvider.GetTimestamp();
+
         if (stepIndex >= steps.Count)
         {
             if (RequiresHoldValidation && activeHolds.Count > 0)
@@ -101,7 +121,8 @@ public sealed class NoteReadingSession
                 Step latestPendingStep = activeHolds.Values
                     .MaxBy(hold => hold.Step.OnsetBeats)!
                     .Step;
-                RecordWrongAttempt(latestPendingStep);
+                RecordWrongAttempt(latestPendingStep, pitch);
+                PublishPromptResults();
                 return new CheckResult(IsCorrect: false, DidAdvance: false, IsComplete: false)
                 {
                     Verdict = PianoMapper.Practice.Verdict.WrongPitch,
@@ -121,13 +142,15 @@ public sealed class NoteReadingSession
         if (matchingEvents.Length == 0 ||
             RequiresHoldValidation && activeHolds.ContainsKey(pitch.MidiNumber))
         {
-            RecordWrongAttempt(step);
+            RecordWrongAttempt(step, pitch);
+            PublishPromptResults();
             return new CheckResult(IsCorrect: false, DidAdvance: false, IsComplete: IsComplete)
             {
                 Verdict = PianoMapper.Practice.Verdict.WrongPitch,
             };
         }
 
+        step.IsAttempted = true;
         matchedMidiNumbers.Add(pitch.MidiNumber);
         foreach (ScoreNote matchedNote in GetSourceNotes(matchingEvents))
         {
@@ -172,6 +195,7 @@ public sealed class NoteReadingSession
 
         PublishVerdicts();
         UpdateExpectedNotes();
+        PublishPromptResults();
         return new CheckResult(
             IsCorrect: true,
             DidAdvance: didAdvance,
@@ -236,6 +260,7 @@ public sealed class NoteReadingSession
         TryFinalizeStep(hold.Step);
         PublishVerdicts();
         UpdateExpectedNotes();
+        PublishPromptResults();
         return new ReleaseResult(WasTracked: true, releaseVerdict, IsComplete)
         {
             OnsetVerdict = hold.OnsetVerdict,
@@ -279,6 +304,9 @@ public sealed class NoteReadingSession
     private bool RequiresHoldValidation => mode is NoteReadingMode.PitchAndHold or NoteReadingMode.PitchHoldAndRhythm;
 
     private TimeSpan GetSessionElapsedTime() => timeProvider.GetElapsedTime(startTimestamp);
+
+    private TimeSpan GetFairElapsedTime() =>
+        firstAttemptTimestamp is null ? TimeSpan.Zero : timeProvider.GetElapsedTime(firstAttemptTimestamp.Value);
 
     private Verdict ClassifyOnset(Step step, TimeSpan eventTime)
     {
@@ -332,6 +360,7 @@ public sealed class NoteReadingSession
 
         PublishVerdicts();
         UpdateExpectedNotes();
+        PublishPromptResults();
         return new ReleaseResult(WasTracked: true, Verdict: null, IsComplete: IsComplete);
     }
 
@@ -351,6 +380,7 @@ public sealed class NoteReadingSession
         matchedMidiNumbers.Clear();
         PublishVerdicts();
         UpdateExpectedNotes();
+        PublishPromptResults();
     }
 
     private void ReleaseByMidiNumber(int midiNumber, TimeSpan eventTime)
@@ -369,6 +399,7 @@ public sealed class NoteReadingSession
         }
 
         step.IsFinalized = true;
+        step.CompletedAt = GetFairElapsedTime();
         completedPromptCount++;
         if (!step.HasWrongAttempt)
         {
@@ -377,14 +408,20 @@ public sealed class NoteReadingSession
 
         if (IsComplete)
         {
-            completedElapsedTime = timeProvider.GetElapsedTime(startTimestamp);
+            completedElapsedTime = GetFairElapsedTime();
         }
     }
 
-    private void RecordWrongAttempt(Step step)
+    private void RecordWrongAttempt(Step step, Pitch? wrongPitch = null)
     {
         WrongAttemptCount++;
         step.HasWrongAttempt = true;
+        step.IsAttempted = true;
+        step.WrongAttemptCount++;
+        if (wrongPitch is { } pitch)
+        {
+            step.WrongPlayedPitches.Add(pitch);
+        }
     }
 
     private void SetVerdict(IEnumerable<ScoreEvent> scoreEvents, Verdict verdict) =>
@@ -401,6 +438,35 @@ public sealed class NoteReadingSession
     private void PublishVerdicts() =>
         verdicts = mutableVerdicts.ToDictionary();
 
+    private void PublishPromptResults() =>
+        promptResults = BuildPromptResults();
+
+    private IReadOnlyList<NoteReadingPromptResult> BuildPromptResults()
+    {
+        var results = new List<NoteReadingPromptResult>();
+        for (int index = 0; index < steps.Count; index++)
+        {
+            Step step = steps[index];
+            if (!step.IsAttempted)
+            {
+                continue;
+            }
+
+            results.Add(new NoteReadingPromptResult(
+                PromptIndex: index,
+                OnsetBeats: step.OnsetBeats,
+                ExpectedSourceNotes: GetSourceNotes(step.Events).ToImmutableArray(),
+                ExpectedPitches: step.Events.Select(scoreEvent => scoreEvent.Pitch).ToImmutableArray(),
+                WrongPlayedPitches: step.WrongPlayedPitches.ToImmutableArray(),
+                WrongAttemptCount: step.WrongAttemptCount,
+                IsFirstTryCorrect: !step.HasWrongAttempt,
+                IsComplete: step.IsFinalized,
+                CompletedAt: step.CompletedAt));
+        }
+
+        return results;
+    }
+
     private IReadOnlyList<Step> BuildSteps(Score? score)
     {
         if (score is null || mode == NoteReadingMode.Off)
@@ -414,10 +480,29 @@ public sealed class NoteReadingSession
             scoreEvents = CollapseOverlappingPitches(scoreEvents);
         }
 
-        return scoreEvents
-            .GroupBy(scoreEvent => scoreEvent.OnsetBeats)
-            .Select(group => new Step(group.Key, group.ToArray()))
-            .ToArray();
+        return GroupByOnsetTolerance(scoreEvents);
+    }
+
+    private static IReadOnlyList<Step> GroupByOnsetTolerance(IReadOnlyList<ScoreEvent> scoreEvents)
+    {
+        var steps = new List<Step>();
+        List<ScoreEvent>? currentGroupEvents = null;
+        double currentGroupOnsetBeats = 0;
+
+        foreach (ScoreEvent scoreEvent in scoreEvents.OrderBy(candidate => candidate.OnsetBeats))
+        {
+            if (currentGroupEvents is null ||
+                scoreEvent.OnsetBeats - currentGroupOnsetBeats > BeatComparisonTolerance)
+            {
+                currentGroupOnsetBeats = scoreEvent.OnsetBeats;
+                currentGroupEvents = [];
+                steps.Add(new Step(currentGroupOnsetBeats, currentGroupEvents));
+            }
+
+            currentGroupEvents.Add(scoreEvent);
+        }
+
+        return steps;
     }
 
     private static IReadOnlyList<ScoreEvent> CollapseOverlappingPitches(
@@ -497,6 +582,14 @@ public sealed class NoteReadingSession
         public int PendingHoldCount { get; set; }
 
         public bool IsFinalized { get; set; }
+
+        public bool IsAttempted { get; set; }
+
+        public int WrongAttemptCount { get; set; }
+
+        public List<Pitch> WrongPlayedPitches { get; } = [];
+
+        public TimeSpan? CompletedAt { get; set; }
     }
 
     private sealed record HoldAttempt(

@@ -1,26 +1,34 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
 <section class="visualization-panel piano-keyboard-panel" aria-labelledby="full-piano-keyboard-heading">
     <div class="visualization-panel-header">
         <h2 id="full-piano-keyboard-heading">88-key piano</h2>
         <span class="panel-context">A0–C8</span>
     </div>
-    <p class="panel-description">Keys light up while notes sound from your keyboard or score playback.</p>
+    <p class="panel-description">
+        Tap, click, or use your MIDI/computer keyboard to play. Keys light up while notes sound.
+    </p>
     <div class="full-piano-keyboard-scroll">
         <div class="full-piano-keyboard"
-             role="img"
+             @ref="keyboardSurface"
+             role="group"
              aria-label="@KeyboardAriaLabel">
             @foreach (PianoKeyboardKey key in keys.Where(key => !key.IsBlack))
             {
-                <span class="@GetKeyClass(key)"
-                      style="@GetKeyStyle(key)"
-                      title="@key.Pitch"
-                      aria-hidden="true"></span>
+                <button type="button"
+                        class="@GetKeyClass(key)"
+                        style="@GetKeyStyle(key)"
+                        data-pitch="@key.Pitch"
+                        aria-label="@key.Pitch"></button>
             }
             @foreach (PianoKeyboardKey key in keys.Where(key => key.IsBlack))
             {
-                <span class="@GetKeyClass(key)"
-                      style="@GetKeyStyle(key)"
-                      title="@key.Pitch"
-                      aria-hidden="true"></span>
+                <button type="button"
+                        class="@GetKeyClass(key)"
+                        style="@GetKeyStyle(key)"
+                        data-pitch="@key.Pitch"
+                        aria-label="@key.Pitch"></button>
             }
         </div>
     </div>
@@ -28,9 +36,18 @@
 
 @code {
     private IReadOnlyList<PianoKeyboardKey> keys = [];
+    private ElementReference keyboardSurface;
+    private IJSObjectReference? module;
+    private DotNetObjectReference<FullPianoKeyboard>? selfReference;
 
     [Parameter, EditorRequired]
     public IReadOnlySet<int> ActiveMidiNumbers { get; set; } = new HashSet<int>();
+
+    [Parameter]
+    public EventCallback<BrowserPointerNoteOnEvent> PointerNoteOn { get; set; }
+
+    [Parameter]
+    public EventCallback<BrowserPointerNoteOffEvent> PointerNoteOff { get; set; }
 
     private string KeyboardAriaLabel
     {
@@ -40,14 +57,45 @@
                 ", ",
                 keys.Where(key => key.IsActive).Select(key => key.Pitch.ToString()));
             return activeNotes.Length == 0
-                ? "Full 88-key piano keyboard from A0 through C8. No keys are sounding."
-                : $"Full 88-key piano keyboard from A0 through C8. Sounding: {activeNotes}.";
+                ? "Full 88-key piano keyboard from A0 through C8. Tap or click a key to play it. No keys are sounding."
+                : $"Full 88-key piano keyboard from A0 through C8. Tap or click a key to play it. Sounding: {activeNotes}.";
         }
     }
 
     protected override void OnParametersSet()
     {
         keys = FullPianoKeyboardLayout.Build(ActiveMidiNumbers);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/piano-keyboard-input.js");
+        selfReference = DotNetObjectReference.Create(this);
+        await module.InvokeVoidAsync("attach", keyboardSurface, selfReference);
+    }
+
+    [JSInvokable]
+    public Task HandlePointerNoteOnAsync(BrowserPointerNoteOnEvent pointerEvent) =>
+        PointerNoteOn.InvokeAsync(pointerEvent);
+
+    [JSInvokable]
+    public Task HandlePointerNoteOffAsync(BrowserPointerNoteOffEvent pointerEvent) =>
+        PointerNoteOff.InvokeAsync(pointerEvent);
+
+    public async ValueTask DisposeAsync()
+    {
+        if (module is not null)
+        {
+            await module.InvokeVoidAsync("dispose");
+            await module.DisposeAsync();
+        }
+
+        selfReference?.Dispose();
     }
 
     private static string GetKeyClass(PianoKeyboardKey key) =>
