@@ -36,21 +36,12 @@ internal sealed class AudiverisImageScoreConverter(
             Path.GetTempPath(),
             $"pianomapper-omr-{Guid.NewGuid():N}");
         string outputDirectory = Path.Combine(temporaryDirectory, "output");
-        string inputPath = Path.Combine(temporaryDirectory, $"score{extension.ToLowerInvariant()}");
+        string inputPath = Path.Combine(temporaryDirectory, "score.png");
         Directory.CreateDirectory(outputDirectory);
 
         try
         {
-            await using (var inputFile = new FileStream(
-                inputPath,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None,
-                bufferSize: 81920,
-                FileOptions.Asynchronous))
-            {
-                await image.CopyToAsync(inputFile, cancellationToken);
-            }
+            await ScoreImagePreprocessor.PrepareAsync(image, inputPath, cancellationToken).ConfigureAwait(false);
 
             string[] arguments =
             [

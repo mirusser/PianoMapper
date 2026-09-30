@@ -1,4 +1,6 @@
 using PianoMapper.Server.Omr;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace PianoMapper.Tests.UnitTests;
 
@@ -8,12 +10,13 @@ public sealed class AudiverisImageScoreConverterTests
     public async Task ConvertAsync_Jpeg_RunsBatchTranscriptionWithFingeringAndReturnsMxl()
     {
         byte[] expectedMusicXml = [0x50, 0x4b, 0x03, 0x04];
-        byte[] imageBytes = [0xff, 0xd8, 0xff, 0xd9];
+        byte[] imageBytes = await CreateImageBytesAsync(saveAsJpeg: true);
         var runner = new FakeAudiverisProcessRunner(command =>
         {
             string outputDirectory = GetArgumentAfter(command.Arguments, "-output");
             string inputPath = command.Arguments[^1];
-            Assert.Equal(imageBytes, File.ReadAllBytes(inputPath));
+            using var preparedImage = Image.Load<Rgba32>(inputPath);
+            Assert.Equal(new Rgba32(255, 255, 255), preparedImage[0, 0]);
             File.WriteAllBytes(Path.Combine(outputDirectory, "piano-example.mxl"), expectedMusicXml);
             return new AudiverisProcessResult(0, string.Empty);
         });
@@ -33,7 +36,7 @@ public sealed class AudiverisImageScoreConverterTests
         Assert.Contains("org.audiveris.omr.sheet.ProcessingSwitches.fingerings=true", runner.Command.Arguments);
         Assert.Contains("org.audiveris.omr.sheet.ProcessingSwitches.lyrics=false", runner.Command.Arguments);
         Assert.Equal("--", runner.Command.Arguments[^2]);
-        Assert.EndsWith(".jpg", runner.Command.Arguments[^1], StringComparison.OrdinalIgnoreCase);
+        Assert.EndsWith(".png", runner.Command.Arguments[^1], StringComparison.OrdinalIgnoreCase);
         Assert.Equal(TimeSpan.FromMinutes(2), runner.Timeout);
     }
 
@@ -45,7 +48,7 @@ public sealed class AudiverisImageScoreConverterTests
         var converter = new AudiverisImageScoreConverter(
             new AudiverisOptions("audiveris", TimeSpan.FromMinutes(2)),
             runner);
-        await using var source = new MemoryStream([0x89, 0x50, 0x4e, 0x47]);
+        await using var source = new MemoryStream(await CreateImageBytesAsync(saveAsJpeg: false));
 
         var exception = await Assert.ThrowsAsync<InvalidDataException>(
             () => converter.ConvertAsync(source, "score.png", CancellationToken.None));
@@ -61,7 +64,7 @@ public sealed class AudiverisImageScoreConverterTests
         var converter = new AudiverisImageScoreConverter(
             new AudiverisOptions("audiveris", TimeSpan.FromMinutes(2)),
             runner);
-        await using var source = new MemoryStream([0xff, 0xd8, 0xff, 0xd9]);
+        await using var source = new MemoryStream(await CreateImageBytesAsync(saveAsJpeg: true));
 
         var exception = await Assert.ThrowsAsync<InvalidDataException>(
             () => converter.ConvertAsync(source, "score.jpg", CancellationToken.None));
@@ -74,6 +77,32 @@ public sealed class AudiverisImageScoreConverterTests
         int index = arguments.ToList().IndexOf(option);
         Assert.InRange(index, 0, arguments.Count - 2);
         return arguments[index + 1];
+    }
+
+    private static async Task<byte[]> CreateImageBytesAsync(bool saveAsJpeg)
+    {
+        var white = new Rgba32(255, 255, 255);
+        var black = new Rgba32(0, 0, 0);
+        using var image = new Image<Rgba32>(10, 10, white);
+        for (int index = 0; index < image.Width; index++)
+        {
+            image[index, 0] = black;
+            image[index, image.Height - 1] = black;
+            image[0, index] = black;
+            image[image.Width - 1, index] = black;
+        }
+
+        await using var stream = new MemoryStream();
+        if (saveAsJpeg)
+        {
+            await image.SaveAsJpegAsync(stream);
+        }
+        else
+        {
+            await image.SaveAsPngAsync(stream);
+        }
+
+        return stream.ToArray();
     }
 
     private sealed class FakeAudiverisProcessRunner(
