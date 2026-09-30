@@ -1,0 +1,113 @@
+<section class="control-card control-card-wide" aria-labelledby="audio-controls-heading">
+    <div class="control-card-heading">
+        <h2 id="audio-controls-heading">Audio</h2>
+    </div>
+    <div class="control-card-groups">
+        <div class="control-group" role="group" aria-labelledby="audio-source-heading">
+            <span class="control-group-label" id="audio-source-heading">Sound source</span>
+            <div class="controls">
+                <button class="button-primary" type="button" @onclick="EnableAudio" disabled="@IsInitialized">
+                    Enable audio
+                </button>
+                <div class="sound-source-picker" role="group" aria-label="Sound source">
+                    <button class="@GetSoundSourceClass(BrowserSoundSource.Synth)"
+                            type="button"
+                            aria-pressed="@(SoundSource == BrowserSoundSource.Synth)"
+                            disabled="@(!IsInitialized || IsSoundSourceChanging)"
+                            @onclick="() => SoundSourceSelected.InvokeAsync(BrowserSoundSource.Synth)">
+                        Synth
+                    </button>
+                    <button class="@GetSoundSourceClass(BrowserSoundSource.Piano)"
+                            type="button"
+                            aria-pressed="@(SoundSource == BrowserSoundSource.Piano)"
+                            disabled="@(!IsInitialized || IsSoundSourceChanging)"
+                            @onclick="() => SoundSourceSelected.InvokeAsync(BrowserSoundSource.Piano)">
+                        PC piano
+                    </button>
+                    <button class="@GetSoundSourceClass(BrowserSoundSource.ExternalMidi)"
+                            type="button"
+                            aria-pressed="@(SoundSource == BrowserSoundSource.ExternalMidi)"
+                            disabled="@(!IsInitialized || IsSoundSourceChanging || MidiOutputName is null)"
+                            title="Use the FP-10's selected tone and speakers"
+                            @onclick="() => SoundSourceSelected.InvokeAsync(BrowserSoundSource.ExternalMidi)">
+                        FP-10
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="control-group" role="group" aria-labelledby="audio-midi-heading">
+            <span class="control-group-label" id="audio-midi-heading">Audio &amp; MIDI options</span>
+            <div class="controls">
+                <button type="button" @onclick="PlayTestNote" disabled="@(!IsInitialized || IsTestNoteActive)">
+                    Play test note
+                </button>
+                <button type="button" @onclick="StopTestNote" disabled="@(!IsTestNoteActive)">Stop test note</button>
+                <button class="button-quiet" type="button" @onclick="ShowTiming" disabled="@(!IsInitialized)">
+                    Show input latency
+                </button>
+                <button type="button"
+                        @onclick="ConnectMidi"
+                        disabled="@IsMidiConnecting">
+                    @(!HasMidiConnection ? "Connect MIDI piano" : "Reconnect MIDI piano")
+                </button>
+            </div>
+        </div>
+    </div>
+    <p class="control-note midi-connection-summary">MIDI input <strong>@MidiInputSummary</strong> · MIDI output <strong>@MidiOutputSummary</strong></p>
+    <p class="control-note" role="status">@MidiStatus</p>
+</section>
+
+@code {
+    [Parameter]
+    public bool IsInitialized { get; set; }
+
+    [Parameter]
+    public BrowserSoundSource SoundSource { get; set; }
+
+    [Parameter]
+    public bool IsSoundSourceChanging { get; set; }
+
+    [Parameter]
+    public string? MidiOutputName { get; set; }
+
+    [Parameter]
+    public bool IsTestNoteActive { get; set; }
+
+    [Parameter]
+    public bool IsMidiConnecting { get; set; }
+
+    [Parameter]
+    public bool HasMidiConnection { get; set; }
+
+    [Parameter]
+    public string MidiStatus { get; set; } = string.Empty;
+
+    [Parameter]
+    public string MidiInputSummary { get; set; } = string.Empty;
+
+    [Parameter]
+    public string MidiOutputSummary { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback EnableAudio { get; set; }
+
+    [Parameter]
+    public EventCallback<BrowserSoundSource> SoundSourceSelected { get; set; }
+
+    [Parameter]
+    public EventCallback PlayTestNote { get; set; }
+
+    [Parameter]
+    public EventCallback StopTestNote { get; set; }
+
+    [Parameter]
+    public EventCallback ShowTiming { get; set; }
+
+    [Parameter]
+    public EventCallback ConnectMidi { get; set; }
+
+    private string GetSoundSourceClass(BrowserSoundSource source) =>
+        source == SoundSource
+            ? "sound-source-option sound-source-option-active"
+            : "sound-source-option";
+}

@@ -16,209 +16,30 @@
     </header>
     <section @ref="playSurface" class="play-surface" tabindex="0" aria-label="Piano play surface">
         <div class="control-dashboard">
-            <section class="control-card" aria-labelledby="audio-controls-heading">
-                <div class="control-card-heading">
-                    <h2 id="audio-controls-heading">Audio</h2>
-                </div>
-                <div class="audio-controls">
-                    <div class="audio-primary-actions">
-                        <button class="button-primary" type="button" @onclick="EnableAudioAsync" disabled="@AudioSession.IsInitialized">
-                            Enable audio
-                        </button>
-                        <div class="sound-source-picker" role="group" aria-label="Sound source">
-                            <button class="@GetSoundSourceClass(BrowserSoundSource.Synth)"
-                                    type="button"
-                                    aria-pressed="@(soundSource == BrowserSoundSource.Synth)"
-                                    disabled="@(!AudioSession.IsInitialized || isSoundSourceChanging)"
-                                    @onclick="() => SelectSoundSourceAsync(BrowserSoundSource.Synth)">
-                                Synth
-                            </button>
-                            <button class="@GetSoundSourceClass(BrowserSoundSource.Piano)"
-                                    type="button"
-                                    aria-pressed="@(soundSource == BrowserSoundSource.Piano)"
-                                    disabled="@(!AudioSession.IsInitialized || isSoundSourceChanging)"
-                                    @onclick="() => SelectSoundSourceAsync(BrowserSoundSource.Piano)">
-                                PC piano
-                            </button>
-                            <button class="@GetSoundSourceClass(BrowserSoundSource.ExternalMidi)"
-                                    type="button"
-                                    aria-pressed="@(soundSource == BrowserSoundSource.ExternalMidi)"
-                                    disabled="@(!AudioSession.IsInitialized || isSoundSourceChanging || midiOutputName is null)"
-                                    title="Use the FP-10's selected tone and speakers"
-                                    @onclick="() => SelectSoundSourceAsync(BrowserSoundSource.ExternalMidi)">
-                                FP-10
-                            </button>
-                        </div>
-                    </div>
-                    <details class="inline-disclosure">
-                        <summary>Audio &amp; MIDI options</summary>
-                        <div class="controls audio-secondary-actions">
-                            <button type="button" @onclick="PlayTestNoteAsync" disabled="@(!AudioSession.IsInitialized || testNoteIsActive)">
-                                Play test note
-                            </button>
-                            <button type="button" @onclick="StopTestNoteAsync" disabled="@(!testNoteIsActive)">Stop test note</button>
-                            <button class="button-quiet" type="button" @onclick="ShowTimingAsync" disabled="@(!AudioSession.IsInitialized)">
-                                Show input latency
-                            </button>
-                            <button type="button"
-                                    @onclick="ConnectMidiAsync"
-                                    disabled="@isMidiConnecting">
-                                @(!HasMidiConnection ? "Connect MIDI piano" : "Reconnect MIDI piano")
-                            </button>
-                        </div>
-                    </details>
-                    <p class="control-note" role="status">@midiStatus</p>
-                </div>
-            </section>
+            <AudioControls IsInitialized="@AudioSession.IsInitialized"
+                           SoundSource="@soundSource"
+                           IsSoundSourceChanging="@isSoundSourceChanging"
+                           MidiOutputName="@midiOutputName"
+                           IsTestNoteActive="@testNoteIsActive"
+                           IsMidiConnecting="@isMidiConnecting"
+                           HasMidiConnection="@HasMidiConnection"
+                           MidiStatus="@midiStatus"
+                           MidiInputSummary="@MidiInputSummary"
+                           MidiOutputSummary="@MidiOutputSummary"
+                           EnableAudio="EnableAudioAsync"
+                           SoundSourceSelected="SelectSoundSourceAsync"
+                           PlayTestNote="PlayTestNoteAsync"
+                           StopTestNote="StopTestNoteAsync"
+                           ShowTiming="ShowTimingAsync"
+                           ConnectMidi="ConnectMidiAsync" />
 
-            <details class="control-card settings-card" aria-labelledby="timing-controls-heading">
+            <details class="score-card control-card-wide settings-card" aria-labelledby="score-card-heading" open>
                 <summary class="control-card-heading">
-                    <h2 id="timing-controls-heading">Timing</h2>
-                    <span>@TimingLabel</span>
+                    <h2 id="score-card-heading">Imported score</h2>
+                    <span>@(loadedScore is not null ? loadedScore.Title : "No score loaded")</span>
                 </summary>
-                <div class="timing-controls">
-                    <label class="timing-field">
-                        <span>Beats per measure</span>
-                        <input type="number"
-                               min="@MinimumMeterNumerator"
-                               max="@MaximumMeterNumerator"
-                               step="1"
-                               value="@displayTimeSignature.Numerator"
-                               @onchange="SelectMeterNumeratorAsync" />
-                    </label>
-                    <label class="timing-field">
-                        <span>One beat is a</span>
-                        <select value="@displayTimeSignature.BeatNoteValue.Denominator"
-                                @onchange="SelectBeatNoteAsync">
-                            <option value="1">Whole note (1)</option>
-                            <option value="2">Half note (2)</option>
-                            <option value="4">Quarter note (4)</option>
-                            <option value="8">Eighth note (8)</option>
-                            <option value="16">Sixteenth note (16)</option>
-                        </select>
-                    </label>
-                    <label class="timing-field">
-                        <span>Tempo (BPM)</span>
-                        <input type="number"
-                               min="@MinimumTempoBeatsPerMinute"
-                               max="@MaximumTempoBeatsPerMinute"
-                               step="1"
-                               value="@TempoBeatsPerMinuteText"
-                               @onchange="SelectTempoAsync" />
-                    </label>
-                    <label class="timing-field">
-                        <span>On-time tolerance</span>
-                        <select value="@OnTimeToleranceMilliseconds"
-                                @onchange="SelectOnTimeToleranceAsync">
-                            <option value="@StrictToleranceMilliseconds">Strict (30 ms)</option>
-                            <option value="@NormalToleranceMilliseconds">Normal (60 ms)</option>
-                            <option value="@RelaxedToleranceMilliseconds">Relaxed (100 ms)</option>
-                        </select>
-                    </label>
-                </div>
-                <p class="control-note">
-                    Timing changes stop score or practice playback. A running metronome restarts on the new beat grid.
-                </p>
-                <details class="learning-disclosure">
-                    <summary>Understand the timing controls</summary>
-                    <dl class="music-term-grid">
-                        <div>
-                            <dt>Beat</dt>
-                            <dd>
-                                The pulse you tap or count. The “One beat is a” control chooses the note value assigned
-                                to each metronome click in PianoMapper.
-                            </dd>
-                        </div>
-                        <div>
-                            <dt>Measure (or bar)</dt>
-                            <dd>
-                                One group of beats between two barlines. With three beats per measure, the count returns
-                                to beat one after every third beat.
-                            </dd>
-                        </div>
-                        <div>
-                            <dt>Time signature</dt>
-                            <dd>
-                                PianoMapper combines the first two controls as the written pair. 3/4 means three beats
-                                per measure and a quarter note receives one beat.
-                            </dd>
-                        </div>
-                        <div>
-                            <dt>Note value</dt>
-                            <dd>
-                                Whole, half, quarter, eighth, and sixteenth notes describe relative duration. A half
-                                note lasts twice as long as a quarter note; an eighth lasts half as long.
-                            </dd>
-                        </div>
-                        <div>
-                            <dt>Tempo (BPM)</dt>
-                            <dd>
-                                Beats per minute converts the selected beat into clock time. At 120 BPM, each beat lasts
-                                half a second.
-                            </dd>
-                        </div>
-                        <div>
-                            <dt>On-time tolerance</dt>
-                            <dd>
-                                With Normal selected, PianoMapper marks onsets within 60 ms of their expected time as on
-                                time. Larger deviations are early or late. Hold-aware idle checking uses the same tolerance
-                                around each expected release time.
-                            </dd>
-                        </div>
-                    </dl>
-                    <p class="learning-links">
-                        For illustrated walkthroughs, see
-                        <a href="https://www.musictheory.net/lessons/11" target="_blank" rel="noopener noreferrer">Note Duration</a>
-                        and
-                        <a href="https://www.musictheory.net/lessons/12" target="_blank" rel="noopener noreferrer">Measures and Time Signature</a>
-                        on MusicTheory.net.
-                    </p>
-                </details>
-            </details>
-
-            <SightReadingExercisePanel SelectedStaff="@sightReadingExerciseCoordinator.Staff"
-                                       PresetId="@sightReadingExerciseCoordinator.PresetId"
-                                       PromptCountOption="@sightReadingExerciseCoordinator.PromptCountOption"
-                                       IsGrandStaff="@sightReadingExerciseCoordinator.IsGrandStaff"
-                                       RhythmPreset="@sightReadingExerciseCoordinator.RhythmPreset"
-                                       Mode="@sightReadingExerciseCoordinator.Mode"
-                                       RevealNoteNamesWhileActive="@sightReadingExerciseCoordinator.RevealNoteNamesWhileActive"
-                                       RevealFingeringWhileActive="@sightReadingExerciseCoordinator.RevealFingeringWhileActive"
-                                       IsActive="@sightReadingExerciseCoordinator.IsActive"
-                                       IsComplete="@noteReadingSession.IsComplete"
-                                       HasMissedPrompts="@sightReadingExerciseCoordinator.HasMissedPrompts"
-                                       IsMidiInputConnected="@(midiInputNames.Count > 0)"
-                                       IsMidiConnecting="@isMidiConnecting"
-                                       IsComputerPianoEnabled="@computerPianoState.IsEnabled"
-                                       ConnectMidi="ConnectMidiAsync"
-                                       PromptCount="@noteReadingSession.PromptCount"
-                                       CompletedPromptCount="@noteReadingSession.CompletedPromptCount"
-                                       FirstTryCorrectCount="@noteReadingSession.FirstTryCorrectCount"
-                                       WrongAttemptCount="@noteReadingSession.WrongAttemptCount"
-                                       FirstTryAccuracyPercent="@noteReadingSession.FirstTryAccuracyPercent"
-                                       ElapsedTime="@noteReadingSession.ElapsedTime"
-                                       SelectedStaffChanged="SetSightReadingStaff"
-                                       PresetIdChanged="SetSightReadingPresetId"
-                                       PromptCountOptionChanged="SetSightReadingPromptCount"
-                                       IsGrandStaffChanged="SetSightReadingIsGrandStaff"
-                                       RhythmPresetChanged="SetSightReadingRhythmPreset"
-                                       ModeChanged="SetSightReadingMode"
-                                       RevealNoteNamesWhileActiveChanged="SetSightReadingRevealNoteNamesWhileActive"
-                                       RevealFingeringWhileActiveChanged="SetSightReadingRevealFingeringWhileActive"
-                                       Generate="GenerateSightReadingExerciseAsync"
-                                       Retry="RetrySightReadingExerciseAsync"
-                                       RetryMissed="RetryMissedSightReadingExerciseAsync"
-                                       End="EndSightReadingExerciseAsync" />
-
-            <SightReadingHistoryPanel RecentSessions="@RecentSightReadingSessions"
-                                       WeakestPitches="@sightReadingHistory.ComputeMasteryWeakestFirst()"
-                                       InsufficientDataPitchCount="@InsufficientMasteryDataPitchCount"
-                                       ClearHistory="ClearSightReadingHistoryAsync" />
-
-            <section class="score-card control-card-wide @(loadedScore is not null && selectedScore is not null ? "score-card-loaded" : null)" aria-label="Imported score">
                 <div class="score-library-column">
                     <ScoreFilePicker ScoreLoaded="HandleImportedScoreLoadedAsync"
-                                     ScoreUnloaded="HandleScoreUnloadedAsync"
                                      HasLoadedScore="@(loadedScore is not null)" />
                     <SavedScoreLibrary CurrentScore="@loadedScore"
                                        CurrentSavedScoreId="@loadedSavedScoreId"
@@ -229,69 +50,84 @@
                 @if (loadedScore is not null && selectedScore is not null)
                 {
                     <div class="score-playback-column">
-                        <p class="score-title">@loadedScore.Title — @loadedScore.Measures.Count measure(s)</p>
-                        <div class="controls measure-range-controls"
-                             role="group"
-                             aria-labelledby="measure-range-label">
-                            <span class="measure-range-label" id="measure-range-label">Play measures</span>
-                            <label class="octave-picker">
-                                From
-                                <select value="@(selectedFirstMeasure + 1)"
-                                        @onchange="SelectFirstMeasureAsync"
-                                        aria-label="First measure to play">
-                                    @for (int measureNumber = 1; measureNumber <= loadedScore.Measures.Count; measureNumber++)
-                                    {
-                                        <option value="@measureNumber">@measureNumber</option>
-                                    }
-                                </select>
-                            </label>
-                            <label class="octave-picker">
-                                To
-                                <select value="@(selectedLastMeasure + 1)"
-                                        @onchange="SelectLastMeasureAsync"
-                                        aria-label="Last measure to play">
-                                    @for (int measureNumber = 1; measureNumber <= loadedScore.Measures.Count; measureNumber++)
-                                    {
-                                        <option value="@measureNumber">@measureNumber</option>
-                                    }
-                                </select>
-                            </label>
-                        </div>
-                        <div class="controls" aria-label="Score navigation">
-                            <button class="button-primary"
-                                    type="button"
-                                    @onclick="StartScorePlaybackAsync"
-                                    disabled="@(!AudioSession.IsInitialized)">
-                                Play / restart <kbd>P</kbd>
-                            </button>
-                            <button type="button" @onclick="ShowPreviousMeasures" disabled="@(!CanShowPreviousMeasures)">
-                                Previous <kbd>[</kbd>
-                            </button>
-                            <span class="measure-window">
-                                Measures @(selectedFirstMeasure + ActiveScoreFirstMeasure + 1)–@(
-                                    selectedFirstMeasure + Math.Min(
-                                        ActiveScoreFirstMeasure + visibleMeasureCount,
-                                        selectedScore.Measures.Count))
-                            </span>
-                            <button type="button"
-                                    @onclick="ShowNextMeasures"
-                                    disabled="@(!CanShowNextMeasures)">
-                                Next <kbd>]</kbd>
+                        <div class="control-card-heading">
+                            <p class="score-title">@loadedScore.Title — @loadedScore.Measures.Count measure(s)</p>
+                            <button class="button-quiet" type="button" @onclick="HandleScoreUnloadedAsync">
+                                Unload score
                             </button>
                         </div>
-                        <PracticePanel State="@practiceCoordinator.State"
-                                       Result="@practiceCoordinator.Result"
-                                       CountInTicksDue="@practiceCoordinator.CountInTicksDue"
-                                       TotalCountInTicks="@loadedScore.TimeSignature.Numerator"
-                                       CanStart="@AudioSession.IsInitialized"
-                                       IsActive="@practiceCoordinator.IsActive"
-                                       IdleNoteReadingMode="@idleNoteReadingMode"
-                                       Start="StartPracticeAsync"
-                                       Abort="AbortPracticeFromControlAsync"
-                                       IdleNoteReadingModeChanged="SetIdleNoteReadingModeAsync" />
+                        <div class="control-card-groups">
+                            <div class="control-group" role="group" aria-labelledby="measure-range-heading">
+                                <span class="control-group-label" id="measure-range-heading">Measure range</span>
+                                <div class="controls">
+                                    <label class="octave-picker">
+                                        From
+                                        <select value="@(selectedFirstMeasure + 1)"
+                                                @onchange="SelectFirstMeasureAsync"
+                                                aria-label="First measure to play">
+                                            @for (int measureNumber = 1; measureNumber <= loadedScore.Measures.Count; measureNumber++)
+                                            {
+                                                <option value="@measureNumber">@measureNumber</option>
+                                            }
+                                        </select>
+                                    </label>
+                                    <label class="octave-picker">
+                                        To
+                                        <select value="@(selectedLastMeasure + 1)"
+                                                @onchange="SelectLastMeasureAsync"
+                                                aria-label="Last measure to play">
+                                            @for (int measureNumber = 1; measureNumber <= loadedScore.Measures.Count; measureNumber++)
+                                            {
+                                                <option value="@measureNumber">@measureNumber</option>
+                                            }
+                                        </select>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="control-group" role="group" aria-label="Score navigation">
+                                <span class="control-group-label">Playback</span>
+                                <div class="controls">
+                                    <button class="button-primary"
+                                            type="button"
+                                            @onclick="StartScorePlaybackAsync"
+                                            disabled="@(!AudioSession.IsInitialized)">
+                                        Play / restart <kbd>P</kbd>
+                                    </button>
+                                    <button type="button" @onclick="ShowPreviousMeasures" disabled="@(!CanShowPreviousMeasures)">
+                                        Previous <kbd>[</kbd>
+                                    </button>
+                                    <span class="measure-window">
+                                        Measures @(selectedFirstMeasure + ActiveScoreFirstMeasure + 1)–@(
+                                            selectedFirstMeasure + Math.Min(
+                                                ActiveScoreFirstMeasure + visibleMeasureCount,
+                                                selectedScore.Measures.Count))
+                                    </span>
+                                    <button type="button"
+                                            @onclick="ShowNextMeasures"
+                                            disabled="@(!CanShowNextMeasures)">
+                                        Next <kbd>]</kbd>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="control-card-groups">
+                            <div class="control-group">
+                                <span class="control-group-label">Practice</span>
+                                <PracticePanel State="@practiceCoordinator.State"
+                                               Result="@practiceCoordinator.Result"
+                                               CountInTicksDue="@practiceCoordinator.CountInTicksDue"
+                                               TotalCountInTicks="@loadedScore.TimeSignature.Numerator"
+                                               CanStart="@AudioSession.IsInitialized"
+                                               IsActive="@practiceCoordinator.IsActive"
+                                               IdleNoteReadingMode="@idleNoteReadingMode"
+                                               Start="StartPracticeAsync"
+                                               Abort="AbortPracticeFromControlAsync"
+                                               IdleNoteReadingModeChanged="SetIdleNoteReadingModeAsync" />
+                            </div>
+                        </div>
                     </div>
                 }
-            </section>
+            </details>
 
             <details class="control-card control-card-wide settings-card" aria-labelledby="play-controls-heading">
                 <summary class="control-card-heading">
@@ -471,17 +307,115 @@
             </details>
         </div>
 
-        <MetronomeControls IsRunning="@Metronome.IsRunning"
-                            CanToggle="@AudioSession.IsInitialized"
-                            Feedback="@tempoFeedbackTracker"
-                            Toggle="ToggleMetronomeAsync" />
+        <details class="control-card control-card-wide settings-card timing-metronome-card" aria-labelledby="timing-controls-heading">
+            <summary class="control-card-heading">
+                <h2 id="timing-controls-heading">Timing &amp; metronome</h2>
+                <span>@TimingLabel</span>
+            </summary>
+            <div class="timing-controls">
+                <label class="timing-field">
+                    <span>Beats per measure</span>
+                    <input type="number"
+                           min="@MinimumMeterNumerator"
+                           max="@MaximumMeterNumerator"
+                           step="1"
+                           value="@displayTimeSignature.Numerator"
+                           @onchange="SelectMeterNumeratorAsync" />
+                </label>
+                <label class="timing-field">
+                    <span>One beat is a</span>
+                    <select value="@displayTimeSignature.BeatNoteValue.Denominator"
+                            @onchange="SelectBeatNoteAsync">
+                        <option value="1">Whole note (1)</option>
+                        <option value="2">Half note (2)</option>
+                        <option value="4">Quarter note (4)</option>
+                        <option value="8">Eighth note (8)</option>
+                        <option value="16">Sixteenth note (16)</option>
+                    </select>
+                </label>
+                <label class="timing-field">
+                    <span>Tempo (BPM)</span>
+                    <input type="number"
+                           min="@MinimumTempoBeatsPerMinute"
+                           max="@MaximumTempoBeatsPerMinute"
+                           step="1"
+                           value="@TempoBeatsPerMinuteText"
+                           @onchange="SelectTempoAsync" />
+                </label>
+                <label class="timing-field">
+                    <span>On-time tolerance</span>
+                    <select value="@OnTimeToleranceMilliseconds"
+                            @onchange="SelectOnTimeToleranceAsync">
+                        <option value="@StrictToleranceMilliseconds">Strict (30 ms)</option>
+                        <option value="@NormalToleranceMilliseconds">Normal (60 ms)</option>
+                        <option value="@RelaxedToleranceMilliseconds">Relaxed (100 ms)</option>
+                    </select>
+                </label>
+            </div>
+            <MetronomeControls IsRunning="@Metronome.IsRunning"
+                                CanToggle="@AudioSession.IsInitialized"
+                                Feedback="@tempoFeedbackTracker"
+                                Toggle="ToggleMetronomeAsync" />
+            <p class="control-note">
+                Timing changes stop score or practice playback. A running metronome restarts on the new beat grid.
+            </p>
+            <details class="learning-disclosure">
+                <summary>Understand the timing controls</summary>
+                <dl class="music-term-grid">
+                    <div>
+                        <dt>Beat</dt>
+                        <dd>
+                            The pulse you tap or count. The “One beat is a” control chooses the note value assigned
+                            to each metronome click in PianoMapper.
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>Measure (or bar)</dt>
+                        <dd>
+                            One group of beats between two barlines. With three beats per measure, the count returns
+                            to beat one after every third beat.
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>Time signature</dt>
+                        <dd>
+                            PianoMapper combines the first two controls as the written pair. 3/4 means three beats
+                            per measure and a quarter note receives one beat.
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>Note value</dt>
+                        <dd>
+                            Whole, half, quarter, eighth, and sixteenth notes describe relative duration. A half
+                            note lasts twice as long as a quarter note; an eighth lasts half as long.
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>Tempo (BPM)</dt>
+                        <dd>
+                            Beats per minute converts the selected beat into clock time. At 120 BPM, each beat lasts
+                            half a second.
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>On-time tolerance</dt>
+                        <dd>
+                            With Normal selected, PianoMapper marks onsets within 60 ms of their expected time as on
+                            time. Larger deviations are early or late. Hold-aware idle checking uses the same tolerance
+                            around each expected release time.
+                        </dd>
+                    </div>
+                </dl>
+                <p class="learning-links">
+                    For illustrated walkthroughs, see
+                    <a href="https://www.musictheory.net/lessons/11" target="_blank" rel="noopener noreferrer">Note Duration</a>
+                    and
+                    <a href="https://www.musictheory.net/lessons/12" target="_blank" rel="noopener noreferrer">Measures and Time Signature</a>
+                    on MusicTheory.net.
+                </p>
+            </details>
+        </details>
 
-        <div class="session-summary" aria-label="Current piano settings">
-            <span>Meter <strong>@displayTimeSignature.Numerator/@displayTimeSignature.BeatNoteValue.Denominator</strong></span>
-            <span>Tempo <strong>@TempoBeatsPerMinuteText BPM</strong></span>
-            <span>MIDI input <strong>@MidiInputSummary</strong></span>
-            <span>MIDI output <strong>@MidiOutputSummary</strong></span>
-        </div>
         <PianoCanvas Scene="@canvasScene"
                      SecondaryScene="@secondaryCanvasScene"
                      SelectedOctave="@keyboardState.CurrentOctave"
@@ -499,7 +433,74 @@
                      SecondaryScoreRowStatus="@SecondaryScoreRowStatus"
                      ActiveKeyboardMidiNumbers="@activeKeyboardMidiNumbers"
                      PointerNoteOn="HandlePointerNoteOnAsync"
-                     PointerNoteOff="HandlePointerNoteOffAsync" />
+                     PointerNoteOff="HandlePointerNoteOffAsync">
+            <PracticeContent>
+                <div class="analysis-controls" role="group" aria-label="Practice">
+                    <span>Practice</span>
+                    <button class="button-quiet"
+                            type="button"
+                            aria-controls="sight-reading-exercise-panel"
+                            aria-pressed="@(showSightReadingExercisePanel ? "true" : "false")"
+                            @onclick="ToggleSightReadingExercisePanel">
+                        @(showSightReadingExercisePanel ? "Hide note reading exercise" : "Show note reading exercise")
+                    </button>
+                    <button class="button-quiet"
+                            type="button"
+                            aria-controls="sight-reading-progress-panel"
+                            aria-pressed="@(showSightReadingProgressPanel ? "true" : "false")"
+                            @onclick="ToggleSightReadingProgressPanel">
+                        @(showSightReadingProgressPanel ? "Hide progress" : "Show progress")
+                    </button>
+                </div>
+
+                @if (showSightReadingExercisePanel)
+                {
+                    <div id="sight-reading-exercise-panel">
+                        <SightReadingExercisePanel SelectedStaff="@sightReadingExerciseCoordinator.Staff"
+                                                   PresetId="@sightReadingExerciseCoordinator.PresetId"
+                                                   PromptCountOption="@sightReadingExerciseCoordinator.PromptCountOption"
+                                                   IsGrandStaff="@sightReadingExerciseCoordinator.IsGrandStaff"
+                                                   RhythmPreset="@sightReadingExerciseCoordinator.RhythmPreset"
+                                                   Mode="@sightReadingExerciseCoordinator.Mode"
+                                                   RevealNoteNamesWhileActive="@sightReadingExerciseCoordinator.RevealNoteNamesWhileActive"
+                                                   RevealFingeringWhileActive="@sightReadingExerciseCoordinator.RevealFingeringWhileActive"
+                                                   IsActive="@sightReadingExerciseCoordinator.IsActive"
+                                                   IsComplete="@noteReadingSession.IsComplete"
+                                                   HasMissedPrompts="@sightReadingExerciseCoordinator.HasMissedPrompts"
+                                                   IsMidiInputConnected="@(midiInputNames.Count > 0)"
+                                                   IsComputerPianoEnabled="@computerPianoState.IsEnabled"
+                                                   PromptCount="@noteReadingSession.PromptCount"
+                                                   CompletedPromptCount="@noteReadingSession.CompletedPromptCount"
+                                                   FirstTryCorrectCount="@noteReadingSession.FirstTryCorrectCount"
+                                                   WrongAttemptCount="@noteReadingSession.WrongAttemptCount"
+                                                   FirstTryAccuracyPercent="@noteReadingSession.FirstTryAccuracyPercent"
+                                                   ElapsedTime="@noteReadingSession.ElapsedTime"
+                                                   SelectedStaffChanged="SetSightReadingStaff"
+                                                   PresetIdChanged="SetSightReadingPresetId"
+                                                   PromptCountOptionChanged="SetSightReadingPromptCount"
+                                                   IsGrandStaffChanged="SetSightReadingIsGrandStaff"
+                                                   RhythmPresetChanged="SetSightReadingRhythmPreset"
+                                                   ModeChanged="SetSightReadingMode"
+                                                   RevealNoteNamesWhileActiveChanged="SetSightReadingRevealNoteNamesWhileActive"
+                                                   RevealFingeringWhileActiveChanged="SetSightReadingRevealFingeringWhileActive"
+                                                   Generate="GenerateSightReadingExerciseAsync"
+                                                   Retry="RetrySightReadingExerciseAsync"
+                                                   RetryMissed="RetryMissedSightReadingExerciseAsync"
+                                                   End="EndSightReadingExerciseAsync" />
+                    </div>
+                }
+
+                @if (showSightReadingProgressPanel)
+                {
+                    <div id="sight-reading-progress-panel">
+                        <SightReadingHistoryPanel RecentSessions="@RecentSightReadingSessions"
+                                                   WeakestPitches="@sightReadingHistory.ComputeMasteryWeakestFirst()"
+                                                   InsufficientDataPitchCount="@InsufficientMasteryDataPitchCount"
+                                                   ClearHistory="ClearSightReadingHistoryAsync" />
+                    </div>
+                }
+            </PracticeContent>
+        </PianoCanvas>
     </section>
 </main>
 
@@ -569,6 +570,8 @@
     private bool isMidiConnecting;
     private bool testNoteIsActive;
     private bool showPianoRoll;
+    private bool showSightReadingExercisePanel;
+    private bool showSightReadingProgressPanel;
     private bool showNoteLabels = true;
     private bool showFingerings = true;
     private int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount;
@@ -944,11 +947,6 @@
         }
     }
 
-    private string GetSoundSourceClass(BrowserSoundSource source) =>
-        source == soundSource
-            ? "sound-source-option sound-source-option-active"
-            : "sound-source-option";
-
     private async Task ClearNotesAsync()
     {
         await ApplyInputCommandAsync(keyboardState.Clear(GetAnchorTime()));
@@ -1118,7 +1116,6 @@
             ? await AudioSession.GetCurrentTimeAsync()
             : TimeSpan.Zero;
         RefreshCanvasScene(currentTime);
-        audioStatus = "Score unloaded.";
     }
 
     private Task SelectFirstMeasureAsync(ChangeEventArgs eventArgs)
@@ -1712,6 +1709,12 @@
             : TimeSpan.Zero;
         await SetViewAsync(currentTime);
     }
+
+    private void ToggleSightReadingExercisePanel() =>
+        showSightReadingExercisePanel = !showSightReadingExercisePanel;
+
+    private void ToggleSightReadingProgressPanel() =>
+        showSightReadingProgressPanel = !showSightReadingProgressPanel;
 
     private Task SetShowNoteLabelsAsync(ChangeEventArgs eventArgs)
     {

@@ -11,24 +11,18 @@
     {
         <ScoreLoadingIndicator />
     }
-    @if (HasLoadedScore)
-    {
-        <button class="button-quiet" type="button" @onclick="UnloadScoreAsync" disabled="@isLoadingScore">
-            Unload score
-        </button>
-    }
-    <details class="learning-disclosure score-file-help">
-        <summary>Supported score files</summary>
-        <p>
-            MusicXML loads directly. JPEG and PNG sheet-music images are converted with the server's Audiveris
-            optical music recognition engine; recognition may need correction in an external score editor.
-        </p>
-    </details>
-    @if (!string.IsNullOrEmpty(status))
-    {
-        <p role="status">@status</p>
-    }
 </div>
+@if (!string.IsNullOrEmpty(status))
+{
+    <p role="status">@status</p>
+}
+<details class="learning-disclosure">
+    <summary>Supported score files</summary>
+    <p>
+        MusicXML loads directly. JPEG and PNG sheet-music images are converted with the server's Audiveris
+        optical music recognition engine; recognition may need correction in an external score editor.
+    </p>
+</details>
 
 @code {
     internal const long MaximumFileSizeBytes = 10L * 1024 * 1024;
@@ -36,15 +30,24 @@
     private int inputGeneration;
     private string? status;
     private bool isLoadingScore;
+    private bool wasLoaded;
 
     [Parameter]
     public EventCallback<Score> ScoreLoaded { get; set; }
 
     [Parameter]
-    public EventCallback ScoreUnloaded { get; set; }
-
-    [Parameter]
     public bool HasLoadedScore { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (wasLoaded && !HasLoadedScore)
+        {
+            inputGeneration++;
+            status = null;
+        }
+
+        wasLoaded = HasLoadedScore;
+    }
 
     private async Task SelectFileAsync(InputFileChangeEventArgs eventArgs)
     {
@@ -77,12 +80,5 @@
         {
             isLoadingScore = false;
         }
-    }
-
-    private async Task UnloadScoreAsync()
-    {
-        await ScoreUnloaded.InvokeAsync();
-        inputGeneration++;
-        status = "Score unloaded.";
     }
 }

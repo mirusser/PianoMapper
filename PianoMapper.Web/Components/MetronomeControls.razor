@@ -1,38 +1,33 @@
-<section class="control-card control-card-wide metronome-card" aria-labelledby="metronome-controls-heading">
-    <div class="control-card-heading">
-        <h2 id="metronome-controls-heading">Metronome</h2>
-    </div>
-    <div class="metronome-controls">
-        <button class="metronome-toggle"
-                type="button"
-                @onclick="Toggle"
-                disabled="@(!CanToggle)"
-                aria-pressed="@IsRunning">
-            @(IsRunning ? "Stop metronome" : "Start metronome")
-        </button>
-        @if (IsRunning)
-        {
-            <div class="tempo-feedback" aria-live="polite">
-                <span class="metronome-pulse" data-metronome-pulse aria-hidden="true"></span>
-                @if (Feedback.LastAlignment is { } alignment &&
-                    Feedback.MedianDeviation is { } medianDeviation)
-                {
-                    <span class="tempo-feedback-chip @GetVerdictCssClass(alignment.Verdict)">
-                        @FormatAlignment(alignment)
-                    </span>
-                    <span class="tempo-feedback-stats">
-                        @Feedback.OnTimeCount/@Feedback.TotalCount on time · median
-                        @FormatSignedMilliseconds(medianDeviation)
-                    </span>
-                }
-                else
-                {
-                    <span class="tempo-feedback-stats">Play a note to check your timing.</span>
-                }
-            </div>
-        }
-    </div>
-</section>
+<div class="metronome-controls">
+    <button class="metronome-toggle"
+            type="button"
+            @onclick="Toggle"
+            disabled="@(!CanToggle)"
+            aria-pressed="@IsRunning">
+        @(IsRunning ? "Stop metronome" : "Start metronome")
+    </button>
+    @if (IsRunning)
+    {
+        <div class="tempo-feedback" aria-live="polite">
+            <span class="metronome-pulse" data-metronome-pulse aria-hidden="true"></span>
+            @if (Feedback.LastAlignment is { } alignment &&
+                Feedback.MedianDeviation is { } medianDeviation)
+            {
+                <span class="tempo-feedback-chip @GetVerdictCssClass(alignment.Verdict)">
+                    @FormatAlignment(alignment)
+                </span>
+                <span class="tempo-feedback-stats">
+                    @Feedback.OnTimeCount/@Feedback.TotalCount on time · median
+                    @FormatSignedMilliseconds(medianDeviation)
+                </span>
+            }
+            else
+            {
+                <span class="tempo-feedback-stats">Play a note to check your timing.</span>
+            }
+        </div>
+    }
+</div>
 
 @code {
     private static string GetVerdictCssClass(Verdict verdict) => verdict switch

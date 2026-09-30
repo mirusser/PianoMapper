@@ -1,6 +1,6 @@
 namespace PianoMapper.Web.Audio;
 
-internal enum BrowserSoundSource
+public enum BrowserSoundSource
 {
     Synth,
     Piano,

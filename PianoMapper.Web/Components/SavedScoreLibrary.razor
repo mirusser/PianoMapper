@@ -1,10 +1,15 @@
 @inject SavedScoreClient Client
 @inject IJSRuntime JS
 
-<section class="saved-score-library" aria-labelledby="saved-scores-heading">
-    <div class="saved-score-library-heading">
-        <h3 id="saved-scores-heading">Your library</h3>
-        <div class="controls">
+<section class="saved-score-library" aria-label="Saved score library">
+    @if (isLoadingScore)
+    {
+        <ScoreLoadingIndicator />
+    }
+
+    <details class="learning-disclosure">
+        <summary>Saved scores <span class="saved-score-count">@(savedScores?.Count.ToString(CultureInfo.CurrentCulture) ?? "…")</span></summary>
+        <div class="controls saved-score-library-actions">
             <button class="button-primary"
                     type="button"
                     @onclick="SaveAsync"
@@ -13,15 +18,6 @@
             </button>
             <button class="button-quiet" type="button" @onclick="RefreshAsync" disabled="@isBusy">Refresh</button>
         </div>
-    </div>
-
-    @if (isLoadingScore)
-    {
-        <ScoreLoadingIndicator />
-    }
-
-    <details class="saved-score-disclosure">
-        <summary>Saved scores <span class="saved-score-count">@(savedScores?.Count.ToString(CultureInfo.CurrentCulture) ?? "…")</span></summary>
         @if (savedScores is null)
         {
             <p class="control-note">Loading saved scores…</p>
@@ -170,7 +166,6 @@
         {
             SavedScoreDetails savedScore = await Client.FindAsync(id);
             await ScoreLoaded.InvokeAsync(savedScore);
-            status = $"Loaded {savedScore.Score.Title} from saved scores.";
         }
         catch (Exception exception) when (
             exception is HttpRequestException or InvalidDataException or JsonException or NotSupportedException)

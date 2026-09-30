@@ -1,8 +1,8 @@
-<details class="control-card settings-card" aria-labelledby="sight-reading-history-heading">
-    <summary class="control-card-heading">
+<section class="control-card" aria-labelledby="sight-reading-history-heading">
+    <div class="control-card-heading">
         <h2 id="sight-reading-history-heading">Progress</h2>
         <span>Local history and pitch mastery</span>
-    </summary>
+    </div>
     <section aria-labelledby="recent-sessions-heading">
         <h3 id="recent-sessions-heading">Recent sessions</h3>
         @if (RecentSessions.Count == 0)
@@ -54,7 +54,7 @@
     <button class="button-quiet" type="button" @onclick="ClearHistoryAsync" disabled="@(RecentSessions.Count == 0)">
         Clear local history
     </button>
-</details>
+</section>
 
 @code {
     [Parameter]

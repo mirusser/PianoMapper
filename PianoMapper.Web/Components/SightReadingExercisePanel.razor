@@ -1,66 +1,78 @@
-<details class="control-card settings-card" aria-labelledby="sight-reading-heading" open="@IsActive">
-    <summary class="control-card-heading">
+<section class="control-card" aria-labelledby="sight-reading-heading">
+    <div class="control-card-heading">
         <h2 id="sight-reading-heading">Note reading exercise</h2>
         <span>Self-paced pitch practice</span>
-    </summary>
-    <div class="controls">
-        <label class="octave-picker">
-            Staff
-            <select value="@SelectedStaff" @onchange="SelectStaffAsync" disabled="@IsGrandStaff">
-                <option value="@Staff.Treble">Treble / right hand</option>
-                <option value="@Staff.Bass">Bass / left hand</option>
-            </select>
-        </label>
-        <label class="control-checkbox">
-            <input type="checkbox" checked="@IsGrandStaff" @onchange="SelectIsGrandStaffAsync" />
-            Grand staff (alternate both hands)
-        </label>
-        <label class="octave-picker">
-            Range
-            <select value="@PresetId" @onchange="SelectPresetIdAsync">
-                <option value="@SightReadingPresetId.FiveNote">Starter — five notes</option>
-                <option value="@SightReadingPresetId.OneOctave">One octave</option>
-                <option value="@SightReadingPresetId.LedgerLines">Ledger lines</option>
-                <option value="@SightReadingPresetId.GMajor">G major (one sharp)</option>
-                <option value="@SightReadingPresetId.FMajor">F major (one flat)</option>
-                <option value="@SightReadingPresetId.Chords">Chords (I, IV, V)</option>
-            </select>
-        </label>
-        <label class="octave-picker">
-            Length
-            <select value="@PromptCountOption" @onchange="SelectPromptCountOptionAsync">
-                <option value="8">8 notes</option>
-                <option value="16">16 notes</option>
-            </select>
-        </label>
-        <label class="octave-picker">
-            Rhythm
-            <select value="@RhythmPreset" @onchange="SelectRhythmPresetAsync">
-                <option value="@SightReadingRhythmPreset.Fixed">Fixed quarter notes</option>
-                <option value="@SightReadingRhythmPreset.Basic">Basic (4/4 half/quarter/eighths)</option>
-                <option value="@SightReadingRhythmPreset.Compound">Compound (6/8)</option>
-            </select>
-        </label>
-        <label class="octave-picker">
-            Mode
-            <select value="@Mode" @onchange="SelectModeAsync">
-                <option value="@NoteReadingMode.PitchAndOrder">Pitch only (self-paced)</option>
-                <option value="@NoteReadingMode.PitchAndHold">Pitch + hold (written duration)</option>
-                <option value="@NoteReadingMode.PitchHoldAndRhythm">Rhythm (timed, with count-in)</option>
-            </select>
-        </label>
-        <label class="control-checkbox">
-            <input type="checkbox"
-                   checked="@RevealNoteNamesWhileActive"
-                   @onchange="SelectRevealNoteNamesWhileActiveAsync" />
-            Show note names while playing
-        </label>
-        <label class="control-checkbox">
-            <input type="checkbox"
-                   checked="@RevealFingeringWhileActive"
-                   @onchange="SelectRevealFingeringWhileActiveAsync" />
-            Show fingering while playing
-        </label>
+    </div>
+    <div class="control-card-groups">
+        <div class="control-group" role="group" aria-labelledby="sight-reading-setup-heading">
+            <span class="control-group-label" id="sight-reading-setup-heading">Setup</span>
+            <div class="controls">
+                <label class="octave-picker">
+                    Staff
+                    <select value="@SelectedStaff" @onchange="SelectStaffAsync" disabled="@IsGrandStaff">
+                        <option value="@Staff.Treble">Treble / right hand</option>
+                        <option value="@Staff.Bass">Bass / left hand</option>
+                    </select>
+                </label>
+                <label class="control-checkbox">
+                    <input type="checkbox" checked="@IsGrandStaff" @onchange="SelectIsGrandStaffAsync" />
+                    Grand staff (alternate both hands)
+                </label>
+                <label class="octave-picker">
+                    Range
+                    <select value="@PresetId" @onchange="SelectPresetIdAsync">
+                        <option value="@SightReadingPresetId.FiveNote">Starter — five notes</option>
+                        <option value="@SightReadingPresetId.OneOctave">One octave</option>
+                        <option value="@SightReadingPresetId.LedgerLines">Ledger lines</option>
+                        <option value="@SightReadingPresetId.GMajor">G major (one sharp)</option>
+                        <option value="@SightReadingPresetId.FMajor">F major (one flat)</option>
+                        <option value="@SightReadingPresetId.Chords">Chords (I, IV, V)</option>
+                    </select>
+                </label>
+                <label class="octave-picker">
+                    Length
+                    <select value="@PromptCountOption" @onchange="SelectPromptCountOptionAsync">
+                        <option value="8">8 notes</option>
+                        <option value="16">16 notes</option>
+                    </select>
+                </label>
+                <label class="octave-picker">
+                    Rhythm
+                    <select value="@RhythmPreset" @onchange="SelectRhythmPresetAsync">
+                        <option value="@SightReadingRhythmPreset.Fixed">Fixed quarter notes</option>
+                        <option value="@SightReadingRhythmPreset.Basic">Basic (4/4 half/quarter/eighths)</option>
+                        <option value="@SightReadingRhythmPreset.Compound">Compound (6/8)</option>
+                    </select>
+                </label>
+                <label class="octave-picker">
+                    Mode
+                    <select value="@Mode" @onchange="SelectModeAsync">
+                        <option value="@NoteReadingMode.PitchAndOrder">Pitch only (self-paced)</option>
+                        <option value="@NoteReadingMode.PitchAndHold">Pitch + hold (written duration)</option>
+                        <option value="@NoteReadingMode.PitchHoldAndRhythm">Rhythm (timed, with count-in)</option>
+                    </select>
+                </label>
+            </div>
+        </div>
+        <div class="control-group" role="group" aria-labelledby="sight-reading-reveal-heading">
+            <span class="control-group-label" id="sight-reading-reveal-heading">While playing</span>
+            <div class="controls">
+                <label class="control-checkbox">
+                    <input type="checkbox"
+                           checked="@RevealNoteNamesWhileActive"
+                           @onchange="SelectRevealNoteNamesWhileActiveAsync" />
+                    Show note names while playing
+                </label>
+                <label class="control-checkbox">
+                    <input type="checkbox"
+                           checked="@RevealFingeringWhileActive"
+                           @onchange="SelectRevealFingeringWhileActiveAsync" />
+                    Show fingering while playing
+                </label>
+            </div>
+        </div>
+    </div>
+    <div class="controls session-controls" role="group" aria-label="Exercise session controls">
         <button class="button-primary" type="button" @onclick="Generate">
             @(IsComplete ? "Next exercise" : "Generate new exercise")
         </button>
@@ -78,12 +90,6 @@
         @InputReadinessMessage
         @HiddenAnswersMessage
     </p>
-    @if (!IsMidiInputConnected)
-    {
-        <button type="button" @onclick="ConnectMidi" disabled="@IsMidiConnecting">
-            @(IsMidiConnecting ? "Connecting MIDI piano…" : "Connect MIDI piano")
-        </button>
-    }
     @if (IsActive)
     {
         <p role="status">
@@ -105,7 +111,7 @@
             }
         </p>
     }
-</details>
+</section>
 
 @code {
     [Parameter]
@@ -145,13 +151,7 @@
     public bool IsMidiInputConnected { get; set; }
 
     [Parameter]
-    public bool IsMidiConnecting { get; set; }
-
-    [Parameter]
     public bool IsComputerPianoEnabled { get; set; }
-
-    [Parameter]
-    public EventCallback ConnectMidi { get; set; }
 
     [Parameter]
     public int PromptCount { get; set; }

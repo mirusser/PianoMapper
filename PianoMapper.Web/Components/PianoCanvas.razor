@@ -73,6 +73,8 @@
         </div>
     </section>
 
+    @PracticeContent
+
     <div class="analysis-controls" role="group" aria-label="Additional views">
         <span>Additional views</span>
         <button class="button-quiet"
@@ -301,6 +303,9 @@
 
     [Parameter]
     public EventCallback<BrowserPointerNoteOffEvent> PointerNoteOff { get; set; }
+
+    [Parameter]
+    public RenderFragment? PracticeContent { get; set; }
 
     private ScoreCursorPlaybackState? lastPushedScoreCursor;
     private ScoreCursorPlaybackState? lastPushedSecondaryScoreCursor;
