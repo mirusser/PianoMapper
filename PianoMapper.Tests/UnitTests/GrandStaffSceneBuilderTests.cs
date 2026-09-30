@@ -993,19 +993,14 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.Null(renderedNote.FingeringY);
     }
 
-    [Fact]
-    public void BuildScore_ShowNoteLabelsFalse_HidesNoteLabel()
-    {
-        var sourceNote = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
-        var score = SingleNoteScore(sourceNote);
-
-        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0, showNoteLabels: false);
-
-        Assert.Null(Assert.Single(scene.Notes).LabelY);
-    }
-
-    [Fact]
-    public void BuildScore_ShowNoteLabelsFalse_StillShowsFingering()
+    [Theory]
+    [InlineData(false, true, false, true)]
+    [InlineData(true, false, true, false)]
+    public void BuildScore_ShowLabelsOrFingeringsFalse_HidesOnlyThatOneAndKeepsTheOther(
+        bool showNoteLabels,
+        bool showFingerings,
+        bool expectLabel,
+        bool expectFingering)
     {
         var sourceNote = new ScoreNote(
             new Pitch(NoteLetter.C, 0, 4),
@@ -1016,47 +1011,16 @@ public sealed class GrandStaffSceneBuilderTests
             Fingering: new ScoreFingering(3));
         var score = SingleNoteScore(sourceNote);
 
-        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0, showNoteLabels: false);
+        var scene = GrandStaffSceneBuilder.BuildScore(
+            score,
+            firstVisibleMeasure: 0,
+            showNoteLabels: showNoteLabels,
+            showFingerings: showFingerings);
 
         var renderedNote = Assert.Single(scene.Notes);
-        Assert.NotNull(renderedNote.Fingering);
-        Assert.NotNull(renderedNote.FingeringY);
-    }
-
-    [Fact]
-    public void BuildScore_ShowFingeringsFalse_HidesFingeringEvenWhenNoteHasFingering()
-    {
-        var sourceNote = new ScoreNote(
-            new Pitch(NoteLetter.C, 0, 4),
-            new NoteValue(4),
-            0,
-            0,
-            Staff.Treble,
-            Fingering: new ScoreFingering(3));
-        var score = SingleNoteScore(sourceNote);
-
-        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0, showFingerings: false);
-
-        var renderedNote = Assert.Single(scene.Notes);
-        Assert.Null(renderedNote.Fingering);
-        Assert.Null(renderedNote.FingeringY);
-    }
-
-    [Fact]
-    public void BuildScore_ShowFingeringsFalse_StillShowsNoteLabel()
-    {
-        var sourceNote = new ScoreNote(
-            new Pitch(NoteLetter.C, 0, 4),
-            new NoteValue(4),
-            0,
-            0,
-            Staff.Treble,
-            Fingering: new ScoreFingering(3));
-        var score = SingleNoteScore(sourceNote);
-
-        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0, showFingerings: false);
-
-        Assert.NotNull(Assert.Single(scene.Notes).LabelY);
+        Assert.Equal(expectLabel, renderedNote.LabelY is not null);
+        Assert.Equal(expectFingering, renderedNote.Fingering is not null);
+        Assert.Equal(expectFingering, renderedNote.FingeringY is not null);
     }
 
     [Fact]

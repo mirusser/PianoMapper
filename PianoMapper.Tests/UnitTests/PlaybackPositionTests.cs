@@ -12,54 +12,38 @@ public class PlaybackPositionTests
             ReleaseTime = TimeSpan.FromSeconds(startSeconds + duration),
         };
 
-    [Fact]
-    public void IsNoteStillPlaying_ExactlyAtDuration_ReturnsTrue()
+    [Theory]
+    [InlineData(0, 2f, 2, true)]
+    [InlineData(0, 2f, 2.01, false)]
+    [InlineData(5, 2f, 0, true)]
+    public void IsNoteStillPlaying_VariousTimings_ReturnsExpected(
+        double startSeconds,
+        float duration,
+        double nowSeconds,
+        bool expected)
     {
-        var note = CreateNote(startSeconds: 0, duration: 2f);
+        var note = CreateNote(startSeconds, duration);
 
-        bool stillPlaying = PlaybackPosition.IsNoteStillPlaying(note, now: TimeSpan.FromSeconds(2));
+        bool stillPlaying = PlaybackPosition.IsNoteStillPlaying(note, now: TimeSpan.FromSeconds(nowSeconds));
 
-        Assert.True(stillPlaying);
+        Assert.Equal(expected, stillPlaying);
     }
 
-    [Fact]
-    public void IsNoteStillPlaying_PastDuration_ReturnsFalse()
+    [Theory]
+    [InlineData(1, 2f, 1, 0)]
+    [InlineData(0, 2f, 1, 1)]
+    public void EstimateSampleOffset_WithinNote_ReturnsProportionalOffset(
+        double startSeconds,
+        float duration,
+        double nowSeconds,
+        double expectedFractionOfSampleCount)
     {
-        var note = CreateNote(startSeconds: 0, duration: 2f);
+        var note = CreateNote(startSeconds, duration);
+        int sampleCount = Consts.SampleRate * 2;
 
-        bool stillPlaying = PlaybackPosition.IsNoteStillPlaying(note, now: TimeSpan.FromSeconds(2.01));
+        var offset = PlaybackPosition.EstimateSampleOffset(note, now: TimeSpan.FromSeconds(nowSeconds), sampleCount);
 
-        Assert.False(stillPlaying);
-    }
-
-    [Fact]
-    public void IsNoteStillPlaying_BeforeNoteStart_ReturnsTrue()
-    {
-        var note = CreateNote(startSeconds: 5, duration: 2f);
-
-        bool stillPlaying = PlaybackPosition.IsNoteStillPlaying(note, now: TimeSpan.FromSeconds(0));
-
-        Assert.True(stillPlaying);
-    }
-
-    [Fact]
-    public void EstimateSampleOffset_AtNoteStart_ReturnsZero()
-    {
-        var note = CreateNote(startSeconds: 1, duration: 2f);
-
-        var offset = PlaybackPosition.EstimateSampleOffset(note, now: TimeSpan.FromSeconds(1), sampleCount: Consts.SampleRate * 2);
-
-        Assert.Equal(0, offset);
-    }
-
-    [Fact]
-    public void EstimateSampleOffset_PartwayThroughNote_ReturnsProportionalOffset()
-    {
-        var note = CreateNote(startSeconds: 0, duration: 2f);
-
-        var offset = PlaybackPosition.EstimateSampleOffset(note, now: TimeSpan.FromSeconds(1), sampleCount: Consts.SampleRate * 2);
-
-        Assert.Equal(Consts.SampleRate, offset);
+        Assert.Equal((int)(expectedFractionOfSampleCount * Consts.SampleRate), offset);
     }
 
     [Fact]

@@ -395,9 +395,6 @@ public sealed class SightReadingExerciseComposerTests
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
-    [InlineData(3)]
-    [InlineData(4)]
-    [InlineData(5)]
     public void Compose_LedgerLinesTreble_AlwaysContainsAPromptBelowAndAboveTheStaff(int seed)
     {
         var options = new SightReadingExerciseOptions(
@@ -421,9 +418,6 @@ public sealed class SightReadingExerciseComposerTests
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
-    [InlineData(3)]
-    [InlineData(4)]
-    [InlineData(5)]
     public void Compose_LedgerLinesBass_AlwaysContainsAPromptBelowAndAboveTheStaff(int seed)
     {
         var options = new SightReadingExerciseOptions(

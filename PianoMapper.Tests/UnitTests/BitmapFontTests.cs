@@ -43,18 +43,12 @@ public class BitmapFontTests
         Assert.Equal(upper, lower);
     }
 
-    [Fact]
-    public void GetGlyph_LetterWithLitPixels_HasAtLeastOneLitPixel()
+    [Theory]
+    [InlineData('A')]
+    [InlineData('/')]
+    public void GetGlyph_CharacterWithLitPixels_HasAtLeastOneLitPixel(char c)
     {
-        var glyph = BitmapFont.GetGlyph('A');
-
-        Assert.Contains(true, glyph);
-    }
-
-    [Fact]
-    public void GetGlyph_Slash_HasAtLeastOneLitPixel()
-    {
-        var glyph = BitmapFont.GetGlyph('/');
+        var glyph = BitmapFont.GetGlyph(c);
 
         Assert.Contains(true, glyph);
     }

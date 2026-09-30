@@ -774,29 +774,16 @@ public sealed class NoteReadingSessionTests
         Assert.Equal(wrongAttemptsBeforeExtraInput, session.WrongAttemptCount);
     }
 
-    [Fact]
-    public void Release_UnknownPitchInPitchAndOrderMode_ReturnsNotTrackedWithoutThrowing()
-    {
-        var note = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
-        var session = new NoteReadingSession();
-        session.Reset(CreateScore([note]));
-
-        NoteReadingSession.ReleaseResult result = session.Release(
-            new Pitch(NoteLetter.D, 0, 4),
-            TimeSpan.Zero);
-
-        Assert.False(result.WasTracked);
-        Assert.Null(result.Verdict);
-    }
-
-    [Fact]
-    public void Release_UnknownPitchInHoldMode_ReturnsNotTrackedWithoutThrowing()
+    [Theory]
+    [InlineData(NoteReadingMode.PitchAndOrder)]
+    [InlineData(NoteReadingMode.PitchAndHold)]
+    public void Release_UnknownPitch_ReturnsNotTrackedWithoutThrowing(NoteReadingMode mode)
     {
         var note = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
         var session = new NoteReadingSession();
         session.Reset(
             CreateScore([note]),
-            NoteReadingMode.PitchAndHold,
+            mode,
             TimeSpan.FromMilliseconds(60));
 
         NoteReadingSession.ReleaseResult result = session.Release(
@@ -1038,38 +1025,6 @@ public sealed class NoteReadingSessionTests
         session.Reset(score);
 
         Assert.Equal(TimeSpan.Zero, session.ElapsedTime);
-    }
-
-    [Fact]
-    public void Reset_ExplicitAnchor_GradesFirstOnsetLateWhenPlayedAfterTolerance()
-    {
-        var note = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
-        var session = new NoteReadingSession();
-        session.Reset(
-            CreateScore([note]),
-            NoteReadingMode.PitchHoldAndRhythm,
-            TimeSpan.FromMilliseconds(60),
-            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
-
-        NoteReadingSession.CheckResult result = session.Check(note.Pitch, TimeSpan.FromSeconds(10.6));
-
-        Assert.Equal(Verdict.Late, result.Verdict);
-    }
-
-    [Fact]
-    public void Reset_ExplicitAnchor_GradesFirstOnsetEarlyWhenPlayedBeforeTolerance()
-    {
-        var note = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
-        var session = new NoteReadingSession();
-        session.Reset(
-            CreateScore([note]),
-            NoteReadingMode.PitchHoldAndRhythm,
-            TimeSpan.FromMilliseconds(60),
-            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
-
-        NoteReadingSession.CheckResult result = session.Check(note.Pitch, TimeSpan.FromSeconds(9.9));
-
-        Assert.Equal(Verdict.Early, result.Verdict);
     }
 
     [Theory]

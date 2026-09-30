@@ -354,32 +354,20 @@ public sealed class MusicXmlScoreReaderTests
         Assert.Equal(new ScoreGlissando(false, 1, expectedKind), notes[1].Glissando);
     }
 
-    [Fact]
-    public void Read_InvalidGlissandoType_ThrowsMessageNamingElement()
+    [Theory]
+    [InlineData("glissando")]
+    [InlineData("slide")]
+    public void Read_InvalidGlissandoOrSlideType_ThrowsMessageNamingElement(string element)
     {
-        var exception = Assert.Throws<InvalidDataException>(() => ReadNotes("""
+        var exception = Assert.Throws<InvalidDataException>(() => ReadNotes($"""
             <note>
               <pitch><step>C</step><octave>4</octave></pitch>
               <duration>1</duration><type>eighth</type>
-              <notations><glissando type="continue" number="1" /></notations>
+              <notations><{element} type="continue" number="1" /></notations>
             </note>
             """));
 
-        Assert.Contains("<glissando>", exception.Message);
-    }
-
-    [Fact]
-    public void Read_InvalidSlideType_ThrowsMessageNamingElement()
-    {
-        var exception = Assert.Throws<InvalidDataException>(() => ReadNotes("""
-            <note>
-              <pitch><step>C</step><octave>4</octave></pitch>
-              <duration>1</duration><type>eighth</type>
-              <notations><slide type="continue" number="1" /></notations>
-            </note>
-            """));
-
-        Assert.Contains("<slide>", exception.Message);
+        Assert.Contains($"<{element}>", exception.Message);
     }
 
     [Fact]

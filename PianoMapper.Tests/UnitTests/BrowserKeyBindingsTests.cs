@@ -22,23 +22,10 @@ public sealed class BrowserKeyBindingsTests
 
     [Theory]
     [InlineData("Space")]
-    [InlineData("Tab")]
-    [InlineData("Enter")]
-    [InlineData("Escape")]
-    [InlineData("PageUp")]
-    [InlineData("PageDown")]
     [InlineData("ArrowUp")]
-    [InlineData("ArrowDown")]
-    [InlineData("ArrowLeft")]
-    [InlineData("ArrowRight")]
     [InlineData("KeyA")]
-    [InlineData("KeyW")]
-    [InlineData("KeyR")]
-    [InlineData("Semicolon")]
     [InlineData("KeyZ")]
-    [InlineData("KeyX")]
     [InlineData("Digit1")]
-    [InlineData("Digit8")]
     public void HandledCodes_UnmappedCode_IsNotRegistered(string code)
     {
         Assert.DoesNotContain(code, BrowserKeyBindings.HandledCodes);

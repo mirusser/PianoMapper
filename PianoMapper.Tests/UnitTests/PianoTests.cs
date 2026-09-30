@@ -6,47 +6,25 @@ namespace PianoMapper.Tests.UnitTests;
 
 public sealed class PianoTests
 {
-    [Fact]
-    public void ShouldContinueVisualizationRefresh_LiveGrandStaffWithVisibleNote_ReturnsTrue()
+    [Theory]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, true)]
+    public void ShouldContinueVisualizationRefresh_GrandStaffState_ReturnsExpectedPolicy(
+        bool hasLoadedScore,
+        bool hasScheduledKeyboardNotes,
+        bool expected)
     {
         var scene = CreateGrandStaffSceneWithVisibleNote();
 
         bool shouldContinue = Piano.ShouldContinueVisualizationRefresh(
             showPianoRoll: false,
-            hasLoadedScore: false,
-            scene,
-            activeNoteCount: 0);
-
-        Assert.True(shouldContinue);
-    }
-
-    [Fact]
-    public void ShouldContinueVisualizationRefresh_ImportedScoreGrandStaff_ReturnsFalse()
-    {
-        var scene = CreateGrandStaffSceneWithVisibleNote();
-
-        bool shouldContinue = Piano.ShouldContinueVisualizationRefresh(
-            showPianoRoll: false,
-            hasLoadedScore: true,
-            scene,
-            activeNoteCount: 0);
-
-        Assert.False(shouldContinue);
-    }
-
-    [Fact]
-    public void ShouldContinueVisualizationRefresh_ScheduledKeyboardNote_ReturnsTrue()
-    {
-        var scene = CreateGrandStaffSceneWithVisibleNote();
-
-        bool shouldContinue = Piano.ShouldContinueVisualizationRefresh(
-            showPianoRoll: false,
-            hasLoadedScore: true,
+            hasLoadedScore,
             scene,
             activeNoteCount: 0,
-            hasScheduledKeyboardNotes: true);
+            hasScheduledKeyboardNotes: hasScheduledKeyboardNotes);
 
-        Assert.True(shouldContinue);
+        Assert.Equal(expected, shouldContinue);
     }
 
     [Theory]

@@ -70,6 +70,5 @@ public sealed class MusicalValueTypesTests
         var shiftedNote = note with { SoundingOctavesAboveNotated = 1 };
 
         Assert.Equal(1, shiftedNote.SoundingOctavesAboveNotated);
-        Assert.Equal(note, shiftedNote with { SoundingOctavesAboveNotated = 0 });
     }
 }

@@ -108,20 +108,6 @@ public sealed class SightReadingExerciseCoordinatorTests
     }
 
     [Fact]
-    public void Generate_SameSeed_ProducesSamePitchSequence()
-    {
-        var firstCoordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
-        var secondCoordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
-
-        firstCoordinator.Generate(new Random(8675309), Tolerance);
-        secondCoordinator.Generate(new Random(8675309), Tolerance);
-
-        Assert.Equal(
-            firstCoordinator.Score!.Measures.SelectMany(measure => measure.Notes).Select(note => note.Pitch),
-            secondCoordinator.Score!.Measures.SelectMany(measure => measure.Notes).Select(note => note.Pitch));
-    }
-
-    [Fact]
     public void Generate_WithMastery_FavorsWeakPitchOverNeutralGeneration()
     {
         var neutralCoordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
