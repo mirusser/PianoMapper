@@ -876,7 +876,10 @@ function drawNote(context, note, width, height, staffSpace, colorOverride) {
     }
 
     if (Number.isFinite(note.labelY)) {
-        context.font = "16px system-ui, sans-serif";
+        // Shrinks in lockstep with GrandStaffSceneBuilder's compressed row spacing for a severely crowded
+        // label stack (e.g. a 3-note chord) — 1 (full 16px) for the overwhelmingly common, uncompressed case.
+        const labelFontScale = Number.isFinite(note.labelFontScale) ? note.labelFontScale : 1;
+        context.font = `${16 * labelFontScale}px system-ui, sans-serif`;
         context.textAlign = "center";
         context.textBaseline = "top";
         context.fillText(note.label, x, mapY(note.labelY, height));

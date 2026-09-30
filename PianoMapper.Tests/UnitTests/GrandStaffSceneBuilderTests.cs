@@ -660,16 +660,60 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
-    public void BuildScore_ThreeNoteTrebleChordWithLabelsAndFingering_NoAnnotationCrossesIntoBassStaff()
+    public void BuildScore_LowTrebleNoteWithFingering_FloorClampStillEngagesAtTheWidenedRowSeparation()
+    {
+        // Proves the bass-staff-overlap clamp is doing real work, not just coincidentally already-fine: after
+        // widening FingeringRowSeparation (8 -> 10 diatonic steps) for user-requested breathing room in the
+        // common single-note case, the *natural*, unclamped fingering position for this low note would fall
+        // below the bass staff's own top line — i.e. GetAnnotationRows's Math.Max(naturalFingeringY, floorY)
+        // clamp is the only thing keeping it in place, not a coincidence of the new, larger constant.
+        var sourceNote = new ScoreNote(
+            new Pitch(NoteLetter.C, 0, 4),
+            new NoteValue(4),
+            0,
+            0,
+            Staff.Treble,
+            Fingering: new ScoreFingering(3));
+        var score = SingleNoteScore(sourceNote);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+        var renderedNote = Assert.Single(scene.Notes);
+        var staffLines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Staff).ToArray();
+        double bassTopLineY = staffLines.Skip(5).Max(line => line.Y0);
+        double trebleBottomLineY = staffLines.Take(5).Min(line => line.Y0);
+        // Independently reconstructs GrandStaffSceneBuilder's own floorY (bass staff's top line plus a
+        // LabelRowSeparation margin) rather than importing it, so this test would catch a regression in either
+        // the margin GrandStaffSceneBuilder passes in or FingeringRowSeparation itself.
+        double floorY = bassTopLineY + GrandStaffLayout.LabelRowSeparation;
+
+        double naturalFingeringY = renderedNote.LabelY!.Value - GrandStaffLayout.FingeringRowSeparation;
+        Assert.True(
+            naturalFingeringY < floorY,
+            $"Expected the unclamped position ({naturalFingeringY}) to fall below the bass-staff floor " +
+            $"({floorY}) at the new, wider separation — otherwise this test can't prove the clamp is actually " +
+            "the thing keeping the rendered fingering row in place.");
+        Assert.NotNull(renderedNote.FingeringY);
+        Assert.True(renderedNote.FingeringY!.Value > naturalFingeringY);
+        Assert.True(renderedNote.FingeringY!.Value >= floorY);
+        Assert.True(renderedNote.FingeringY!.Value < trebleBottomLineY);
+    }
+
+    [Fact]
+    public void BuildScore_ThreeNoteTrebleChordWithLabelsAndFingering_ShrinksLabelFontAndDropsFingering()
     {
         // Regression test for a reported bug, worst-case variant: a 3-note chord (e.g. the "Chords" exercise
         // preset's triads) stacks three label rows, and together with a fingering row that adds up to more
-        // depth than a single label row ever needed — confirmed (via manual reproduction against the
-        // unfixed code) to spill directly onto the bass staff's lines. The fix compresses stacked label
-        // spacing and clamps the fingering row so nothing crosses below the bass staff's top line. It does
-        // NOT claim three label rows plus a fingering row all stay legibly separated *from each other* in
-        // this extreme case — that would need more room than a fixed-size grand staff has at its smallest
-        // clamped canvas height, and is a separate, known limitation this test doesn't attempt to solve.
+        // depth than a single label row ever needed — confirmed (via manual reproduction against the unfixed
+        // code) to spill directly onto the bass staff's lines, and confirmed separately that merely
+        // clamping/compressing all three rows' *positions* to fit still left the label *text* illegibly
+        // overlapping (16px-tall text squeezed into much less than 16px of row separation). The actual fix:
+        // fingering is dropped for this staff (see GetAnnotationRows's doc comment for the exact ratio-based
+        // cutoff and the milder two-note case it deliberately leaves alone), and the label font shrinks in
+        // lockstep with the compressed row spacing (see GrandStaffSceneBuilder's LabelFontScale comment) so
+        // the row-gap-to-text-height ratio — and so legibility — stays the same as an uncompressed row, just
+        // smaller. An earlier attempt combined all three names into one row on the highest note instead; that
+        // was abandoned after visual testing showed it just traded vertical crowding for horizontal crowding
+        // between adjacent chords (the "Chords" preset puts one triad on every beat).
         ScoreNote[] notes =
         [
             new(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble, Fingering: new ScoreFingering(5)),
@@ -682,10 +726,18 @@ public sealed class GrandStaffSceneBuilderTests
         var staffLines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Staff).ToArray();
         double bassTopLineY = staffLines.Skip(5).Max(line => line.Y0);
 
+        Assert.All(scene.Notes, note => Assert.Null(note.FingeringY));
+        Assert.All(scene.Notes, note => Assert.Null(note.Fingering));
+
+        // Still one stacked row per note (not combined) — each clears the bass staff.
         Assert.All(scene.Notes, note => Assert.NotNull(note.LabelY));
-        Assert.All(scene.Notes, note => Assert.NotNull(note.FingeringY));
         Assert.All(scene.Notes, note => Assert.True(note.LabelY!.Value >= bassTopLineY));
-        Assert.All(scene.Notes, note => Assert.True(note.FingeringY!.Value >= bassTopLineY));
+        Assert.Equal(3, scene.Notes.Select(note => note.LabelY).Distinct().Count());
+
+        // All three share this staff's one compressed row separation, so they all shrink by the same amount —
+        // meaningfully smaller than full size, but not scaled down to nothing.
+        double fontScale = Assert.Single(scene.Notes.Select(note => note.LabelFontScale).Distinct());
+        Assert.InRange(fontScale, 0.3, 0.99);
     }
 
     [Theory]

@@ -224,13 +224,6 @@ internal static class GrandStaffSceneBuilder
         // (see its own doc comment) — the smaller gap constants proved too thin to actually engage the clamp for
         // realistic content (verified: for a C4/A3 ledger-line note, the natural fingering position sits at or a
         // hair above that narrower floor, never below it).
-        // Guards the treble staff's annotation rows from running into the bass staff below when both a note-name
-        // row and a fingering row are shown at once — see GetAnnotationRows's floorY parameter doc comment.
-        // Margin reuses LabelRowSeparation (not the smaller AnnotationNotationGap/AnnotationBandPadding) because
-        // it's the constant already calibrated to keep a rendered text row legible at the minimum canvas height
-        // (see its own doc comment) — the smaller gap constants proved too thin to actually engage the clamp for
-        // realistic content (verified: for a C4/A3 ledger-line note, the natural fingering position sits at or a
-        // hair above that narrower floor, never below it).
         double trebleAnnotationFloorY = GrandStaffLayout.SeparateStaffY(GrandStaffLayout.BassLineYs[^1], Staff.Bass)
             + GrandStaffLayout.LabelRowSeparation;
         AnnotationRows trebleAnnotationRows = GrandStaffLayout.GetAnnotationRows(
@@ -250,6 +243,16 @@ internal static class GrandStaffSceneBuilder
             bassNotationBottomY,
             showNoteLabels ? GrandStaffLayout.GetLabelRowCount(Staff.Bass, visibleNotes, labelRowIndexes) : 0,
             showFingerings);
+
+        // A simultaneous label stack this compressed (e.g. a 3-note chord) no longer has room for full-size,
+        // legibly separated rows — GetAnnotationRows already dropped fingering for it (see its doc comment) to
+        // free up what room there is, and here the label font itself shrinks by the same ratio the row spacing
+        // compressed by. Row spacing and font size shrinking together preserves the row-gap-to-text-height
+        // ratio a normal (uncompressed) row already has, so rows stay just as visually separated — smaller, but
+        // not more cramped relative to their own size. Mild compression (e.g. two simultaneous notes) leaves
+        // both alone, same full-size rendering as before this fix.
+        bool isTrebleLabelStackSevere = IsLabelStackSevere(trebleAnnotationRows);
+        bool isBassLabelStackSevere = IsLabelStackSevere(bassAnnotationRows);
 
         var lines = CreateStaffLines();
         var renderedNotes = new List<GrandStaffNote>();
@@ -292,6 +295,10 @@ internal static class GrandStaffSceneBuilder
             bool isBeamed = beamOverrides.TryGetValue(note, out var beamOverride);
             double scoreOnsetBeats = ScoreDerivation.GetOnsetBeats(note, score.TimeSignature);
             double scoreEndBeats = scoreOnsetBeats + MusicalTime.GetBeats(note.NoteValue, score.TimeSignature);
+            bool isSevereLabelCrowding = layout.Position.Staff == Staff.Treble
+                ? isTrebleLabelStackSevere
+                : isBassLabelStackSevere;
+            int labelRowIndex = labelRowIndexes[visibleNoteIndex];
             renderedNotes.Add(new GrandStaffNote(
                 note.Pitch.ToString(),
                 layout.X,
@@ -306,11 +313,20 @@ internal static class GrandStaffSceneBuilder
                 verdict,
                 StemEndY: isBeamed ? beamOverride.StemEndY : null,
                 LabelY: showNoteLabels && annotationRows.LabelY is { } labelY
-                    ? labelY - (labelRowIndexes[visibleNoteIndex] * annotationRows.EffectiveLabelRowSeparation)
+                    ? labelY - (labelRowIndex * annotationRows.EffectiveLabelRowSeparation)
                     : null,
+                // Shrinks the label font in lockstep with the compressed row spacing above (see the comment
+                // where isTrebleLabelStackSevere/isBassLabelStackSevere are computed) — 1.0 (full size, the
+                // overwhelmingly common case) whenever this staff's labels aren't severely compressed.
+                LabelFontScale: isSevereLabelCrowding
+                    ? annotationRows.EffectiveLabelRowSeparation / GrandStaffLayout.LabelRowSeparation
+                    : 1.0,
                 ScoreOnsetBeats: scoreOnsetBeats,
                 ScoreEndBeats: scoreEndBeats,
-                Fingering: !showFingerings || note.Fingering is null
+                // Both fields are gated on annotationRows.FingeringY too (not just showFingerings/note.Fingering)
+                // so a note whose fingering GetAnnotationRows dropped for crowding (see its doc comment) reports
+                // consistently as "no fingering" rather than a text label with nowhere to draw it.
+                Fingering: !showFingerings || note.Fingering is null || annotationRows.FingeringY is null
                     ? null
                     : GetFingeringLabel(note.Fingering.Number, note.Staff),
                 FingeringY: !showFingerings || note.Fingering is null
@@ -680,6 +696,16 @@ internal static class GrandStaffSceneBuilder
         string handPrefix = staff == Staff.Treble ? RightHandFingeringPrefix : LeftHandFingeringPrefix;
         return handPrefix + number.ToString(CultureInfo.InvariantCulture);
     }
+
+    /// <summary>
+    /// True once <see cref="GrandStaffLayout.GetAnnotationRows"/> has compressed a staff's stacked label rows
+    /// (e.g. a chord) below the point where GrandStaffLayout considers each row individually legible — the
+    /// same threshold that method already used to decide whether to drop that staff's fingering row.
+    /// </summary>
+    private static bool IsLabelStackSevere(AnnotationRows annotationRows) =>
+        annotationRows.LabelY is not null &&
+        annotationRows.EffectiveLabelRowSeparation <
+            GrandStaffLayout.LabelRowSeparation * GrandStaffLayout.MinimumLegibleLabelRowSeparationRatio;
 
     /// <summary>
     /// Appends the playback cursor and held-note indicators onto a previously built

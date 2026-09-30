@@ -23,9 +23,17 @@ public static class GrandStaffLayout
     public const double NoteLabelOffsetBelowStaff = DiatonicStep * 5;
     // Five rendered diatonic steps keep 16 px labels separate at the minimum 15 rem score-canvas height.
     public const double LabelRowSeparation = DiatonicStep * GrandStaffVerticalScale * 5;
-    public const double FingeringRowSeparation = DiatonicStep * GrandStaffVerticalScale * 8;
+    // Widened from 8 to 10 steps after user feedback that the gap between a note name and its fingering felt
+    // too tight in the common (single-note) case. Safe against reintroducing the bass-staff-overlap bug fixed
+    // earlier: GetAnnotationRows's floorY clamp (Math.Max(naturalFingeringY, floor)) still applies regardless
+    // of this constant's value — verified after this change by re-confirming the clamp still engages and the
+    // fingering row still clears the bass staff at the smallest clamped canvas height.
+    public const double FingeringRowSeparation = DiatonicStep * GrandStaffVerticalScale * 10;
     public const double AnnotationBandPadding = DiatonicStep * GrandStaffVerticalScale;
     public const double AnnotationNotationGap = DiatonicStep * GrandStaffVerticalScale;
+    // Below this fraction of LabelRowSeparation, compressed stacked label rows (e.g. a 3-note chord) are
+    // considered too tight to also carry a fingering row legibly — see GetAnnotationRows.
+    public const double MinimumLegibleLabelRowSeparationRatio = 0.75;
     public const double NoteHeadHalfHeightInStaffSpaces = 0.4;
     public const double NotationStrokePaddingInStaffSpaces = 0.25;
     public const double FermataHeightInStaffSpaces = 1.5;
@@ -467,14 +475,26 @@ public static class GrandStaffLayout
     /// margin above the next staff down (only meaningful for the treble staff, since only its downward-growing
     /// annotations can run into the staff below; bass has nothing below it to protect, so its caller passes
     /// null). Two things can push annotation content past a tight fixed gap between the two staff systems, most
-    /// visibly at the smallest clamped canvas height: (1) a label row plus a fingering row together, and (2)
-    /// several *stacked* label rows from simultaneous notes (e.g. a chord) alone. Both are guarded: stacked
-    /// label rows compress their spacing (via <see cref="AnnotationRows.EffectiveLabelRowSeparation"/>, which
-    /// <see cref="GrandStaffSceneBuilder"/> must use instead of the raw <see cref="LabelRowSeparation"/> constant
-    /// when placing each note's own label) just enough to keep the lowest one at or above the floor, and the
-    /// fingering row is separately clamped up to the floor instead of running past it. Both guards are no-ops
-    /// whenever there's already enough room, so every case that fit before (no floor given, a single row, or a
-    /// tall enough canvas) renders pixel-identically to before this parameter existed.
+    /// visibly at the smallest clamped canvas height: (1) a label row plus a fingering row together, for a
+    /// single note (the common case), and (2) several *stacked* label rows from simultaneous notes (e.g. a
+    /// chord), independent of fingering.
+    ///
+    /// Single-note case (labelRowCount &lt;= 1): the fingering row alone is clamped up to floorY instead of
+    /// running past it — a no-op whenever there's already enough room.
+    ///
+    /// Stacked-label case (labelRowCount &gt; 1, e.g. a chord): if the label rows *alone*, at their normal
+    /// fixed spacing, would already reach past floorY, their spacing compresses (via
+    /// <see cref="AnnotationRows.EffectiveLabelRowSeparation"/>, which <see cref="GrandStaffSceneBuilder"/> must
+    /// use instead of the raw <see cref="LabelRowSeparation"/> constant when placing each note's own label) just
+    /// enough to keep the lowest one at or above the floor. Mild compression (e.g. two simultaneous notes,
+    /// still at or above <see cref="MinimumLegibleLabelRowSeparationRatio"/> of normal spacing) leaves fingering
+    /// alone — same clamp-to-floor behavior as the single-note case. Once compression drops *below* that
+    /// ratio — confirmed by hand to happen for a 3-note chord, producing illegible overlapping text if a
+    /// fingering row were crammed in too — fingering is dropped entirely for this staff instead, freeing all
+    /// the remaining room for the (still-compressed, but now uncontested) labels.
+    ///
+    /// Every guard is a no-op whenever there's already enough room, so every case that fit before (no floor
+    /// given, a single row, or a tall enough canvas) renders pixel-identically to before this parameter existed.
     /// </summary>
     public static AnnotationRows GetAnnotationRows(
         Staff staff,
@@ -497,7 +517,11 @@ public static class GrandStaffLayout
 
         // Compress the per-row label spacing only enough to keep the lowest stacked label row from crossing
         // floorY — e.g. a two- or three-note chord's label stack. A single row (the overwhelmingly common case)
-        // never compresses, since there's nothing to compress between just one row.
+        // never compresses, since there's nothing to compress between just one row. Mild compression (still at
+        // or above MinimumLegibleLabelRowSeparationRatio of the normal spacing) is left alone — fingering stays,
+        // same as before this fix existed. Only once compression drops *below* that ratio — severe enough that
+        // adding a fingering row on top would be illegible, not just tight — is fingering dropped for this
+        // staff instead of also being crammed into the same shrunken space.
         double effectiveLabelRowSeparation = LabelRowSeparation;
         if (hasLabel && labelRowCount > 1 && floorY is { } labelFloor)
         {
@@ -505,6 +529,10 @@ public static class GrandStaffLayout
             if (naturalLowestLabelY < labelFloor)
             {
                 effectiveLabelRowSeparation = Math.Max(0, (firstRowY - labelFloor) / (labelRowCount - 1));
+                if (effectiveLabelRowSeparation < LabelRowSeparation * MinimumLegibleLabelRowSeparationRatio)
+                {
+                    hasFingering = false;
+                }
             }
         }
 
