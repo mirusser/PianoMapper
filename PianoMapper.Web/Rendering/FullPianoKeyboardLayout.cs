@@ -25,7 +25,9 @@ internal static class FullPianoKeyboardLayout
     ];
     private static readonly int[] AlterationsByPitchClass = [0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0];
 
-    internal static IReadOnlyList<PianoKeyboardKey> Build(IReadOnlySet<int> activeMidiNumbers)
+    internal static IReadOnlyList<PianoKeyboardKey> Build(
+        IReadOnlySet<int> activeMidiNumbers,
+        IReadOnlySet<int>? nextMidiNumbers = null)
     {
         ArgumentNullException.ThrowIfNull(activeMidiNumbers);
 
@@ -47,7 +49,8 @@ internal static class FullPianoKeyboardLayout
                 isBlack,
                 Math.Clamp(left, 0, 100 - width),
                 width,
-                activeMidiNumbers.Contains(midiNumber)));
+                activeMidiNumbers.Contains(midiNumber),
+                nextMidiNumbers?.Contains(midiNumber) == true));
 
             if (!isBlack)
             {

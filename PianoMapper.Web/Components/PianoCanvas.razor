@@ -154,6 +154,7 @@
     @if (isKeyboardVisible)
     {
         <FullPianoKeyboard ActiveMidiNumbers="@ActiveKeyboardMidiNumbers"
+                           NextMidiNumbers="@NextKeyboardMidiNumbers"
                            PointerNoteOn="PointerNoteOn"
                            PointerNoteOff="PointerNoteOff" />
     }
@@ -297,6 +298,9 @@
 
     [Parameter, EditorRequired]
     public IReadOnlySet<int> ActiveKeyboardMidiNumbers { get; set; } = new HashSet<int>();
+
+    [Parameter]
+    public IReadOnlySet<int> NextKeyboardMidiNumbers { get; set; } = new HashSet<int>();
 
     [Parameter]
     public EventCallback<BrowserPointerNoteOnEvent> PointerNoteOn { get; set; }

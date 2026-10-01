@@ -36,6 +36,12 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     /// <summary>Same opt-in reveal as <see cref="RevealNoteNamesWhileActive"/>, but for fingering suggestions.</summary>
     internal bool RevealFingeringWhileActive { get; private set; }
 
+    /// <summary>
+    /// Same opt-in reveal as <see cref="RevealNoteNamesWhileActive"/>, but for the amber "next key" hint on the
+    /// 88-key piano, which would otherwise give away the answer.
+    /// </summary>
+    internal bool RevealKeysWhileActive { get; private set; }
+
     internal Score? Score { get; private set; }
 
     internal NoteReadingSession Session => session;
@@ -65,6 +71,8 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     internal void SetRevealNoteNamesWhileActive(bool reveal) => RevealNoteNamesWhileActive = reveal;
 
     internal void SetRevealFingeringWhileActive(bool reveal) => RevealFingeringWhileActive = reveal;
+
+    internal void SetRevealKeysWhileActive(bool reveal) => RevealKeysWhileActive = reveal;
 
     /// <summary>
     /// Generates a new exercise. <paramref name="mastery"/> is optional local mastery history — typically

@@ -8,6 +8,10 @@
     </div>
     <p class="panel-description">
         Tap, click, or use your MIDI/computer keyboard to play. Keys light up while notes sound.
+        @if (keys.Any(key => key.IsNext))
+        {
+            <span>Amber keys are the next notes to play.</span>
+        }
     </p>
     <div class="full-piano-keyboard-scroll">
         <div class="full-piano-keyboard"
@@ -44,6 +48,9 @@
     public IReadOnlySet<int> ActiveMidiNumbers { get; set; } = new HashSet<int>();
 
     [Parameter]
+    public IReadOnlySet<int> NextMidiNumbers { get; set; } = new HashSet<int>();
+
+    [Parameter]
     public EventCallback<BrowserPointerNoteOnEvent> PointerNoteOn { get; set; }
 
     [Parameter]
@@ -56,15 +63,19 @@
             string activeNotes = string.Join(
                 ", ",
                 keys.Where(key => key.IsActive).Select(key => key.Pitch.ToString()));
-            return activeNotes.Length == 0
+            string nextNotes = string.Join(
+                ", ",
+                keys.Where(key => key.IsNext).Select(key => key.Pitch.ToString()));
+            string label = activeNotes.Length == 0
                 ? "Full 88-key piano keyboard from A0 through C8. Tap or click a key to play it. No keys are sounding."
                 : $"Full 88-key piano keyboard from A0 through C8. Tap or click a key to play it. Sounding: {activeNotes}.";
+            return nextNotes.Length == 0 ? label : $"{label} Next to play: {nextNotes}.";
         }
     }
 
     protected override void OnParametersSet()
     {
-        keys = FullPianoKeyboardLayout.Build(ActiveMidiNumbers);
+        keys = FullPianoKeyboardLayout.Build(ActiveMidiNumbers, NextMidiNumbers);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -99,7 +110,7 @@
     }
 
     private static string GetKeyClass(PianoKeyboardKey key) =>
-        $"piano-key piano-key-{(key.IsBlack ? "black" : "white")}{(key.IsActive ? " piano-key-active" : string.Empty)}";
+        $"piano-key piano-key-{(key.IsBlack ? "black" : "white")}{(key.IsActive ? " piano-key-active" : string.Empty)}{(key.IsNext ? " piano-key-next" : string.Empty)}";
 
     private static string GetKeyStyle(PianoKeyboardKey key) =>
         FormattableString.Invariant($"left: {key.LeftPercent:F6}%; width: {key.WidthPercent:F6}%");

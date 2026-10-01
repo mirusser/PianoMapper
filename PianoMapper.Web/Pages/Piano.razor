@@ -134,176 +134,185 @@
                     <h2 id="play-controls-heading">Play &amp; MIDI tools</h2>
                     <span>C@(keyboardState.CurrentOctave)–C@(keyboardState.CurrentOctave + 1)</span>
                 </summary>
-                <div class="control-card-groups">
-                    <div class="control-group" role="group" aria-labelledby="play-tools-heading">
-                        <span class="control-group-label" id="play-tools-heading">Play tools</span>
-                        <div class="controls">
-                            <button type="button" @onclick="ClearNotesAsync" disabled="@(!AudioSession.IsInitialized)">
-                                Clear notes <kbd>C</kbd>
-                            </button>
-                            <button type="button" @onclick="PlayRandomMeasureAsync" disabled="@(!AudioSession.IsInitialized)">
-                                Random measure <kbd>M</kbd>
-                            </button>
-                            <button class="button-quiet"
-                                    type="button"
-                                    @onclick="ToggleViewAsync"
-                                    disabled="@IsSightReadingExerciseActive">
-                                Show @(showPianoRoll ? "staff" : "piano roll") <kbd>V</kbd>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="control-group" role="group" aria-labelledby="keyboard-range-heading">
-                        <span class="control-group-label" id="keyboard-range-heading">Notation focus</span>
-                        <div class="controls octave-controls">
-                            <button type="button"
-                                    @onclick="OctaveDownAsync"
-                                    disabled="@(keyboardState.CurrentOctave == 1)"
-                                    aria-label="Select the previous octave">
-                                Down
-                            </button>
-                            <label class="octave-picker">
-                                Octave
-                                <select value="@keyboardState.CurrentOctave" @onchange="SelectOctaveAsync">
-                                    @for (int octave = 1; octave <= 8; octave++)
-                                    {
-                                        <option value="@octave">@octave</option>
-                                    }
-                                </select>
-                            </label>
-                            <button type="button"
-                                    @onclick="OctaveUpAsync"
-                                    disabled="@(keyboardState.CurrentOctave == 8)"
-                                    aria-label="Select the next octave">
-                                Up
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="control-group" role="group" aria-labelledby="computer-piano-heading">
-                        <span class="control-group-label" id="computer-piano-heading">Computer keyboard</span>
-                        <div class="controls">
-                            <label class="control-checkbox">
-                                <input type="checkbox"
-                                       checked="@computerPianoState.IsEnabled"
-                                       @onchange="SetComputerPianoEnabledAsync" />
-                                Play notes with the keyboard
-                            </label>
-                        </div>
-                        <p class="control-note">
-                            Optional — MIDI and the on-screen keys both work without it. When on, maps
-                            <kbd>Z</kbd> through <kbd>/</kbd> to white and black keys starting at
-                            C@(keyboardState.CurrentOctave), following the octave selected above.
-                        </p>
-                    </div>
-
-                    <div class="control-group" role="group" aria-labelledby="notation-heading">
-                        <span class="control-group-label" id="notation-heading">Notation</span>
-                        <div class="controls">
-                            <label class="control-checkbox">
-                                <input type="checkbox"
-                                       checked="@showNoteLabels"
-                                       disabled="@IsSightReadingExerciseActive"
-                                       @onchange="SetShowNoteLabelsAsync" />
-                                Note names
-                            </label>
-                            <label class="control-checkbox">
-                                <input type="checkbox"
-                                       checked="@showFingerings"
-                                       disabled="@(isFingeringEditing || IsSightReadingExerciseActive)"
-                                       @onchange="SetShowFingeringsAsync" />
-                                Fingering
-                            </label>
-                            <label class="timing-field">
-                                <span>Measures per page</span>
-                                <input type="number"
-                                       min="@MinimumVisibleMeasureCount"
-                                       max="@MaximumVisibleMeasureCount"
-                                       step="1"
-                                       value="@visibleMeasureCount"
-                                       @onchange="SelectVisibleMeasureCountAsync" />
-                            </label>
-                            @if (loadedScore is not null && selectedScore is not null &&
-                                sightReadingExerciseCoordinator.Score is null && !showPianoRoll)
-                            {
-                                <label class="control-checkbox">
-                                    <input type="checkbox"
-                                           checked="@isFingeringEditing"
-                                           @onchange="SetFingeringEditModeAsync" />
-                                    Edit fingering
-                                </label>
-                                <button type="button"
-                                        disabled="@isFingeringGenerating"
-                                        title="Replace every existing fingering number"
-                                        @onclick="RegenerateAllFingeringsAsync">
-                                    @(isFingeringGenerating ? "Generating fingerings…" : "Regenerate all fingerings")
+                <div class="control-column">
+                    <div class="control-sections">
+                        <div role="group" aria-labelledby="play-tools-heading">
+                            <span class="control-group-label" id="play-tools-heading">Play tools</span>
+                            <div class="controls controls-centered">
+                                <button type="button" @onclick="ClearNotesAsync" disabled="@(!AudioSession.IsInitialized)">
+                                    Clear notes <kbd>C</kbd>
                                 </button>
-                            }
+                                <button type="button" @onclick="PlayRandomMeasureAsync" disabled="@(!AudioSession.IsInitialized)">
+                                    Random measure <kbd>M</kbd>
+                                </button>
+                                <button class="button-quiet"
+                                        type="button"
+                                        @onclick="ToggleViewAsync"
+                                        disabled="@IsSightReadingExerciseActive">
+                                    Show @(showPianoRoll ? "staff" : "piano roll") <kbd>V</kbd>
+                                </button>
+                            </div>
                         </div>
-                        @if (isFingeringEditing)
-                        {
-                            <div class="fingering-editor" aria-label="Fingering editor">
-                                <label class="fingering-note-picker">
-                                    Note
-                                    <select value="@SelectedScoreNoteAddressValue"
-                                            @onchange="SelectVisibleScoreNote">
-                                        <option value="">Select a visible note</option>
-                                        @foreach (var option in GetVisibleFingeringNotes())
+
+                        <div role="group" aria-labelledby="keyboard-range-heading">
+                            <span class="control-group-label" id="keyboard-range-heading">Notation focus</span>
+                            <div class="controls controls-centered octave-controls">
+                                <button type="button"
+                                        @onclick="OctaveDownAsync"
+                                        disabled="@(keyboardState.CurrentOctave == 1)"
+                                        aria-label="Select the previous octave">
+                                    Down
+                                </button>
+                                <label class="octave-picker">
+                                    Octave
+                                    <select value="@keyboardState.CurrentOctave" @onchange="SelectOctaveAsync">
+                                        @for (int octave = 1; octave <= 8; octave++)
                                         {
-                                            <option value="@FormatScoreNoteAddress(option.Address)">
-                                                @FormatFingeringNote(option.Address, option.Note)
-                                            </option>
+                                            <option value="@octave">@octave</option>
                                         }
                                     </select>
                                 </label>
-                                <div>
-                                    <span class="control-group-label" id="fingering-number-heading">Finger</span>
-                                    <div class="controls" role="group" aria-labelledby="fingering-number-heading">
-                                        @for (int number = 1; number <= 5; number++)
-                                        {
-                                            int fingerNumber = number;
-                                            <button class="@(SelectedFingeringNumber == fingerNumber ? "button-primary" : null)"
-                                                    type="button"
-                                                    aria-pressed="@(SelectedFingeringNumber == fingerNumber ? "true" : "false")"
-                                                    disabled="@(selectedScoreNoteAddress is null)"
-                                                    @onclick="() => SetSelectedFingeringAsync(fingerNumber)">
-                                                @fingerNumber
-                                            </button>
-                                        }
-                                        <button type="button"
-                                                disabled="@(SelectedFingeringNumber is null)"
-                                                @onclick="() => SetSelectedFingeringAsync(null)">
-                                            Remove
-                                        </button>
-                                    </div>
-                                </div>
-                                <div>
-                                    <span class="control-group-label" id="fingering-hand-heading">Hand</span>
-                                    <div class="controls" role="group" aria-labelledby="fingering-hand-heading">
-                                        <button class="@(SelectedHand == Staff.Treble ? "button-primary" : null)"
-                                                type="button"
-                                                aria-pressed="@(SelectedHand == Staff.Treble ? "true" : "false")"
-                                                disabled="@(selectedScoreNoteAddress is null)"
-                                                @onclick="() => SetSelectedHandAsync(Staff.Treble)">
-                                            Right hand
-                                        </button>
-                                        <button class="@(SelectedHand == Staff.Bass ? "button-primary" : null)"
-                                                type="button"
-                                                aria-pressed="@(SelectedHand == Staff.Bass ? "true" : "false")"
-                                                disabled="@(selectedScoreNoteAddress is null)"
-                                                @onclick="() => SetSelectedHandAsync(Staff.Bass)">
-                                            Left hand
-                                        </button>
-                                    </div>
-                                </div>
-                                <p class="control-note" role="status">@FingeringEditStatus</p>
+                                <button type="button"
+                                        @onclick="OctaveUpAsync"
+                                        disabled="@(keyboardState.CurrentOctave == 8)"
+                                        aria-label="Select the next octave">
+                                    Up
+                                </button>
                             </div>
-                        }
+                        </div>
+
+                        <div role="group" aria-labelledby="computer-piano-heading">
+                            <span class="control-group-label" id="computer-piano-heading">Computer keyboard</span>
+                            <div class="control-grid">
+                                <label class="control-checkbox">
+                                    <input type="checkbox"
+                                           checked="@computerPianoState.IsEnabled"
+                                           @onchange="SetComputerPianoEnabledAsync" />
+                                    Play notes with the keyboard
+                                </label>
+                            </div>
+                            <p class="control-note">
+                                Optional — MIDI and the on-screen keys both work without it. When on, maps
+                                <kbd>Z</kbd> through <kbd>/</kbd> to white and black keys starting at
+                                C@(keyboardState.CurrentOctave), following the octave selected above.
+                            </p>
+                        </div>
+
+                        <div role="group" aria-labelledby="notation-heading">
+                            <span class="control-group-label" id="notation-heading">Notation</span>
+                            <div class="control-grid">
+                                <label class="control-checkbox">
+                                    <input type="checkbox"
+                                           checked="@showNoteLabels"
+                                           disabled="@IsSightReadingExerciseActive"
+                                           @onchange="SetShowNoteLabelsAsync" />
+                                    Note names
+                                </label>
+                                <label class="control-checkbox">
+                                    <input type="checkbox"
+                                           checked="@showFingerings"
+                                           disabled="@(isFingeringEditing || IsSightReadingExerciseActive)"
+                                           @onchange="SetShowFingeringsAsync" />
+                                    Fingering
+                                </label>
+                                <label class="control-checkbox">
+                                    <input type="checkbox"
+                                           checked="@showNextKeyHints"
+                                           disabled="@IsSightReadingExerciseActive"
+                                           @onchange="SetShowNextKeyHintsAsync" />
+                                    Highlight next keys on the piano
+                                </label>
+                                <label class="timing-field">
+                                    <span>Measures per page</span>
+                                    <input type="number"
+                                           min="@MinimumVisibleMeasureCount"
+                                           max="@MaximumVisibleMeasureCount"
+                                           step="1"
+                                           value="@visibleMeasureCount"
+                                           @onchange="SelectVisibleMeasureCountAsync" />
+                                </label>
+                                @if (loadedScore is not null && selectedScore is not null &&
+                                    sightReadingExerciseCoordinator.Score is null && !showPianoRoll)
+                                {
+                                    <label class="control-checkbox">
+                                        <input type="checkbox"
+                                               checked="@isFingeringEditing"
+                                               @onchange="SetFingeringEditModeAsync" />
+                                        Edit fingering
+                                    </label>
+                                    <button type="button"
+                                            disabled="@isFingeringGenerating"
+                                            title="Replace every existing fingering number"
+                                            @onclick="RegenerateAllFingeringsAsync">
+                                        @(isFingeringGenerating ? "Generating fingerings…" : "Regenerate all fingerings")
+                                    </button>
+                                }
+                            </div>
+                            @if (isFingeringEditing)
+                            {
+                                <div class="fingering-editor" aria-label="Fingering editor">
+                                    <label class="fingering-note-picker">
+                                        Note
+                                        <select value="@SelectedScoreNoteAddressValue"
+                                                @onchange="SelectVisibleScoreNote">
+                                            <option value="">Select a visible note</option>
+                                            @foreach (var option in GetVisibleFingeringNotes())
+                                            {
+                                                <option value="@FormatScoreNoteAddress(option.Address)">
+                                                    @FormatFingeringNote(option.Address, option.Note)
+                                                </option>
+                                            }
+                                        </select>
+                                    </label>
+                                    <div>
+                                        <span class="control-group-label" id="fingering-number-heading">Finger</span>
+                                        <div class="controls" role="group" aria-labelledby="fingering-number-heading">
+                                            @for (int number = 1; number <= 5; number++)
+                                            {
+                                                int fingerNumber = number;
+                                                <button class="@(SelectedFingeringNumber == fingerNumber ? "button-primary" : null)"
+                                                        type="button"
+                                                        aria-pressed="@(SelectedFingeringNumber == fingerNumber ? "true" : "false")"
+                                                        disabled="@(selectedScoreNoteAddress is null)"
+                                                        @onclick="() => SetSelectedFingeringAsync(fingerNumber)">
+                                                    @fingerNumber
+                                                </button>
+                                            }
+                                            <button type="button"
+                                                    disabled="@(SelectedFingeringNumber is null)"
+                                                    @onclick="() => SetSelectedFingeringAsync(null)">
+                                                Remove
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <span class="control-group-label" id="fingering-hand-heading">Hand</span>
+                                        <div class="controls" role="group" aria-labelledby="fingering-hand-heading">
+                                            <button class="@(SelectedHand == Staff.Treble ? "button-primary" : null)"
+                                                    type="button"
+                                                    aria-pressed="@(SelectedHand == Staff.Treble ? "true" : "false")"
+                                                    disabled="@(selectedScoreNoteAddress is null)"
+                                                    @onclick="() => SetSelectedHandAsync(Staff.Treble)">
+                                                Right hand
+                                            </button>
+                                            <button class="@(SelectedHand == Staff.Bass ? "button-primary" : null)"
+                                                    type="button"
+                                                    aria-pressed="@(SelectedHand == Staff.Bass ? "true" : "false")"
+                                                    disabled="@(selectedScoreNoteAddress is null)"
+                                                    @onclick="() => SetSelectedHandAsync(Staff.Bass)">
+                                                Left hand
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <p class="control-note" role="status">@FingeringEditStatus</p>
+                                </div>
+                            }
+                        </div>
                     </div>
+                    <p class="control-note">
+                        The notation focus controls the live staff view. MIDI notes retain their actual piano octaves.
+                    </p>
                 </div>
-                <p class="control-note">
-                    The notation focus controls the live staff view. MIDI notes retain their actual piano octaves.
-                </p>
             </details>
         </div>
 
@@ -432,6 +441,7 @@
                      PrimaryScoreRowStatus="@PrimaryScoreRowStatus"
                      SecondaryScoreRowStatus="@SecondaryScoreRowStatus"
                      ActiveKeyboardMidiNumbers="@activeKeyboardMidiNumbers"
+                     NextKeyboardMidiNumbers="@nextKeyboardMidiNumbers"
                      PointerNoteOn="HandlePointerNoteOnAsync"
                      PointerNoteOff="HandlePointerNoteOffAsync">
             <PracticeContent>
@@ -464,6 +474,7 @@
                                                    Mode="@sightReadingExerciseCoordinator.Mode"
                                                    RevealNoteNamesWhileActive="@sightReadingExerciseCoordinator.RevealNoteNamesWhileActive"
                                                    RevealFingeringWhileActive="@sightReadingExerciseCoordinator.RevealFingeringWhileActive"
+                                                   RevealKeysWhileActive="@sightReadingExerciseCoordinator.RevealKeysWhileActive"
                                                    IsActive="@sightReadingExerciseCoordinator.IsActive"
                                                    IsComplete="@noteReadingSession.IsComplete"
                                                    HasMissedPrompts="@sightReadingExerciseCoordinator.HasMissedPrompts"
@@ -483,6 +494,7 @@
                                                    ModeChanged="SetSightReadingMode"
                                                    RevealNoteNamesWhileActiveChanged="SetSightReadingRevealNoteNamesWhileActive"
                                                    RevealFingeringWhileActiveChanged="SetSightReadingRevealFingeringWhileActive"
+                                                   RevealKeysWhileActiveChanged="SetSightReadingRevealKeysWhileActive"
                                                    Generate="GenerateSightReadingExerciseAsync"
                                                    Retry="RetrySightReadingExerciseAsync"
                                                    RetryMissed="RetryMissedSightReadingExerciseAsync"
@@ -547,6 +559,7 @@
     private ScoreCursorPlaybackState? scoreCursorState;
     private ScoreCursorPlaybackState? secondaryScoreCursorState;
     private IReadOnlySet<int> activeKeyboardMidiNumbers = new HashSet<int>();
+    private IReadOnlySet<int> nextKeyboardMidiNumbers = new HashSet<int>();
     private IReadOnlyList<PerformedNote> scheduledKeyboardNotes = [];
     private Score? importedScore;
     private Score? loadedScore;
@@ -562,7 +575,7 @@
     private readonly AsyncTicker visualizationTicker = new();
     private readonly AsyncTicker sightReadingCountInTicker = new();
     private string audioStatus = "Starting audio...";
-    private string midiStatus = "No MIDI piano connected.";
+    private string midiStatus = string.Empty;
     private IReadOnlyList<string> midiInputNames = [];
     private string? midiOutputName;
     private BrowserSoundSource soundSource = BrowserSoundSource.Piano;
@@ -574,6 +587,7 @@
     private bool showSightReadingProgressPanel;
     private bool showNoteLabels = true;
     private bool showFingerings = true;
+    private bool showNextKeyHints;
     private int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount;
     private bool isFingeringEditing;
     private bool isFingeringGenerating;
@@ -637,6 +651,14 @@
     private bool EffectiveShowFingerings => IsSightReadingExerciseInProgress
         ? sightReadingExerciseCoordinator.RevealFingeringWhileActive
         : showFingerings;
+
+    /// <summary>
+    /// Same idea as <see cref="EffectiveShowNoteLabels"/>, for the next-key hint on the 88-key piano: it stays off
+    /// during an exercise unless the exercise itself opts in, since a lit key would give the answer away.
+    /// </summary>
+    private bool EffectiveShowNextKeyHints => IsSightReadingExerciseInProgress
+        ? sightReadingExerciseCoordinator.RevealKeysWhileActive
+        : showNextKeyHints;
 
     private const int RecentSightReadingSessionCount = 10;
 
@@ -1254,6 +1276,12 @@
         return RefreshNotationVisibilityAsync();
     }
 
+    private Task SetSightReadingRevealKeysWhileActive(bool reveal)
+    {
+        sightReadingExerciseCoordinator.SetRevealKeysWhileActive(reveal);
+        return RefreshNotationVisibilityAsync();
+    }
+
     /// <summary>
     /// Stops any conflicting playback/practice/metronome activity, clears tracked MIDI input, live audio, and
     /// wrong-note overlays, then returns the audio-clock time to use for the transition that follows. Shared by
@@ -1728,6 +1756,12 @@
         return RefreshNotationVisibilityAsync();
     }
 
+    private Task SetShowNextKeyHintsAsync(ChangeEventArgs eventArgs)
+    {
+        showNextKeyHints = eventArgs.Value is true;
+        return RefreshNotationVisibilityAsync();
+    }
+
     // A count change only re-windows which measures are drawn — it changes nothing about the
     // score's own data or timing — so it follows the lightweight RefreshNotationVisibilityAsync
     // pattern rather than ApplyTimingAsync's playback-stopping one. The page index is recomputed
@@ -2125,13 +2159,20 @@
     {
         midiInputNames = status.InputNames;
         midiOutputName = status.OutputName;
-        midiStatus = !status.IsSupported
+        midiStatus = GetMidiStatusMessage(status);
+    }
+
+    // Empty when the Audio card's "MIDI input … · MIDI output …" summary already says it all (piano found or not),
+    // so only the messages that explain why something is unavailable are shown.
+    internal static string GetMidiStatusMessage(BrowserMidiConnectionStatus status)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+
+        return !status.IsSupported
             ? "Web MIDI is not supported by this browser. Use a Web MIDI-capable browser on localhost or HTTPS."
             : status.IsPermissionRequired
                 ? "MIDI permission is required. Select Connect MIDI piano and allow access."
-            : !HasMidiConnection
-                ? "No MIDI piano found. Connect and power on the piano, then retry."
-                : $"Connected. Input: {MidiInputSummary}. Output: {MidiOutputSummary}.";
+                : string.Empty;
     }
 
     private void RefreshExternalMidiAudioStatus()
@@ -2656,6 +2697,37 @@
             ScorePlaybackSession.GetStartedNotes(currentTime).Concat(scheduledKeyboardNotes),
             currentTime,
             testNoteIsActive ? TestPitch : null);
+        nextKeyboardMidiNumbers = GetNextKeyboardMidiNumbers(
+            EffectiveShowNextKeyHints,
+            practiceCoordinator.IsActive,
+            practiceCoordinator.GetNextPitches(),
+            IsIdleNoteCheckingActive,
+            noteReadingSession.ExpectedNotes);
+    }
+
+    internal static IReadOnlySet<int> GetNextKeyboardMidiNumbers(
+        bool isEnabled,
+        bool isPracticeActive,
+        IEnumerable<Pitch> practiceNextPitches,
+        bool isNoteCheckingActive,
+        IEnumerable<ScoreNote> expectedNotes)
+    {
+        ArgumentNullException.ThrowIfNull(practiceNextPitches);
+        ArgumentNullException.ThrowIfNull(expectedNotes);
+
+        if (!isEnabled)
+        {
+            return new HashSet<int>();
+        }
+
+        if (isPracticeActive)
+        {
+            return practiceNextPitches.Select(pitch => pitch.MidiNumber).ToHashSet();
+        }
+
+        return isNoteCheckingActive
+            ? expectedNotes.Select(note => note.Pitch.MidiNumber).ToHashSet()
+            : new HashSet<int>();
     }
 
     internal static IReadOnlySet<int> GetActiveKeyboardMidiNumbers(

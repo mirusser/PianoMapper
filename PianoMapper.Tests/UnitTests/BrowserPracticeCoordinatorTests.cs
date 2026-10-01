@@ -80,6 +80,20 @@ public sealed class BrowserPracticeCoordinatorTests
         Assert.Equal(3, audio.StopCount);
     }
 
+    [Fact]
+    public async Task GetNextPitches_BeforeStartCountInAndAfterAbort_FollowsSessionLifecycle()
+    {
+        var audio = new FakePracticeAudio(TimeSpan.FromSeconds(10));
+        var coordinator = new BrowserPracticeCoordinator(audio, new NoteTimeline());
+        Assert.Empty(coordinator.GetNextPitches());
+
+        await coordinator.StartAsync(CreateScore());
+        Assert.Equal([60], coordinator.GetNextPitches().Select(pitch => pitch.MidiNumber));
+
+        await coordinator.AbortAsync();
+        Assert.Empty(coordinator.GetNextPitches());
+    }
+
     private static Score CreateScore() =>
         new(
             "practice",

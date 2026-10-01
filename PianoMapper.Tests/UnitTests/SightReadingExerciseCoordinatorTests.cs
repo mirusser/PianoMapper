@@ -41,6 +41,42 @@ public sealed class SightReadingExerciseCoordinatorTests
         Assert.False(coordinator.RevealFingeringWhileActive);
     }
 
+    [Fact]
+    public void RevealKeysWhileActive_Initially_IsFalse()
+    {
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+
+        Assert.False(coordinator.RevealKeysWhileActive);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void SetRevealKeysWhileActive_UpdatesTheProperty(bool value)
+    {
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+
+        coordinator.SetRevealKeysWhileActive(value);
+
+        Assert.Equal(value, coordinator.RevealKeysWhileActive);
+    }
+
+    [Fact]
+    public void SetRevealKeysWhileActive_PersistsAcrossGenerateRetryAndEnd()
+    {
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+        coordinator.SetRevealKeysWhileActive(true);
+
+        coordinator.Generate(new Random(1), Tolerance);
+        Assert.True(coordinator.RevealKeysWhileActive);
+
+        coordinator.Retry(Tolerance);
+        Assert.True(coordinator.RevealKeysWhileActive);
+
+        coordinator.End();
+        Assert.True(coordinator.RevealKeysWhileActive);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

@@ -7,4 +7,5 @@ internal sealed record PianoKeyboardKey(
     bool IsBlack,
     double LeftPercent,
     double WidthPercent,
-    bool IsActive);
+    bool IsActive,
+    bool IsNext = false);

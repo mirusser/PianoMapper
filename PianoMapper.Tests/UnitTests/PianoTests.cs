@@ -1,3 +1,4 @@
+using PianoMapper.Web.Input;
 using PianoMapper.Web.Pages;
 using PianoMapper.Web.Rendering;
 using PianoMapper.Music;
@@ -176,6 +177,48 @@ public sealed class PianoTests
             wrongNotes);
 
         Assert.Same(wrongNote, Assert.Single(result));
+    }
+
+    [Fact]
+    public void GetMidiStatusMessage_BrowserWithoutWebMidi_ExplainsWhy()
+    {
+        var status = new BrowserMidiConnectionStatus { IsSupported = false };
+
+        Assert.NotEmpty(Piano.GetMidiStatusMessage(status));
+    }
+
+    [Fact]
+    public void GetMidiStatusMessage_PermissionRequired_TellsTheUserWhatToDo()
+    {
+        var status = new BrowserMidiConnectionStatus { IsSupported = true, IsPermissionRequired = true };
+
+        Assert.NotEmpty(Piano.GetMidiStatusMessage(status));
+    }
+
+    [Fact]
+    public void GetMidiStatusMessage_NoPianoFound_IsEmptyBecauseTheConnectionSummaryAlreadySaysSo()
+    {
+        var status = new BrowserMidiConnectionStatus { IsSupported = true };
+
+        Assert.Empty(Piano.GetMidiStatusMessage(status));
+    }
+
+    [Theory]
+    [InlineData("FP-10 MIDI 1", null)]
+    [InlineData(null, "FP-10 MIDI 1")]
+    [InlineData("FP-10 MIDI 1", "FP-10 MIDI 1")]
+    public void GetMidiStatusMessage_Connected_IsEmptyBecauseTheConnectionSummaryAlreadyShowsTheDevices(
+        string? inputName,
+        string? outputName)
+    {
+        var status = new BrowserMidiConnectionStatus
+        {
+            IsSupported = true,
+            InputNames = inputName is null ? [] : [inputName],
+            OutputName = outputName,
+        };
+
+        Assert.Empty(Piano.GetMidiStatusMessage(status));
     }
 
     private static GrandStaffScene CreateGrandStaffSceneWithVisibleNote() =>

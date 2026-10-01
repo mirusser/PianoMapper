@@ -79,6 +79,8 @@ internal sealed class BrowserPracticeCoordinator(IBrowserScoreAudio audio, NoteT
             ? session.BuildVisibleVerdicts(Result)
             : NoVerdicts;
 
+    internal IReadOnlyList<Pitch> GetNextPitches() => session?.GetNextPitches() ?? [];
+
     internal async ValueTask AbortAsync(CancellationToken cancellationToken = default)
     {
         session?.Abort();

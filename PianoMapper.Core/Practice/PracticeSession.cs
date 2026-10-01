@@ -4,6 +4,8 @@ namespace PianoMapper.Practice;
 
 public sealed class PracticeSession
 {
+    private const double BeatComparisonTolerance = 1e-9;
+
     private readonly Score score;
     private readonly TimeProvider timeProvider;
     private readonly GradingOptions gradingOptions;
@@ -106,6 +108,32 @@ public sealed class PracticeSession
     public bool IsVerdictDue(ScoreEvent expected) =>
         State == PracticeSessionState.Finished ||
         CurrentTime >= PracticeAnchor + MusicalTime.BeatsToDuration(expected.OnsetBeats, score.Tempo) + gradingOptions.OnsetTolerance;
+
+    /// <summary>
+    /// The pitches of the chord to play next: the earliest onset whose grading window has not closed yet (the same
+    /// window <see cref="IsVerdictDue"/> uses). Empty while idle, once finished, or when every window has closed.
+    /// </summary>
+    public IReadOnlyList<Pitch> GetNextPitches()
+    {
+        if (State is PracticeSessionState.Idle or PracticeSessionState.Finished)
+        {
+            return [];
+        }
+
+        ScoreEvent[] upcomingEvents = expectedEvents.Where(expected => !IsVerdictDue(expected)).ToArray();
+        if (upcomingEvents.Length == 0)
+        {
+            return [];
+        }
+
+        double nextOnsetBeats = upcomingEvents.Min(expected => expected.OnsetBeats);
+        return upcomingEvents
+            .Where(expected => expected.OnsetBeats - nextOnsetBeats <= BeatComparisonTolerance)
+            .Select(expected => expected.Pitch)
+            .Distinct()
+            .OrderBy(pitch => pitch.MidiNumber)
+            .ToArray();
+    }
 
     public IReadOnlyDictionary<ScoreNote, Verdict> BuildVisibleVerdicts(GradingResult result)
     {

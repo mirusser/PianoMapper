@@ -132,6 +132,83 @@ public sealed class PracticeSessionTests
         Assert.Equal([notes[1], notes[2]], sessionNotes);
     }
 
+    [Fact]
+    public void GetNextPitches_Idle_ReturnsNothing()
+    {
+        var session = new PracticeSession(CreateMelodyScore(), new FakeTimeProvider());
+
+        Assert.Empty(session.GetNextPitches());
+    }
+
+    [Fact]
+    public void GetNextPitches_CountingIn_ReturnsFirstChord()
+    {
+        var time = new FakeTimeProvider();
+        var session = new PracticeSession(CreateMelodyScore(), time);
+        session.Start(TimeSpan.Zero);
+        time.Advance(TimeSpan.FromSeconds(2));
+        session.Update();
+
+        Assert.Equal([60], session.GetNextPitches().Select(pitch => pitch.MidiNumber));
+    }
+
+    [Theory]
+    [InlineData(0, new[] { 60 })]
+    [InlineData(100, new[] { 60 })]
+    [InlineData(200, new[] { 62 })]
+    [InlineData(1000, new[] { 62 })]
+    [InlineData(1200, new[] { 64, 67 })]
+    [InlineData(2200, new int[0])]
+    public void GetNextPitches_RunningAtOffsetFromAnchor_ReturnsChordWhoseOnsetWindowIsStillOpen(
+        int millisecondsAfterAnchor,
+        int[] expectedMidiNumbers)
+    {
+        var time = new FakeTimeProvider();
+        var session = new PracticeSession(CreateMelodyScore(), time);
+        session.Start(TimeSpan.Zero);
+        time.Advance(TimeSpan.FromMilliseconds(4000 + millisecondsAfterAnchor));
+        session.Update();
+
+        Assert.Equal(PracticeSessionState.Running, session.State);
+        Assert.Equal(expectedMidiNumbers, session.GetNextPitches().Select(pitch => pitch.MidiNumber));
+    }
+
+    [Fact]
+    public void GetNextPitches_Finished_ReturnsNothing()
+    {
+        var time = new FakeTimeProvider();
+        var session = new PracticeSession(CreateMelodyScore(), time);
+        session.Start(TimeSpan.Zero);
+        time.Advance(TimeSpan.FromSeconds(10));
+        session.Update();
+
+        Assert.Equal(PracticeSessionState.Finished, session.State);
+        Assert.Empty(session.GetNextPitches());
+    }
+
+    private static Score CreateMelodyScore() =>
+        new(
+            "Melody",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(60),
+            0,
+            [
+                new ScoreMeasure(
+                    [
+                        new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble),
+                        new ScoreNote(new Pitch(NoteLetter.D, 0, 4), new NoteValue(4), 0, 1, Staff.Treble),
+                        new ScoreNote(new Pitch(NoteLetter.E, 0, 4), new NoteValue(4), 0, 2, Staff.Treble),
+                        new ScoreNote(
+                            new Pitch(NoteLetter.G, 0, 4),
+                            new NoteValue(4),
+                            0,
+                            2,
+                            Staff.Treble,
+                            IsChordContinuation: true),
+                    ],
+                    []),
+            ]);
+
     private static Score CreateScore() =>
         new(
             "Practice",

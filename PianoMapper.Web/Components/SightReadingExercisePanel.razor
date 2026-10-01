@@ -3,114 +3,122 @@
         <h2 id="sight-reading-heading">Note reading exercise</h2>
         <span>Self-paced pitch practice</span>
     </div>
-    <div class="control-card-groups">
-        <div class="control-group" role="group" aria-labelledby="sight-reading-setup-heading">
-            <span class="control-group-label" id="sight-reading-setup-heading">Setup</span>
-            <div class="controls">
-                <label class="octave-picker">
-                    Staff
-                    <select value="@SelectedStaff" @onchange="SelectStaffAsync" disabled="@IsGrandStaff">
-                        <option value="@Staff.Treble">Treble / right hand</option>
-                        <option value="@Staff.Bass">Bass / left hand</option>
-                    </select>
-                </label>
-                <label class="control-checkbox">
-                    <input type="checkbox" checked="@IsGrandStaff" @onchange="SelectIsGrandStaffAsync" />
-                    Grand staff (alternate both hands)
-                </label>
-                <label class="octave-picker">
-                    Range
-                    <select value="@PresetId" @onchange="SelectPresetIdAsync">
-                        <option value="@SightReadingPresetId.FiveNote">Starter — five notes</option>
-                        <option value="@SightReadingPresetId.OneOctave">One octave</option>
-                        <option value="@SightReadingPresetId.LedgerLines">Ledger lines</option>
-                        <option value="@SightReadingPresetId.GMajor">G major (one sharp)</option>
-                        <option value="@SightReadingPresetId.FMajor">F major (one flat)</option>
-                        <option value="@SightReadingPresetId.Chords">Chords (I, IV, V)</option>
-                    </select>
-                </label>
-                <label class="octave-picker">
-                    Length
-                    <select value="@PromptCountOption" @onchange="SelectPromptCountOptionAsync">
-                        <option value="8">8 notes</option>
-                        <option value="16">16 notes</option>
-                    </select>
-                </label>
-                <label class="octave-picker">
-                    Rhythm
-                    <select value="@RhythmPreset" @onchange="SelectRhythmPresetAsync">
-                        <option value="@SightReadingRhythmPreset.Fixed">Fixed quarter notes</option>
-                        <option value="@SightReadingRhythmPreset.Basic">Basic (4/4 half/quarter/eighths)</option>
-                        <option value="@SightReadingRhythmPreset.Compound">Compound (6/8)</option>
-                    </select>
-                </label>
-                <label class="octave-picker">
-                    Mode
-                    <select value="@Mode" @onchange="SelectModeAsync">
-                        <option value="@NoteReadingMode.PitchAndOrder">Pitch only (self-paced)</option>
-                        <option value="@NoteReadingMode.PitchAndHold">Pitch + hold (written duration)</option>
-                        <option value="@NoteReadingMode.PitchHoldAndRhythm">Rhythm (timed, with count-in)</option>
-                    </select>
-                </label>
+    <div class="control-column">
+        <div class="control-sections">
+            <div role="group" aria-labelledby="sight-reading-setup-heading">
+                <span class="control-group-label" id="sight-reading-setup-heading">Setup</span>
+                <div class="control-grid">
+                    <label class="timing-field">
+                        <span>Staff</span>
+                        <select value="@SelectedStaff" @onchange="SelectStaffAsync" disabled="@IsGrandStaff">
+                            <option value="@Staff.Treble">Treble / right hand</option>
+                            <option value="@Staff.Bass">Bass / left hand</option>
+                        </select>
+                    </label>
+                    <label class="control-checkbox">
+                        <input type="checkbox" checked="@IsGrandStaff" @onchange="SelectIsGrandStaffAsync" />
+                        Grand staff (both hands)
+                    </label>
+                    <label class="timing-field">
+                        <span>Range</span>
+                        <select value="@PresetId" @onchange="SelectPresetIdAsync">
+                            <option value="@SightReadingPresetId.FiveNote">Starter — five notes</option>
+                            <option value="@SightReadingPresetId.OneOctave">One octave</option>
+                            <option value="@SightReadingPresetId.LedgerLines">Ledger lines</option>
+                            <option value="@SightReadingPresetId.GMajor">G major (one sharp)</option>
+                            <option value="@SightReadingPresetId.FMajor">F major (one flat)</option>
+                            <option value="@SightReadingPresetId.Chords">Chords (I, IV, V)</option>
+                        </select>
+                    </label>
+                    <label class="timing-field">
+                        <span>Length</span>
+                        <select value="@PromptCountOption" @onchange="SelectPromptCountOptionAsync">
+                            <option value="8">8 notes</option>
+                            <option value="16">16 notes</option>
+                        </select>
+                    </label>
+                    <label class="timing-field">
+                        <span>Rhythm</span>
+                        <select value="@RhythmPreset" @onchange="SelectRhythmPresetAsync">
+                            <option value="@SightReadingRhythmPreset.Fixed">Fixed quarter notes</option>
+                            <option value="@SightReadingRhythmPreset.Basic">Basic (4/4 half/quarter/eighths)</option>
+                            <option value="@SightReadingRhythmPreset.Compound">Compound (6/8)</option>
+                        </select>
+                    </label>
+                    <label class="timing-field">
+                        <span>Mode</span>
+                        <select value="@Mode" @onchange="SelectModeAsync">
+                            <option value="@NoteReadingMode.PitchAndOrder">Pitch only (self-paced)</option>
+                            <option value="@NoteReadingMode.PitchAndHold">Pitch + hold (written duration)</option>
+                            <option value="@NoteReadingMode.PitchHoldAndRhythm">Rhythm (timed, with count-in)</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+            <div role="group" aria-labelledby="sight-reading-reveal-heading">
+                <span class="control-group-label" id="sight-reading-reveal-heading">While playing</span>
+                <div class="control-grid control-grid-tiles">
+                    <label class="control-checkbox">
+                        <input type="checkbox"
+                               checked="@RevealNoteNamesWhileActive"
+                               @onchange="SelectRevealNoteNamesWhileActiveAsync" />
+                        Show note names
+                    </label>
+                    <label class="control-checkbox">
+                        <input type="checkbox"
+                               checked="@RevealFingeringWhileActive"
+                               @onchange="SelectRevealFingeringWhileActiveAsync" />
+                        Show fingering
+                    </label>
+                    <label class="control-checkbox">
+                        <input type="checkbox"
+                               checked="@RevealKeysWhileActive"
+                               @onchange="SelectRevealKeysWhileActiveAsync" />
+                        Highlight next keys on the piano
+                    </label>
+                </div>
             </div>
         </div>
-        <div class="control-group" role="group" aria-labelledby="sight-reading-reveal-heading">
-            <span class="control-group-label" id="sight-reading-reveal-heading">While playing</span>
-            <div class="controls">
-                <label class="control-checkbox">
-                    <input type="checkbox"
-                           checked="@RevealNoteNamesWhileActive"
-                           @onchange="SelectRevealNoteNamesWhileActiveAsync" />
-                    Show note names while playing
-                </label>
-                <label class="control-checkbox">
-                    <input type="checkbox"
-                           checked="@RevealFingeringWhileActive"
-                           @onchange="SelectRevealFingeringWhileActiveAsync" />
-                    Show fingering while playing
-                </label>
-            </div>
+        <div class="exercise-actions" role="group" aria-label="Exercise session controls">
+            <button class="button-primary" type="button" @onclick="Generate">
+                @(IsComplete ? "Next exercise" : "Generate new exercise")
+            </button>
+            <button type="button" @onclick="Retry" disabled="@(!IsActive)">
+                Retry same notes
+            </button>
+            <button type="button" @onclick="RetryMissed" disabled="@(!HasMissedPrompts)">
+                Retry missed notes
+            </button>
+            <button class="button-quiet" type="button" @onclick="End" disabled="@(!IsActive)">
+                End exercise
+            </button>
         </div>
-    </div>
-    <div class="controls session-controls" role="group" aria-label="Exercise session controls">
-        <button class="button-primary" type="button" @onclick="Generate">
-            @(IsComplete ? "Next exercise" : "Generate new exercise")
-        </button>
-        <button type="button" @onclick="Retry" disabled="@(!IsActive)">
-            Retry same notes
-        </button>
-        <button type="button" @onclick="RetryMissed" disabled="@(!HasMissedPrompts)">
-            Retry missed notes
-        </button>
-        <button class="button-quiet" type="button" @onclick="End" disabled="@(!IsActive)">
-            End exercise
-        </button>
-    </div>
-    <p class="control-note" role="status">
-        @InputReadinessMessage
-        @HiddenAnswersMessage
-    </p>
-    @if (IsActive)
-    {
-        <p role="status">
-            @if (IsComplete)
-            {
-                <span>
-                    Complete: @FirstTryCorrectCount of @CompletedPromptCount first-try correct
-                    (@FirstTryAccuracyPercent.ToString("F1", CultureInfo.InvariantCulture)%),
-                    @WrongAttemptCount mistake(s), @ElapsedTime.ToString(@"m\:ss", CultureInfo.InvariantCulture) elapsed.
-                </span>
-            }
-            else
-            {
-                <span>
-                    Progress: @CompletedPromptCount of @PromptCount notes ·
-                    @FirstTryAccuracyPercent.ToString("F1", CultureInfo.InvariantCulture)% first-try accuracy ·
-                    @WrongAttemptCount mistake(s)
-                </span>
-            }
+        @if (IsActive)
+        {
+            <p class="exercise-progress" role="status">
+                @if (IsComplete)
+                {
+                    <span>
+                        Complete: @FirstTryCorrectCount of @CompletedPromptCount first-try correct
+                        (@FirstTryAccuracyPercent.ToString("F1", CultureInfo.InvariantCulture)%),
+                        @WrongAttemptCount mistake(s), @ElapsedTime.ToString(@"m\:ss", CultureInfo.InvariantCulture) elapsed.
+                    </span>
+                }
+                else
+                {
+                    <span>
+                        Progress: @CompletedPromptCount of @PromptCount notes ·
+                        @FirstTryAccuracyPercent.ToString("F1", CultureInfo.InvariantCulture)% first-try accuracy ·
+                        @WrongAttemptCount mistake(s)
+                    </span>
+                }
+            </p>
+        }
+        <p class="control-note" role="status">
+            @InputReadinessMessage
+            @HiddenAnswersMessage
         </p>
-    }
+    </div>
 </section>
 
 @code {
@@ -137,6 +145,9 @@
 
     [Parameter]
     public bool RevealFingeringWhileActive { get; set; }
+
+    [Parameter]
+    public bool RevealKeysWhileActive { get; set; }
 
     [Parameter]
     public bool IsActive { get; set; }
@@ -196,6 +207,9 @@
     public EventCallback<bool> RevealFingeringWhileActiveChanged { get; set; }
 
     [Parameter]
+    public EventCallback<bool> RevealKeysWhileActiveChanged { get; set; }
+
+    [Parameter]
     public EventCallback Generate { get; set; }
 
     [Parameter]
@@ -223,7 +237,11 @@
         }
     }
 
-    private string HiddenAnswersMessage
+    private string HiddenAnswersMessage => RevealKeysWhileActive
+        ? $"{NamesAndFingeringsMessage} The next keys on the piano stay highlighted."
+        : NamesAndFingeringsMessage;
+
+    private string NamesAndFingeringsMessage
     {
         get
         {
@@ -284,4 +302,7 @@
 
     private Task SelectRevealFingeringWhileActiveAsync(ChangeEventArgs eventArgs) =>
         RevealFingeringWhileActiveChanged.InvokeAsync(eventArgs.Value is true);
+
+    private Task SelectRevealKeysWhileActiveAsync(ChangeEventArgs eventArgs) =>
+        RevealKeysWhileActiveChanged.InvokeAsync(eventArgs.Value is true);
 }

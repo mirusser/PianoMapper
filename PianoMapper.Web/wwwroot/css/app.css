@@ -231,7 +231,6 @@ p {
     border: 0;
     border-radius: 0;
     background: transparent;
-    box-shadow: none;
 }
 
 .sound-source-option + .sound-source-option {
@@ -257,30 +256,30 @@ input {
 button {
     min-height: 2.55rem;
     padding: 0.62rem 0.85rem;
-    border: 1px solid #65547e;
+    border: 1px solid transparent;
     border-radius: 0.6rem;
-    background: #30234e;
-    box-shadow: 0 1px 1px rgb(0 0 0 / 25%);
+    background: #43326b;
     color: #fff8ff;
     font-size: 0.875rem;
     font-weight: 700;
     cursor: pointer;
-    transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+    transition: background 140ms ease, transform 140ms ease;
 }
 
 button:hover:not(:disabled) {
-    border-color: #ff7bd5;
-    background: #463264;
-    transform: translateY(-1px);
+    background: color-mix(in srgb, #43326b 80%, white);
+}
+
+button:active:not(:disabled) {
+    transform: translateY(1px);
 }
 
 .button-primary {
-    border-color: #f072ca;
     background: #bd338f;
 }
 
 .button-primary:hover:not(:disabled) {
-    background: #b7358d;
+    background: color-mix(in srgb, #bd338f 80%, white);
 }
 
 .button-quiet {
@@ -288,14 +287,16 @@ button:hover:not(:disabled) {
     color: #ded1eb;
 }
 
+.button-quiet:hover:not(:disabled) {
+    background: rgb(255 255 255 / 9%);
+}
+
 .button-danger {
-    border-color: #ef4444;
-    background: #991b1b;
+    background: #c92a2a;
 }
 
 .button-danger:hover:not(:disabled) {
-    border-color: #f87171;
-    background: #b91c1c;
+    background: color-mix(in srgb, #c92a2a 80%, white);
 }
 
 button:focus-visible,
@@ -334,18 +335,44 @@ kbd {
     gap: 0.5rem;
     align-items: center;
     min-height: 2.55rem;
-    padding: 0.45rem 0.65rem;
-    border: 1px solid #65547e;
-    border-radius: 0.6rem;
     color: #ded1eb;
     font-size: 0.82rem;
     font-weight: 700;
 }
 
 select {
-    border: 0;
-    background: #251c42;
-    color: #fff;
+    min-height: 2.55rem;
+    padding: 0.55rem 2.4rem 0.55rem 0.85rem;
+    border: 1px solid #65547e;
+    border-radius: 0.6rem;
+    appearance: none;
+    background-color: #251c42;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23ff7bd5' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.85rem center;
+    background-size: 0.8rem 0.55rem;
+    color: #fff8ff;
+    cursor: pointer;
+    transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+select:hover:not(:disabled) {
+    border-color: #8d79ad;
+    background-color: #2d2250;
+}
+
+select:focus {
+    border-color: #ff7bd5;
+}
+
+select:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+select option {
+    background: #1b1534;
+    color: #fff8ff;
 }
 
 .control-note {
@@ -355,27 +382,83 @@ select {
     line-height: 1.45;
 }
 
+.control-note:empty {
+    margin: 0;
+}
+
 .midi-connection-summary strong {
     color: #f3e8fa;
 }
 
 .control-checkbox {
     display: flex;
+    flex: 1 1 12rem;
+    flex-direction: row-reverse;
+    gap: 0.6rem;
     align-items: center;
-    gap: 0.4rem;
+    justify-content: space-between;
+    min-height: 2.55rem;
+    padding: 0.55rem 0.85rem;
+    border: 1px solid #51436c;
+    border-radius: 0.65rem;
+    background: #1d1638;
     color: #ded1eb;
     font-size: 0.82rem;
     font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.control-checkbox:hover:not(:has(input:disabled)) {
+    border-color: #8d79ad;
+}
+
+.control-checkbox:has(input:checked) {
+    border-color: #ff7bd5;
+    background: rgb(189 51 143 / 16%);
+    color: #fff8ff;
+}
+
+.control-checkbox:has(input:disabled) {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.control-checkbox input {
+    flex: none;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin: 0;
+    border: 2px solid #7a679b;
+    border-radius: 0.35rem;
+    appearance: none;
+    background: transparent center / 0.8rem no-repeat;
+    cursor: inherit;
+    transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.control-checkbox input:checked {
+    border-color: #ff7bd5;
+    background-color: #bd338f;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 .fingering-editor {
     display: grid;
-    gap: 0.65rem;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+    gap: 0.9rem 1.5rem;
     margin-top: 0.75rem;
-    padding: 0.75rem;
+    padding: 0.9rem;
     border: 1px solid #51436c;
     border-radius: 0.65rem;
     background: #17112d;
+    text-align: left;
+}
+
+.fingering-editor > .fingering-note-picker,
+.fingering-editor > .control-note {
+    grid-column: 1 / -1;
 }
 
 .fingering-note-picker {
@@ -388,10 +471,6 @@ select {
 
 .fingering-note-picker select {
     width: 100%;
-    min-height: 2.55rem;
-    padding: 0.55rem 0.65rem;
-    border: 1px solid #65547e;
-    border-radius: 0.6rem;
 }
 
 .fingering-editor .control-note {
@@ -415,12 +494,64 @@ select {
 .timing-field input,
 .timing-field select {
     width: 100%;
+}
+
+.timing-field input {
     min-height: 2.55rem;
     padding: 0.55rem 0.65rem;
     border: 1px solid #65547e;
     border-radius: 0.6rem;
     background: #251c42;
     color: #fff;
+}
+
+.control-column {
+    max-width: 42rem;
+    margin-inline: auto;
+    text-align: center;
+}
+
+.control-sections {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.controls-centered {
+    justify-content: center;
+}
+
+.control-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+    gap: 0.85rem 0.75rem;
+    align-items: end;
+    text-align: left;
+}
+
+.control-grid-tiles {
+    row-gap: 0.6rem;
+}
+
+.control-grid > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+}
+
+.exercise-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1.5rem;
+    padding-top: 1.1rem;
+    border-top: 1px solid #51436c;
+}
+
+.exercise-progress {
+    margin: 0.9rem 0 0;
+    color: #f7eafa;
+    font-size: 0.9rem;
+    font-weight: 700;
 }
 
 .metronome-controls {
@@ -558,11 +689,15 @@ input[type="file"] {
 input[type="file"]::file-selector-button {
     margin-right: 0.7rem;
     padding: 0.5rem 0.7rem;
-    border: 1px solid #65547e;
+    border: 1px solid transparent;
     border-radius: 0.5rem;
-    background: #30234e;
+    background: #43326b;
     color: #fff8ff;
     cursor: pointer;
+}
+
+input[type="file"]::file-selector-button:hover {
+    background: color-mix(in srgb, #43326b 80%, white);
 }
 
 .score-title {
@@ -811,6 +946,13 @@ input[type="file"]::file-selector-button {
     transition: background-color 45ms ease, box-shadow 45ms ease, transform 45ms ease;
 }
 
+/* Keys are <button>s; keep the hover they have always inherited from the old global button rule. */
+.piano-key:hover:not(:disabled) {
+    border-color: #ff7bd5;
+    background: #463264;
+    transform: translateY(-1px);
+}
+
 .piano-key:focus-visible {
     z-index: 5;
     outline: 3px solid #22d3ee;
@@ -833,6 +975,17 @@ input[type="file"]::file-selector-button {
     border-radius: 0 0 0.18rem 0.18rem;
     background: linear-gradient(90deg, #0b0819 0%, #251c42 55%, #0b0819 100%);
     box-shadow: 0 0.35rem 0.3rem rgb(0 0 0 / 50%);
+}
+
+.piano-key-white.piano-key-next {
+    background: linear-gradient(180deg, #fff8ff 0%, #fde9b5 40%, #fbc86d 100%);
+    box-shadow: inset 0 -0.7rem 0 #f5a524, 0 0 0.85rem rgb(251 200 109 / 85%);
+}
+
+.piano-key-black.piano-key-next {
+    border-color: #f5a524;
+    background: linear-gradient(180deg, #0b0819 0%, #5b3a0b 45%, #d97706 100%);
+    box-shadow: inset 0 -0.5rem 0 #f5a524, 0 0 0.9rem rgb(251 200 109 / 85%), 0 0.35rem 0.3rem rgb(0 0 0 / 50%);
 }
 
 .piano-key-white.piano-key-active {
