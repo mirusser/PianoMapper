@@ -15,6 +15,7 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     private int? chosenTempoPulsesPerMinute;
     private PlayAlongOutcome? playAlongOutcome;
     private TimeSpan playAlongElapsedTime;
+    private long? autoNextStartTimestamp;
     private NoteReadingMode runMode;
     private ExercisePacing runPacing;
 
@@ -131,6 +132,17 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     /// do not reset it.
     /// </summary>
     internal bool CoachHints { get; private set; }
+
+    /// <summary>
+    /// Once an exercise is finished, the page generates the next one after <see cref="AutoNextDelay"/>, so a learner
+    /// can keep playing without reaching for the mouse. On by default (it reveals nothing, unlike the answer-giving
+    /// aids) and a durable setting: Generate/Retry/RetryMissed/End do not reset it. See <see cref="AutoNextRemaining"/>
+    /// for when the countdown runs.
+    /// </summary>
+    internal bool AutoNext { get; private set; } = true;
+
+    /// <summary>How long a finished exercise stays on screen for review before the next one is generated.</summary>
+    internal static readonly TimeSpan AutoNextDelay = TimeSpan.FromSeconds(10);
 
     /// <summary>Wrong keys on one prompt before a hint says which way to move.</summary>
     internal const int DirectionHintWrongKeyCount = 2;
@@ -324,6 +336,63 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     internal void SetPacing(ExercisePacing pacing) => Pacing = pacing;
 
     internal void SetCoachHints(bool enabled) => CoachHints = enabled;
+
+    /// <summary>
+    /// Turning it on while an exercise is in review starts the countdown from now, so a review that has been open for
+    /// minutes does not jump to the next exercise the moment the box is ticked. Turning it off clears the countdown.
+    /// </summary>
+    internal void SetAutoNext(bool enabled)
+    {
+        AutoNext = enabled;
+        if (!enabled)
+        {
+            autoNextStartTimestamp = null;
+        }
+        else if (autoNextStartTimestamp is null && CanCountDownToNext)
+        {
+            autoNextStartTimestamp = timeProvider.GetTimestamp();
+        }
+    }
+
+    /// <summary>
+    /// How long until the next exercise is generated, or null when no countdown is running: auto-next is off, the
+    /// exercise is not finished, the learner cancelled it for this review, or a play-along run ended without a single
+    /// prompt played (nobody was there, and generating run after run would only fill the history with empty runs).
+    /// Counts down to <see cref="TimeSpan.Zero"/> and stays there until the page starts the next run, which clears it.
+    /// </summary>
+    internal TimeSpan? AutoNextRemaining
+    {
+        get
+        {
+            if (autoNextStartTimestamp is not { } started)
+            {
+                return null;
+            }
+
+            TimeSpan remaining = AutoNextDelay - timeProvider.GetElapsedTime(started);
+            return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+        }
+    }
+
+    /// <summary>Whether the countdown has run out, so the page should generate the next exercise now.</summary>
+    internal bool IsAutoNextDue => AutoNextRemaining == TimeSpan.Zero;
+
+    /// <summary>Stops the countdown for the exercise in review. The setting stays on for the next exercise.</summary>
+    internal void CancelAutoNext() => autoNextStartTimestamp = null;
+
+    /// <summary>Starts a running countdown over, for a learner who is still studying the review. No effect without one.</summary>
+    internal void RestartAutoNext()
+    {
+        if (autoNextStartTimestamp is not null)
+        {
+            autoNextStartTimestamp = timeProvider.GetTimestamp();
+        }
+    }
+
+    private bool CanCountDownToNext =>
+        AutoNext &&
+        Phase == SightReadingExercisePhase.Review &&
+        PromptResults.Any(result => !result.WasMissed);
 
     internal void SetRevealNoteNamesWhileActive(bool reveal) => RevealNoteNamesWhileActive = reveal;
 
@@ -649,13 +718,16 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
         playAlongOutcome = null;
         playAlongElapsedTime = TimeSpan.Zero;
         hasConsumedCurrentCompletionSummary = false;
+        autoNextStartTimestamp = null;
     }
 
     /// <summary>
     /// Returns a serializable summary of the just-completed exercise exactly once per completion — the first call
     /// after the session reaches <see cref="SightReadingExercisePhase.Review"/> returns it; every call after that,
     /// until the next Generate/Retry/RetryMissed, returns <see langword="null"/>. Callers (the browser history
-    /// store) use this to save a completed session exactly once even if rendering runs the check repeatedly.
+    /// store) use this to save a completed session exactly once even if rendering runs the check repeatedly. That
+    /// first call is also the moment the exercise is known to be finished, so it starts the
+    /// <see cref="AutoNextRemaining"/> countdown.
     /// </summary>
     internal SightReadingSessionSummary? ConsumeCompletionSummary()
     {
@@ -665,6 +737,11 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
         }
 
         hasConsumedCurrentCompletionSummary = true;
+        if (CanCountDownToNext)
+        {
+            autoNextStartTimestamp = timeProvider.GetTimestamp();
+        }
+
         return SightReadingSessionSummary.Create(
             timeProvider.GetUtcNow(),
             PresetId.ToString(),

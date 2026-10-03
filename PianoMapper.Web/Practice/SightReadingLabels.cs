@@ -94,6 +94,14 @@ internal static class SightReadingLabels
         _ => throw new ArgumentOutOfRangeException(nameof(diatonicSteps)),
     };
 
+    /// <summary>
+    /// The exercise lengths the Length select offers, shortest first. Each is a multiple of the 4-beat measure, which a
+    /// fixed-rhythm exercise needs. The longer ones run past one page of measures, so the exercise pages as it goes.
+    /// </summary>
+    internal static IReadOnlyList<int> PromptCountChoices { get; } = [8, 16, 32, 64];
+
+    internal static string PromptCountOption(int promptCount) => $"{promptCount} notes";
+
     /// <summary>The selectable modes in learning order, easiest first. <see cref="NoteReadingMode.Off"/> is not one of them.</summary>
     internal static IReadOnlyList<NoteReadingMode> LadderModes { get; } =
     [

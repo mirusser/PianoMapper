@@ -55,6 +55,24 @@ public sealed record SightReadingExercisePresentation
 
     public required bool CoachHints { get; init; }
 
+    public required bool AutoNext { get; init; }
+
+    /// <summary>
+    /// Whole seconds until the next exercise starts by itself (rounded up, so the countdown reads 10 down to 1), or
+    /// null when no countdown is running.
+    /// </summary>
+    public required int? AutoNextSecondsRemaining { get; init; }
+
+    /// <summary>
+    /// How many pages of measures the exercise spans. The score shows two pages at once, so past two the panel offers
+    /// paging through the review.
+    /// </summary>
+    public required int ScorePageCount { get; init; }
+
+    public required bool CanShowPreviousMeasures { get; init; }
+
+    public required bool CanShowNextMeasures { get; init; }
+
     public required bool IsClickRunning { get; init; }
 
     public required ExerciseReview? ReviewMistakes { get; init; }

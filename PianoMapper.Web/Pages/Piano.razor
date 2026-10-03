@@ -517,6 +517,7 @@
     private static readonly Pitch TestPitch = new(NoteLetter.A, 0, 4);
     private static readonly TimeSpan BrowserSchedulingLead = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan CanvasRefreshInterval = TimeSpan.FromMilliseconds(16);
+    private static readonly TimeSpan AutoNextRefreshInterval = TimeSpan.FromMilliseconds(250);
 
     private readonly NoteTimeline noteTimeline = new();
     private readonly TempoFeedbackTracker tempoFeedbackTracker = new();
@@ -560,6 +561,7 @@
     private readonly AsyncTicker practiceTicker = new();
     private readonly AsyncTicker visualizationTicker = new();
     private readonly AsyncTicker sightReadingCountInTicker = new();
+    private readonly AsyncTicker autoNextTicker = new();
     private string audioStatus = "Starting audio...";
     private string midiStatus = string.Empty;
     private IReadOnlyList<string> midiInputNames = [];
@@ -607,6 +609,15 @@
         RevealKeysWhileActive = sightReadingExerciseCoordinator.RevealKeysWhileActive,
         ClickWhilePlaying = sightReadingExerciseCoordinator.ClickWhilePlaying,
         CoachHints = sightReadingExerciseCoordinator.CoachHints,
+        AutoNext = sightReadingExerciseCoordinator.AutoNext,
+        AutoNextSecondsRemaining = sightReadingExerciseCoordinator.AutoNextRemaining is { } autoNextRemaining
+            ? (int)Math.Ceiling(autoNextRemaining.TotalSeconds)
+            : null,
+        ScorePageCount = sightReadingExerciseCoordinator.Score is { } exerciseScore
+            ? ScoreGrandStaffWindowPair.GetPageCount(exerciseScore.Measures.Count, visibleMeasureCount)
+            : 0,
+        CanShowPreviousMeasures = CanShowPreviousMeasures,
+        CanShowNextMeasures = CanShowNextMeasures,
         IsClickRunning = ExerciseClick.IsRunning,
         ReviewMistakes = sightReadingExerciseCoordinator.ReviewMistakes,
         PlayAlongVerdictCounts = sightReadingExerciseCoordinator.PlayAlongVerdictCounts,
@@ -715,21 +726,21 @@
         ? pair.ActivePageIndex * visibleMeasureCount
         : 0;
 
-    private bool CanShowPreviousMeasures => !IsSightReadingExerciseActive && selectedScore is { } score && CanChangeScorePage(
-        score.Measures.Count,
-        scoreWindowPair?.ActivePageIndex ?? 0,
-        pageDelta: -1,
-        ScorePlaybackSession.IsActive,
-        practiceCoordinator.IsActive,
-        visibleMeasureCount);
+    private bool CanShowPreviousMeasures => CanPageScore(pageDelta: -1);
 
-    private bool CanShowNextMeasures => !IsSightReadingExerciseActive && selectedScore is { } score && CanChangeScorePage(
-        score.Measures.Count,
-        scoreWindowPair?.ActivePageIndex ?? 0,
-        pageDelta: 1,
-        ScorePlaybackSession.IsActive,
-        practiceCoordinator.IsActive,
-        visibleMeasureCount);
+    private bool CanShowNextMeasures => CanPageScore(pageDelta: 1);
+
+    // A loaded score pages freely. An exercise in progress turns the pages itself as the learner plays, so it pages by
+    // hand only once it is in review: a long exercise does not fit on the two score rows, and review marks on earlier
+    // pages would otherwise be out of reach.
+    private bool CanPageScore(int pageDelta) =>
+        NotationScore is { } score && CanChangeScorePage(
+            score.Measures.Count,
+            scoreWindowPair?.ActivePageIndex ?? 0,
+            pageDelta,
+            ScorePlaybackSession.IsActive,
+            practiceCoordinator.IsActive || sightReadingExerciseCoordinator.Phase == SightReadingExercisePhase.Active,
+            visibleMeasureCount);
 
     private bool CanResetHighlights =>
         !isFingeringEditing &&
@@ -957,6 +968,40 @@
         sightReadingHistory = sightReadingHistory.WithCompletedSession(summary);
         RefreshSightReadingInsights();
         await sightReadingHistoryStore.SaveAsync(sightReadingHistory);
+        EnsureAutoNextTicker();
+    }
+
+    private void EnsureAutoNextTicker()
+    {
+        if (sightReadingExerciseCoordinator.AutoNextRemaining is null || autoNextTicker.IsRunning)
+        {
+            return;
+        }
+
+        autoNextTicker.Start(TickAutoNextAsync, AutoNextRefreshInterval);
+    }
+
+    /// <summary>
+    /// Redraws the countdown and, when it runs out, generates the next exercise exactly as the Generate button does. The
+    /// loop ends by itself once the countdown is gone (cancelled, or a new run started), so nothing has to stop it, which
+    /// matters because generating from inside the loop must not await the loop.
+    /// </summary>
+    private async Task<bool> TickAutoNextAsync(CancellationToken cancellationToken)
+    {
+        if (sightReadingExerciseCoordinator.AutoNextRemaining is null)
+        {
+            return false;
+        }
+
+        if (sightReadingExerciseCoordinator.IsAutoNextDue)
+        {
+            await GenerateSightReadingExerciseAsync();
+            await InvokeAsync(StateHasChanged);
+            return false;
+        }
+
+        await InvokeAsync(StateHasChanged);
+        return true;
     }
 
     private async Task ClearSightReadingHistoryAsync()
@@ -1370,6 +1415,19 @@
             case SightReadingExerciseAction.SetCoachHints setCoachHints:
                 sightReadingExerciseCoordinator.SetCoachHints(setCoachHints.Value);
                 break;
+            case SightReadingExerciseAction.SetAutoNext setAutoNext:
+                sightReadingExerciseCoordinator.SetAutoNext(setAutoNext.Value);
+                EnsureAutoNextTicker();
+                break;
+            case SightReadingExerciseAction.CancelAutoNext:
+                sightReadingExerciseCoordinator.CancelAutoNext();
+                break;
+            case SightReadingExerciseAction.ShowPreviousMeasures:
+                ShowPreviousMeasures();
+                break;
+            case SightReadingExerciseAction.ShowNextMeasures:
+                ShowNextMeasures();
+                break;
             case SightReadingExerciseAction.Generate:
                 await GenerateSightReadingExerciseAsync();
                 break;
@@ -1722,36 +1780,24 @@
         }
     }
 
-    private void ShowPreviousMeasures()
+    private void ShowPreviousMeasures() => ChangeScorePage(pageDelta: -1);
+
+    private void ShowNextMeasures() => ChangeScorePage(pageDelta: 1);
+
+    private void ChangeScorePage(int pageDelta)
     {
-        if (!CanShowPreviousMeasures || selectedScore is null)
+        if (!CanPageScore(pageDelta) || NotationScore is not { } score)
         {
             return;
         }
 
         selectedScoreNoteAddress = null;
         scoreWindowPair = ScoreGrandStaffWindowPair.FromPageIndex(
-            selectedScore.Measures.Count,
-            (scoreWindowPair?.ActivePageIndex ?? 0) - 1,
+            score.Measures.Count,
+            (scoreWindowPair?.ActivePageIndex ?? 0) + pageDelta,
             visibleMeasureCount);
-        if (!showPianoRoll)
-        {
-            RefreshCanvasScene(GetAnchorTime());
-        }
-    }
-
-    private void ShowNextMeasures()
-    {
-        if (!CanShowNextMeasures || selectedScore is null)
-        {
-            return;
-        }
-
-        selectedScoreNoteAddress = null;
-        scoreWindowPair = ScoreGrandStaffWindowPair.FromPageIndex(
-            selectedScore.Measures.Count,
-            (scoreWindowPair?.ActivePageIndex ?? 0) + 1,
-            visibleMeasureCount);
+        // A learner paging through the review is still reading it, so the countdown to the next exercise starts over.
+        sightReadingExerciseCoordinator.RestartAutoNext();
         if (!showPianoRoll)
         {
             RefreshCanvasScene(GetAnchorTime());
@@ -2341,12 +2387,21 @@
             audioStatus = "Click stopped (focus lost). Retry the exercise to play with the click again.";
             await InvokeAsync(StateHasChanged);
         }
+
+        // Nobody is watching the countdown, and a timed exercise generated now would count in with nobody there.
+        if (sightReadingExerciseCoordinator.AutoNextRemaining is not null)
+        {
+            sightReadingExerciseCoordinator.CancelAutoNext();
+            audioStatus = "Next exercise cancelled (focus lost). Choose Next exercise when you are back.";
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
         await visualizationTicker.StopAsync();
         await sightReadingCountInTicker.StopAsync();
+        await autoNextTicker.StopAsync();
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
         if (Metronome.IsRunning)

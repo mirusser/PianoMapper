@@ -554,6 +554,17 @@ select option {
     font-weight: 700;
 }
 
+.exercise-inline-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: center;
+    justify-content: center;
+    margin: 0.6rem 0 0;
+    color: #f7eafa;
+    font-size: 0.9rem;
+}
+
 .metronome-controls {
     display: flex;
     flex-wrap: wrap;

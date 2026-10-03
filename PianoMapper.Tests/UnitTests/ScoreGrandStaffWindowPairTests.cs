@@ -23,6 +23,32 @@ public sealed class ScoreGrandStaffWindowPairTests
     }
 
     [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1, 1)]
+    [InlineData(5, 1)]
+    [InlineData(6, 2)]
+    [InlineData(10, 2)]
+    [InlineData(11, 3)]
+    [InlineData(16, 4)]
+    public void GetPageCount_DefaultWindow_RoundsUpToWholePages(int measureCount, int expectedPageCount)
+    {
+        Assert.Equal(expectedPageCount, ScoreGrandStaffWindowPair.GetPageCount(measureCount));
+    }
+
+    [Fact]
+    public void GetPageCount_CustomWindow_UsesTheVisibleMeasureCount()
+    {
+        Assert.Equal(4, ScoreGrandStaffWindowPair.GetPageCount(measureCount: 10, visibleMeasureCount: 3));
+    }
+
+    [Fact]
+    public void GetPageCount_NonPositiveWindow_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => ScoreGrandStaffWindowPair.GetPageCount(measureCount: 8, visibleMeasureCount: 0));
+    }
+
+    [Theory]
     [InlineData(0, 0, 5, 0)]
     [InlineData(1, 10, 5, 1)]
     [InlineData(2, 10, 15, 0)]

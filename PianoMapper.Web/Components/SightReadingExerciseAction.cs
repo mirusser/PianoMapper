@@ -39,6 +39,14 @@ public abstract record SightReadingExerciseAction
 
     public sealed record SetCoachHints(bool Value) : SightReadingExerciseAction;
 
+    public sealed record SetAutoNext(bool Value) : SightReadingExerciseAction;
+
+    public sealed record CancelAutoNext : SightReadingExerciseAction;
+
+    public sealed record ShowPreviousMeasures : SightReadingExerciseAction;
+
+    public sealed record ShowNextMeasures : SightReadingExerciseAction;
+
     public sealed record Generate : SightReadingExerciseAction;
 
     public sealed record DrillWeakNotes : SightReadingExerciseAction;

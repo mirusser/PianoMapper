@@ -62,8 +62,10 @@
                     <label class="timing-field">
                         <span>Length</span>
                         <select value="@Presentation.PromptCountOption" @onchange="SelectPromptCountOptionAsync">
-                            <option value="8">8 notes</option>
-                            <option value="16">16 notes</option>
+                            @foreach (int promptCountChoice in SightReadingLabels.PromptCountChoices)
+                            {
+                                <option value="@promptCountChoice">@SightReadingLabels.PromptCountOption(promptCountChoice)</option>
+                            }
                         </select>
                     </label>
                     <label class="timing-field">
@@ -176,6 +178,17 @@
                     }
                 </div>
             </div>
+            <div role="group" aria-labelledby="sight-reading-finish-heading">
+                <span class="control-group-label" id="sight-reading-finish-heading">When finished</span>
+                <div class="control-grid control-grid-tiles">
+                    <label class="control-checkbox">
+                        <input type="checkbox"
+                               checked="@Presentation.AutoNext"
+                               @onchange="SelectAutoNextAsync" />
+                        Start the next exercise automatically after @AutoNextSeconds seconds
+                    </label>
+                </div>
+            </div>
         </div>
         <div class="exercise-actions" role="group" aria-label="Exercise session controls">
             <button class="button-primary" type="button" @onclick="GenerateAsync">
@@ -243,6 +256,24 @@
                     </span>
                 }
             </p>
+        }
+        @if (Presentation.AutoNextSecondsRemaining is { } autoNextSeconds)
+        {
+            <p class="exercise-inline-actions">
+                <span>Next exercise in @autoNextSeconds s.</span>
+                <button class="button-quiet" type="button" @onclick="CancelAutoNextAsync">Stay here</button>
+            </p>
+        }
+        @if (Presentation.IsComplete && Presentation.ScorePageCount > MeasureRowsOnScreen)
+        {
+            <div class="exercise-inline-actions" role="group" aria-label="Review the exercise page by page">
+                <button type="button" @onclick="ShowPreviousMeasuresAsync" disabled="@(!Presentation.CanShowPreviousMeasures)">
+                    Previous measures <kbd>[</kbd>
+                </button>
+                <button type="button" @onclick="ShowNextMeasuresAsync" disabled="@(!Presentation.CanShowNextMeasures)">
+                    Next measures <kbd>]</kbd>
+                </button>
+            </div>
         }
         @if (Presentation.ReviewMistakes is { Lines.Count: > 0 } reviewMistakes)
         {
@@ -338,9 +369,14 @@
             ? OnAction.InvokeAsync(new SightReadingExerciseAction.SelectPreset(presetId))
             : Task.CompletedTask;
 
+    // The score draws two rows of measure pages, so an exercise of up to two pages is always fully on screen.
+    private const int MeasureRowsOnScreen = 2;
+
+    private static int AutoNextSeconds => (int)SightReadingExerciseCoordinator.AutoNextDelay.TotalSeconds;
+
     private Task SelectPromptCountOptionAsync(ChangeEventArgs eventArgs) =>
         int.TryParse(eventArgs.Value?.ToString(), CultureInfo.InvariantCulture, out int promptCount) &&
-        promptCount is 8 or 16
+        SightReadingLabels.PromptCountChoices.Contains(promptCount)
             ? OnAction.InvokeAsync(new SightReadingExerciseAction.SelectPromptCount(promptCount))
             : Task.CompletedTask;
 
@@ -398,6 +434,15 @@
 
     private Task SelectClickWhilePlayingAsync(ChangeEventArgs eventArgs) =>
         OnAction.InvokeAsync(new SightReadingExerciseAction.SetClickWhilePlaying(eventArgs.Value is true));
+
+    private Task SelectAutoNextAsync(ChangeEventArgs eventArgs) =>
+        OnAction.InvokeAsync(new SightReadingExerciseAction.SetAutoNext(eventArgs.Value is true));
+
+    private Task CancelAutoNextAsync() => OnAction.InvokeAsync(new SightReadingExerciseAction.CancelAutoNext());
+
+    private Task ShowPreviousMeasuresAsync() => OnAction.InvokeAsync(new SightReadingExerciseAction.ShowPreviousMeasures());
+
+    private Task ShowNextMeasuresAsync() => OnAction.InvokeAsync(new SightReadingExerciseAction.ShowNextMeasures());
 
     private Task GenerateAsync() => OnAction.InvokeAsync(new SightReadingExerciseAction.Generate());
 

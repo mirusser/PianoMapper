@@ -4,6 +4,17 @@ namespace PianoMapper.Web.Rendering;
 
 internal static class ScoreGrandStaffWindowPair
 {
+    /// <summary>How many pages of <paramref name="visibleMeasureCount"/> measures a score of <paramref name="measureCount"/> spans.</summary>
+    internal static int GetPageCount(
+        int measureCount,
+        int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(measureCount);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(visibleMeasureCount);
+
+        return (measureCount + visibleMeasureCount - 1) / visibleMeasureCount;
+    }
+
     internal static State FromPageIndex(
         int measureCount,
         int activePageIndex,
