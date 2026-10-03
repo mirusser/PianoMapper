@@ -161,12 +161,14 @@ public sealed class WebAudioSessionTests
         await session.StartMetronomeAsync(
             TimeSpan.FromSeconds(12.05),
             TimeSpan.FromSeconds(0.5),
-            4);
+            6,
+            3);
         await session.StopMetronomeAsync();
 
         Assert.Contains("module:startMetronome", calls);
         Assert.Contains("module:stopMetronome", calls);
-        Assert.Equal([12.05, 0.5, 4], module.Arguments["startMetronome"]);
+        // Deliberately updated for Task 8: the beat-group size (3 in 6/8) is now the fourth argument.
+        Assert.Equal([12.05, 0.5, 6, 3], module.Arguments["startMetronome"]);
     }
 
     private sealed class RecordingJsRuntime(List<string> calls, IJSObjectReference module) : IJSRuntime

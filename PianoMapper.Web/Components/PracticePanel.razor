@@ -34,7 +34,7 @@
         <ul>
             @foreach (var (verdict, count) in Result.Summary.Counts.Where(item => item.Value > 0))
             {
-                <li>@GetVerdictLabel(verdict): @count</li>
+                <li>@SightReadingLabels.Verdict(verdict): @count</li>
             }
         </ul>
     }
@@ -79,14 +79,6 @@
 </section>
 
 @code {
-    private static string GetVerdictLabel(Verdict verdict) => verdict switch
-    {
-        Verdict.WrongPitch => "Wrong pitch",
-        Verdict.TooShort => "Too short",
-        Verdict.TooLong => "Too long",
-        _ => verdict.ToString(),
-    };
-
     [Parameter]
     public PracticeSessionState State { get; set; }
 

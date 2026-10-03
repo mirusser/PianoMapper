@@ -19,6 +19,12 @@ export const octaveShiftLineKind = 6; // GrandStaffLineKind.OctaveShift
 export const clefGlyphKind = 0; // PianoMapper.Web.Rendering.GrandStaffGlyphKind.Clef
 export const accidentalGlyphKind = 1; // GrandStaffGlyphKind.Accidental
 export const octaveShiftNumeralGlyphKind = 9; // GrandStaffGlyphKind.OctaveShiftNumeral
+export const restGlyphKind = 10; // GrandStaffGlyphKind.Rest (drawn by the generic height-scaled glyph path)
+// Review marks are their own channel (GrandStaffNote.reviewMark), never a Verdict: do not index verdictColors with them.
+export const reviewMarkClean = 0; // PianoMapper.Web.Rendering.ReviewMark.Clean
+export const reviewMarkTiming = 1; // ReviewMark.Timing
+export const reviewMarkPitch = 2; // ReviewMark.Pitch
+export const reviewMarkMissed = 3; // ReviewMark.Missed
 export const stemDirectionUp = 0; // PianoMapper.Rendering.StemDirection.Up (also used for GrandStaffTie.CurveDirection)
 // Index i must hold the color for PianoMapper.Core.Practice.Verdict's i-th ordinal.
 export const verdictColors = [
@@ -53,6 +59,35 @@ const flagControlWidthInStaffSpaces = 1.2;
 const flagControlHeightInStaffSpaces = 0.5;
 const flagHeightInStaffSpaces = 1.15;
 const flagSpacingInStaffSpaces = 0.45;
+const dotClearanceFromStemInStaffSpaces = 0.3;
+// Review marks (the halo): a ring around the heads of one prompt on one staff. The ring stays outside the head by
+// this much (never less than the pixel floor, so it still clears the head on a very short canvas).
+const reviewMarkHaloPaddingInStaffSpaces = 0.4;
+const reviewMarkHaloMinimumPaddingPixels = 3;
+// An accidental belongs to its note, so the ring wraps it instead of cutting through it. GrandStaffSceneBuilder puts an
+// accidental's glyph about 0.019 scene-X left of its head; its width is a fraction of its (ink) height.
+const reviewMarkAccidentalSearchWidth = 0.05;
+const reviewMarkAccidentalHalfWidthInGlyphHeights = 0.28;
+const reviewMarkRestHalfWidthInGlyphHeights = 0.2;
+// Clear pixels kept between a ring's outer edge and an annotation strip or the canvas edge.
+const reviewMarkStripGapPixels = 1.5;
+// The least gap kept when the head leaves no room for the preferred one.
+const reviewMarkStripHardGapPixels = 0.25;
+// Own colors and line styles, not verdictColors (D3): shape carries the meaning as well as color, so the marks still
+// read without telling orange from red. Clean notes have no entry on purpose, so no ring is drawn for them.
+const reviewMarkStyles = new Map([
+    [reviewMarkTiming, { color: "#fb923c", lineWidth: 2, dash: [] }],
+    [reviewMarkPitch, { color: "#f87171", lineWidth: 3, dash: [] }],
+    [reviewMarkMissed, { color: "#94a3b8", lineWidth: 2, dash: [6, 4] }],
+]);
+// Note-name labels are 16 px text centred under their note. Two labels in one row that would touch are drawn smaller (see
+// getNoteLabelFitScales), never below this fraction of their size and keeping this much air between neighbours.
+const noteLabelFontSizePixels = 16;
+const noteLabelMinimumGapPixels = 2;
+const noteLabelMinimumFitScale = 0.5;
+// Labels this close are the same moment drawn a little apart (a chord's notes, a live note and the one it overlaps), not a
+// run of neighbours, and shrinking them cannot separate them, so they are left at their own size.
+const noteLabelSameMomentPixels = 4;
 const tieEndpointInsetInStaffSpaces = (noteHeadWidthInStaffSpaces / 2) + 0.2;
 const tieTipBiasInStaffSpaces = 0.12;
 const tieMinimumVisibleLengthInStaffSpaces = 0.35;
@@ -60,6 +95,13 @@ const tieMinimumHeightInStaffSpaces = 0.3;
 const tieMaximumHeightInStaffSpaces = 0.45;
 const tieHeightToLengthRatio = 0.04;
 const tieCenterThicknessInStaffSpaces = 0.08;
+// 0.08 staff space is only 0.6 px on the smallest score canvas (7.5 px staff space), which reads as a hairline. A tie is
+// never thinner than this at its thickest point, so it stays visible there; taller canvases already exceed it and are
+// unchanged. The taper (zero thickness at both ends) and the endpoint gaps are not touched.
+const tieMinimumCenterThicknessPixels = 1.2;
+// A scene's X values are float-derived doubles (-0.56f arrives as -0.5600000023841858), so a position that must be
+// recognised exactly is compared with this tolerance rather than Number.EPSILON.
+const sceneXTolerance = 1e-6;
 const slurMinimumHeightInStaffSpaces = 0.6;
 const slurMaximumHeightInStaffSpaces = 1.6;
 const slurHeightToLengthRatio = 0.12;
@@ -361,6 +403,9 @@ function drawGrandStaff(context, scene, width, height) {
         }
     }
 
+    // Under the ties and notes: a ring never covers the notation it surrounds.
+    drawReviewMarks(context, scene, width, height, staffSpace);
+
     for (const tie of scene.ties ?? []) {
         drawTie(context, tie, width, height, staffSpace);
     }
@@ -373,9 +418,10 @@ function drawGrandStaff(context, scene, width, height) {
         drawArpeggioMark(context, arpeggioMark, width, height, staffSpace);
     }
 
+    const labelFitScales = getLabelFitScales(context, scene.notes, width);
     for (const note of scene.notes) {
         if (!note.isActive) {
-            drawNote(context, note, width, height, staffSpace);
+            drawNote(context, note, width, height, staffSpace, undefined, labelFitScales.get(note));
         }
     }
     for (const beam of scene.beams ?? []) {
@@ -383,7 +429,7 @@ function drawGrandStaff(context, scene, width, height) {
     }
     for (const note of scene.notes) {
         if (note.isActive) {
-            drawNote(context, note, width, height, staffSpace);
+            drawNote(context, note, width, height, staffSpace, undefined, labelFitScales.get(note));
         }
     }
     drawLedgerLines(context, scene, width, height, staffSpace);
@@ -391,6 +437,170 @@ function drawGrandStaff(context, scene, width, height) {
     if (shouldClipNoteElements) {
         context.restore();
     }
+}
+
+// Draws the review-mark halos of a finished exercise: one ring per prompt per staff (notes sharing reviewMarkGroup, so a
+// chord gets one ring around its whole stack), none for a clean note. The scene only carries marks in Review.
+function drawReviewMarks(context, scene, width, height, staffSpace) {
+    const groups = new Map();
+    scene.notes.forEach((note, index) => {
+        const style = reviewMarkStyles.get(note.reviewMark);
+        if (!style) {
+            return;
+        }
+
+        const key = Number.isInteger(note.reviewMarkGroup) ? note.reviewMarkGroup : `note-${index}`;
+        const group = groups.get(key) ?? { style, indexes: [] };
+        group.indexes.push(index);
+        groups.set(key, group);
+    });
+    if (groups.size === 0) {
+        return;
+    }
+
+    const accidentals = (scene.glyphs ?? []).filter(glyph => glyph.kind === accidentalGlyphKind);
+    const inkBoxes = scene.notes.map(note => ({
+        ...getReviewMarkInkBox(note, accidentals, width, height, staffSpace),
+        hasHalo: reviewMarkStyles.has(note.reviewMark),
+    }));
+    const fixedObstacles = getReviewMarkFixedObstacles(scene, width, height);
+    for (const group of groups.values()) {
+        const members = new Set(group.indexes);
+        drawReviewMarkHalo(
+            context,
+            group.style,
+            group.indexes.map(index => inkBoxes[index]),
+            [...fixedObstacles, ...inkBoxes.filter((_, index) => !members.has(index))],
+            scene.bands ?? [],
+            width,
+            height,
+            staffSpace);
+    }
+}
+
+// Notation a ring must stay off that is not another note: barlines (a first or last note sits only a few pixels from one)
+// and rests, whose glyph is a narrow shape centered on its beat.
+function getReviewMarkFixedObstacles(scene, width, height) {
+    const obstacles = [];
+    for (const line of scene.lines) {
+        if (line.kind === barlineKind) {
+            const x = mapX(line.x0, width);
+            obstacles.push({ left: x - 0.75, right: x + 0.75, top: Number.NEGATIVE_INFINITY, bottom: Number.POSITIVE_INFINITY, hasHalo: false });
+        }
+    }
+
+    for (const glyph of scene.glyphs ?? []) {
+        if (glyph.kind === restGlyphKind) {
+            const x = mapX(glyph.x, width);
+            const y = mapY(glyph.y, height);
+            const glyphHeight = mapHeight(glyph.height, height);
+            obstacles.push({
+                left: x - (glyphHeight * reviewMarkRestHalfWidthInGlyphHeights),
+                right: x + (glyphHeight * reviewMarkRestHalfWidthInGlyphHeights),
+                top: y - (glyphHeight / 2),
+                bottom: y + (glyphHeight / 2),
+                hasHalo: false,
+            });
+        }
+    }
+
+    return obstacles;
+}
+
+// The ink of one note a halo has to respect: its head, plus its accidental, which belongs to the note and is drawn left
+// of it (GrandStaffSceneBuilder puts it at the note's Y, a fixed small distance to the left).
+function getReviewMarkInkBox(note, accidentals, width, height, staffSpace) {
+    const x = mapX(note.x, width);
+    const y = mapY(note.y, height);
+    const box = {
+        left: x - (staffSpace * noteHeadWidthInStaffSpaces / 2),
+        right: x + (staffSpace * noteHeadWidthInStaffSpaces / 2),
+        top: y - (staffSpace * noteHeadHeightInStaffSpaces / 2),
+        bottom: y + (staffSpace * noteHeadHeightInStaffSpaces / 2),
+    };
+    const accidental = accidentals.find(glyph => Math.abs(glyph.y - note.y) < 1e-9
+        && glyph.x < note.x
+        && note.x - glyph.x <= reviewMarkAccidentalSearchWidth);
+    if (accidental) {
+        const accidentalHeight = mapHeight(accidental.height, height);
+        box.left = Math.min(box.left, mapX(accidental.x, width) - (accidentalHeight * reviewMarkAccidentalHalfWidthInGlyphHeights));
+        box.top = Math.min(box.top, y - (accidentalHeight / 2));
+        box.bottom = Math.max(box.bottom, y + (accidentalHeight / 2));
+    }
+
+    return box;
+}
+
+function drawReviewMarkHalo(context, style, memberBoxes, otherBoxes, bands, width, height, staffSpace) {
+    const { color, lineWidth, dash } = style;
+    const preferredPadding = Math.max(reviewMarkHaloMinimumPaddingPixels, staffSpace * reviewMarkHaloPaddingInStaffSpaces);
+    // The ring has to clear the ink it surrounds, so its centerline never sits closer than half its stroke plus a hair.
+    const minimumPadding = (lineWidth / 2) + 0.5;
+    let left = Math.min(...memberBoxes.map(box => box.left));
+    let right = Math.max(...memberBoxes.map(box => box.right));
+    let top = Math.min(...memberBoxes.map(box => box.top));
+    let bottom = Math.max(...memberBoxes.map(box => box.bottom));
+
+    // Beside another note (a beamed eighth pair is only a notehead and a half apart) the ring stays off that note's head
+    // and accidental, and when the neighbour has a ring of its own the two share the free space between them.
+    let roomLeft = Number.POSITIVE_INFINITY;
+    let roomRight = Number.POSITIVE_INFINITY;
+    for (const other of otherBoxes) {
+        if (other.bottom < top - preferredPadding || other.top > bottom + preferredPadding) {
+            continue;
+        }
+
+        const share = other.hasHalo ? 2 : 1;
+        if (other.left >= right) {
+            roomRight = Math.min(roomRight, (other.left - right) / share);
+        } else if (other.right <= left) {
+            roomLeft = Math.min(roomLeft, (left - other.right) / share);
+        }
+    }
+
+    const fit = room => Math.max(minimumPadding, Math.min(preferredPadding, room - (lineWidth / 2) - 0.5));
+    left -= fit(roomLeft);
+    right += fit(roomRight);
+    top -= preferredPadding;
+    bottom += preferredPadding;
+
+    // The annotation strip is a hard boundary (lessons #23-#26): a ring never reaches into one, and never past the
+    // canvas edge. A note sitting right on a strip gets a ring that stops short of it instead, hugging the head on that
+    // side (the lowest treble note is only a few pixels above its strip), but it never draws over the head itself.
+    const half = lineWidth / 2;
+    const inkTop = Math.min(...memberBoxes.map(box => box.top));
+    const inkBottom = Math.max(...memberBoxes.map(box => box.bottom));
+    const centerY = (top + bottom) / 2;
+    let lowestTop = 0;
+    let highestBottom = Number.POSITIVE_INFINITY;
+    for (const band of bands) {
+        const bandTop = Math.min(mapY(band.y0, height), mapY(band.y1, height));
+        const bandBottom = Math.max(mapY(band.y0, height), mapY(band.y1, height));
+        if (right < mapX(band.x0, width) || left > mapX(band.x1, width)) {
+            continue;
+        }
+
+        if (centerY <= bandTop) {
+            highestBottom = Math.min(highestBottom, bandTop);
+        } else if (centerY >= bandBottom) {
+            lowestTop = Math.max(lowestTop, bandBottom);
+        }
+    }
+
+    top = Math.max(top, lowestTop + half + reviewMarkStripGapPixels);
+    bottom = Math.min(bottom, highestBottom - half - reviewMarkStripGapPixels);
+    top = Math.min(top, inkTop - half);
+    bottom = Math.max(bottom, inkBottom + half);
+    top = Math.max(top, lowestTop + half + reviewMarkStripHardGapPixels);
+    bottom = Math.min(bottom, highestBottom - half - reviewMarkStripHardGapPixels);
+
+    context.strokeStyle = color;
+    context.lineWidth = lineWidth;
+    context.setLineDash(dash);
+    context.beginPath();
+    context.roundRect(left, top, right - left, bottom - top, Math.min(right - left, bottom - top) / 2);
+    context.stroke();
+    context.setLineDash([]);
 }
 
 function drawLedgerLines(context, scene, width, height, staffSpace) {
@@ -645,12 +855,13 @@ function drawScorePlaybackHighlights(context, scene, width, height, scorePlaybac
     }
 
     const staffSpace = getStaffSpace(scene, height);
+    const labelFitScales = getLabelFitScales(context, scene.notes, width);
     for (const note of scene.notes) {
         if (Number.isFinite(note.scoreOnsetBeats)
             && Number.isFinite(note.scoreEndBeats)
             && scorePlaybackBeats >= note.scoreOnsetBeats
             && scorePlaybackBeats < note.scoreEndBeats) {
-            drawNote(context, note, width, height, staffSpace, scorePlaybackHighlightColor);
+            drawNote(context, note, width, height, staffSpace, scorePlaybackHighlightColor, labelFitScales.get(note));
         }
     }
 }
@@ -708,6 +919,79 @@ export function mapScoreNotationBeatToX(
     const noteAreaEndX = measureEndX - scoreNoteEdgeClearance;
     const x = noteAreaStartX + (beatOffset / beatsPerMeasure) * (noteAreaEndX - noteAreaStartX);
     return Math.min(Math.max(x, noteAreaStartX), noteAreaEndX);
+}
+
+// A fit is a pure function of the notes and the canvas width, and playback highlights redraw labels every frame, so the
+// last result is kept per notes array.
+const labelFitCache = new WeakMap();
+
+function getLabelFitScales(context, notes, width) {
+    const cached = labelFitCache.get(notes);
+    if (cached?.width === width) {
+        return cached.scales;
+    }
+
+    const scales = getNoteLabelFitScales(context, notes, width);
+    labelFitCache.set(notes, { width, scales });
+    return scales;
+}
+
+/**
+ * The factor (at most 1) each note's label font is shrunk by so that it keeps noteLabelMinimumGapPixels clear of the
+ * labels beside it, measured with the real font. Labels are compared only within one label row (same labelY, so a
+ * chord's stacked names never compare with each other), in order of x. For each neighbouring pair the labels may use
+ * the distance between their centres, less the gap, so both get the same factor: the widest factor that fits that pair.
+ * A label takes the smaller factor of its two pairs, and none goes below noteLabelMinimumFitScale: the labels stay in
+ * their strip and stay readable, a crowded run just gets smaller text. Only notes that have to shrink get an entry.
+ */
+export function getNoteLabelFitScales(context, notes, width) {
+    const rows = new Map();
+    for (const note of notes) {
+        if (!Number.isFinite(note.labelY) || typeof note.label !== "string" || note.label.length === 0) {
+            continue;
+        }
+
+        const row = rows.get(note.labelY);
+        if (row) {
+            row.push(note);
+        } else {
+            rows.set(note.labelY, [note]);
+        }
+    }
+
+    const scales = new Map();
+    context.save();
+    for (const row of rows.values()) {
+        if (row.length < 2) {
+            continue;
+        }
+
+        row.sort((first, second) => first.x - second.x);
+        const centers = row.map(note => mapX(note.x, width));
+        const textWidths = row.map(note => {
+            const labelFontScale = Number.isFinite(note.labelFontScale) ? note.labelFontScale : 1;
+            context.font = `${noteLabelFontSizePixels * labelFontScale}px system-ui, sans-serif`;
+            return context.measureText(note.label).width;
+        });
+        for (let index = 1; index < row.length; index++) {
+            const distance = centers[index] - centers[index - 1];
+            const combinedHalfWidths = (textWidths[index] + textWidths[index - 1]) / 2;
+            if (distance <= noteLabelSameMomentPixels || !(combinedHalfWidths > 0)) {
+                continue;
+            }
+
+            const pairScale = (distance - noteLabelMinimumGapPixels) / combinedHalfWidths;
+            if (pairScale < 1) {
+                const fitted = Math.max(noteLabelMinimumFitScale, pairScale);
+                for (const note of [row[index - 1], row[index]]) {
+                    scales.set(note, Math.min(fitted, scales.get(note) ?? 1));
+                }
+            }
+        }
+    }
+
+    context.restore();
+    return scales;
 }
 
 function drawBand(context, band, width, height) {
@@ -806,7 +1090,7 @@ function drawGlyph(context, glyph, width, height) {
     context.fillText(glyph.text, x, y);
 }
 
-function drawNote(context, note, width, height, staffSpace, colorOverride) {
+function drawNote(context, note, width, height, staffSpace, colorOverride, labelFitScale = 1) {
     const x = mapX(note.x, width);
     const y = mapY(note.y, height);
     const noteHeadRadiusX = staffSpace * noteHeadWidthInStaffSpaces / 2;
@@ -865,13 +1149,14 @@ function drawNote(context, note, width, height, staffSpace, colorOverride) {
     }
 
     if (note.hasDot) {
+        const dotRadius = Math.max(2, staffSpace * 0.08);
+        // A stem-up note's stem stands on the right edge of its head, exactly where the dot goes, so the dot is moved
+        // clear of the stem; otherwise it fuses with it and a dotted note reads as an undotted one.
+        const dotX = note.hasStem && stemGoesUp
+            ? stemX + (staffSpace * dotClearanceFromStemInStaffSpaces) + dotRadius
+            : x + noteHeadRadiusX + (staffSpace * 0.25);
         context.beginPath();
-        context.arc(
-            x + noteHeadRadiusX + (staffSpace * 0.25),
-            y,
-            Math.max(2, staffSpace * 0.08),
-            0,
-            Math.PI * 2);
+        context.arc(dotX, y, dotRadius, 0, Math.PI * 2);
         context.fill();
     }
 
@@ -879,7 +1164,8 @@ function drawNote(context, note, width, height, staffSpace, colorOverride) {
         // Shrinks in lockstep with GrandStaffSceneBuilder's compressed row spacing for a severely crowded
         // label stack (e.g. a 3-note chord) — 1 (full 16px) for the overwhelmingly common, uncompressed case.
         const labelFontScale = Number.isFinite(note.labelFontScale) ? note.labelFontScale : 1;
-        context.font = `${16 * labelFontScale}px system-ui, sans-serif`;
+        // labelFitScale shrinks it further when a neighbouring label in the same row would touch this one.
+        context.font = `${noteLabelFontSizePixels * labelFontScale * labelFitScale}px system-ui, sans-serif`;
         context.textAlign = "center";
         context.textBaseline = "top";
         context.fillText(note.label, x, mapY(note.labelY, height));
@@ -948,8 +1234,7 @@ function drawTie(context, tie, width, height, staffSpace) {
     const centerControlY1 = y0 + ((y1 - y0) / 3) + controlHeight;
     const centerControlY2 = y0 + ((y1 - y0) * 2 / 3) + controlHeight;
     const thicknessControlOffset = curveDirection
-        * staffSpace
-        * tieCenterThicknessInStaffSpaces
+        * Math.max(staffSpace * tieCenterThicknessInStaffSpaces, tieMinimumCenterThicknessPixels)
         * 2 / 3;
     context.fillStyle = tie.isActive ? "#22d3ee" : "#fbbf24";
     context.beginPath();
@@ -1045,7 +1330,10 @@ function drawArpeggioWave(context, x, yTop, yBottom, staffSpace) {
 
 function isScoreEdgeX(x) {
     return Math.abs(x - scoreCursorX0) < Number.EPSILON
-        || Math.abs(x - scoreCursorX1) < Number.EPSILON;
+        || Math.abs(x - scoreCursorX1) < Number.EPSILON
+        // The half tie that arrives at the start of a score row starts at that row's opening barline, one note-edge
+        // clearance left of scoreCursorX0 (GrandStaffSceneBuilder.OpeningBarlineLead), and has no gap before it.
+        || Math.abs(x - (scoreCursorX0 - scoreNoteEdgeClearance)) < sceneXTolerance;
 }
 
 function mapX(value, width) {

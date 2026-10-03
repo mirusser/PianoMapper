@@ -8,4 +8,8 @@ public enum SightReadingPresetId
     GMajor,
     FMajor,
     Chords,
+    DMajor,
+    BFlatMajor,
+    AMinor,
+    Accidentals,
 }

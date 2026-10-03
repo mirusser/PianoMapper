@@ -46,6 +46,55 @@ public sealed class GrandStaffSceneCacheTests
     }
 
     [Fact]
+    public void BuildScore_DrawRestsToggles_RebuildsStaticGeometryAndShowsTheRest()
+    {
+        var cache = new GrandStaffSceneCache();
+        var score = new Score(
+            "rest",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(60),
+            0,
+            [new ScoreMeasure([], [new ScoreRest(new NoteValue(4), 0, 1, Staff.Treble)])]);
+
+        var withoutRests = cache.BuildScore(score, firstVisibleMeasure: 0);
+        var withRests = cache.BuildScore(score, firstVisibleMeasure: 0, drawRests: true);
+        var withRestsAgain = cache.BuildScore(score, firstVisibleMeasure: 0, cursorBeats: 1, drawRests: true);
+
+        Assert.DoesNotContain(withoutRests.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Rest);
+        Assert.Single(withRests.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Rest);
+        Assert.NotSame(withoutRests.Glyphs, withRests.Glyphs);
+        Assert.Same(withRests.Glyphs, withRestsAgain.Glyphs);
+    }
+
+    [Fact]
+    public void BuildScore_DrawTiesToggles_RebuildsStaticGeometryAndShowsTheTie()
+    {
+        var cache = new GrandStaffSceneCache();
+        var pitch = new Pitch(NoteLetter.G, 0, 4);
+        var score = new Score(
+            "tie",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(60),
+            0,
+            [
+                new ScoreMeasure(
+                    [
+                        new ScoreNote(pitch, new NoteValue(4), 0, 1, Staff.Treble, TiesToNext: true),
+                        new ScoreNote(pitch, new NoteValue(4), 0, 2, Staff.Treble),
+                    ],
+                    []),
+            ]);
+
+        var withoutTies = cache.BuildScore(score, firstVisibleMeasure: 0);
+        var withTies = cache.BuildScore(score, firstVisibleMeasure: 0, drawTies: true);
+        var withTiesAgain = cache.BuildScore(score, firstVisibleMeasure: 0, cursorBeats: 1, drawTies: true);
+
+        Assert.Empty(withoutTies.Ties);
+        Assert.Single(withTies.Ties);
+        Assert.Same(withTies.Ties, withTiesAgain.Ties);
+    }
+
+    [Fact]
     public void BuildScore_DifferentScoreInstance_RebuildsStaticGeometry()
     {
         var cache = new GrandStaffSceneCache();
@@ -113,6 +162,67 @@ public sealed class GrandStaffSceneCacheTests
             verdicts: new Dictionary<ScoreNote, Verdict> { [sourceNote] = Verdict.Late });
 
         Assert.Equal(Verdict.Late, Assert.Single(withVerdict.Notes).Verdict);
+    }
+
+    [Fact]
+    public void BuildScore_ReviewMarksSameContentDifferentDictionaryInstance_ReusesStaticGeometry()
+    {
+        var cache = new GrandStaffSceneCache();
+        var sourceNote = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
+        var score = SingleNoteScore(sourceNote);
+
+        var first = cache.BuildScore(
+            score,
+            firstVisibleMeasure: 0,
+            reviewMarks: new Dictionary<ScoreNote, ReviewMark> { [sourceNote] = ReviewMark.Pitch });
+        var second = cache.BuildScore(
+            score,
+            firstVisibleMeasure: 0,
+            cursorBeats: 1,
+            reviewMarks: new Dictionary<ScoreNote, ReviewMark> { [sourceNote] = ReviewMark.Pitch });
+
+        Assert.Same(first.Notes, second.Notes);
+    }
+
+    [Fact]
+    public void BuildScore_ReviewMarksChange_RebuildsNotesWithTheNewMark()
+    {
+        var cache = new GrandStaffSceneCache();
+        var sourceNote = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
+        var score = SingleNoteScore(sourceNote);
+
+        var unmarked = cache.BuildScore(score, firstVisibleMeasure: 0);
+        var timing = cache.BuildScore(
+            score,
+            firstVisibleMeasure: 0,
+            reviewMarks: new Dictionary<ScoreNote, ReviewMark> { [sourceNote] = ReviewMark.Timing });
+        var missed = cache.BuildScore(
+            score,
+            firstVisibleMeasure: 0,
+            reviewMarks: new Dictionary<ScoreNote, ReviewMark> { [sourceNote] = ReviewMark.Missed });
+
+        Assert.Null(Assert.Single(unmarked.Notes).ReviewMark);
+        Assert.Equal(ReviewMark.Timing, Assert.Single(timing.Notes).ReviewMark);
+        Assert.Equal(ReviewMark.Missed, Assert.Single(missed.Notes).ReviewMark);
+    }
+
+    [Fact]
+    public void BuildScore_ReviewMarksGoBackToNone_DropsTheMarksAgain()
+    {
+        // The exercise's Retry leaves review: the same score is shown again with no marks.
+        var cache = new GrandStaffSceneCache();
+        var sourceNote = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
+        var score = SingleNoteScore(sourceNote);
+        cache.BuildScore(
+            score,
+            firstVisibleMeasure: 0,
+            reviewMarks: new Dictionary<ScoreNote, ReviewMark> { [sourceNote] = ReviewMark.Pitch });
+
+        var afterRetry = cache.BuildScore(score, firstVisibleMeasure: 0);
+
+        var note = Assert.Single(afterRetry.Notes);
+        Assert.Null(note.ReviewMark);
+        Assert.Null(note.ReviewMarkGroup);
     }
 
     [Fact]
@@ -254,6 +364,14 @@ public sealed class GrandStaffSceneCacheTests
         Assert.NotNull(Assert.Single(shown.Notes).Fingering);
         Assert.Null(Assert.Single(hidden.Notes).Fingering);
     }
+
+    private static Score SingleNoteScore(ScoreNote note) =>
+        new(
+            "test",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure([note], [])]);
 
     private static Score CreateScore(int measureCount) =>
         new(

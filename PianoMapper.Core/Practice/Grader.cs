@@ -25,7 +25,7 @@ public static class Grader
                 matchedPerformed,
                 practiceAnchor,
                 options.OnsetTolerance,
-                requireMatchingPitch: true);
+                requireMatchingPitch: !options.IgnorePitch);
             if (performedIndex >= 0)
             {
                 matchedPerformed[performedIndex] = true;
@@ -35,7 +35,8 @@ public static class Grader
 
         for (int expectedIndex = 0; expectedIndex < expectedEvents.Count; expectedIndex++)
         {
-            if (matches[expectedIndex] is not null)
+            // Ignoring pitch means the first pass already offered every performed note to every event.
+            if (matches[expectedIndex] is not null || options.IgnorePitch)
             {
                 continue;
             }
@@ -126,7 +127,7 @@ public static class Grader
         TimeSpan evaluationTime,
         GradingOptions options)
     {
-        if (performed.Pitch.MidiNumber != expected.Pitch.MidiNumber)
+        if (!options.IgnorePitch && performed.Pitch.MidiNumber != expected.Pitch.MidiNumber)
         {
             return Verdict.WrongPitch;
         }

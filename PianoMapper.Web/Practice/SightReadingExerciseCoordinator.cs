@@ -1,5 +1,6 @@
 using PianoMapper.Music;
 using PianoMapper.Practice;
+using PianoMapper.Web.Rendering;
 
 namespace PianoMapper.Web.Practice;
 
@@ -11,6 +12,11 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     private TimeSpan countInAudioClockOrigin;
     private long countInStartTimestamp;
     private TimeSpan countInDuration;
+    private int? chosenTempoPulsesPerMinute;
+    private PlayAlongOutcome? playAlongOutcome;
+    private TimeSpan playAlongElapsedTime;
+    private NoteReadingMode runMode;
+    private ExercisePacing runPacing;
 
     internal Staff Staff { get; private set; } = Staff.Treble;
 
@@ -20,9 +26,78 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
 
     internal bool IsGrandStaff { get; private set; }
 
+    /// <summary>
+    /// The learner's choice to play both hands on every prompt, a durable setting. It only takes effect where it
+    /// applies, see <see cref="EffectiveHandsTogether"/>.
+    /// </summary>
+    internal bool HandsTogether { get; private set; }
+
+    /// <summary>
+    /// Hands together needs a grand staff and the five-note range (the only range whose hands never share a pitch), and
+    /// does not apply to rhythm only. The panel disables the option otherwise instead of the composer rejecting it.
+    /// </summary>
+    internal bool IsHandsTogetherAvailable =>
+        IsGrandStaff && PresetId == SightReadingPresetId.FiveNote && !IsPitchSetupIgnored;
+
+    /// <summary>What the next exercise really uses: <see cref="HandsTogether"/>, where it applies.</summary>
+    internal bool EffectiveHandsTogether => HandsTogether && IsHandsTogetherAvailable;
+
     internal SightReadingRhythmPreset RhythmPreset { get; private set; } = SightReadingRhythmPreset.Fixed;
 
+    /// <summary>
+    /// The tempo in pulses per minute (a quarter note, or a dotted quarter in 6/8) the next exercise will use: the
+    /// learner's choice, or the beginner default for the rhythm preset's pulse unit. A durable setting.
+    /// </summary>
+    internal int TempoPulsesPerMinute =>
+        chosenTempoPulsesPerMinute ?? SightReadingExerciseOptions.GetDefaultTempoPulsesPerMinute(EffectiveRhythmPreset);
+
+    /// <summary>
+    /// Rhythm only repeats one centre-line note per staff, so the range, key and grand-staff choices do not apply to it.
+    /// The panel disables those controls and the composer would reject them, so Generate leaves them out.
+    /// </summary>
+    internal bool IsPitchSetupIgnored => Mode == NoteReadingMode.RhythmOnly;
+
+    /// <summary>
+    /// Whether the exercise is graded on the beat, which is what gets a one-measure count-in and a click.
+    /// </summary>
+    internal bool UsesCountIn => Mode.GetGradedAxes().HasFlag(GradedAxes.Onset);
+
+    /// <summary>
+    /// A variable rhythm needs single notes on one staff, so a grand staff or chord exercise always plays fixed quarter
+    /// notes. This is that fallback made explicit (the panel disables the Rhythm control and says so) instead of
+    /// silently ignoring the choice. Rhythm only drops grand staff and chords itself, so it never locks the rhythm.
+    /// </summary>
+    internal bool IsRhythmPresetLocked =>
+        !IsPitchSetupIgnored && (IsGrandStaff || PresetId == SightReadingPresetId.Chords);
+
+    /// <summary>The rhythm the exercise really uses: <see cref="RhythmPreset"/>, unless it is locked to fixed quarter notes.</summary>
+    internal SightReadingRhythmPreset EffectiveRhythmPreset =>
+        IsRhythmPresetLocked ? SightReadingRhythmPreset.Fixed : RhythmPreset;
+
+    /// <summary>What the next Generate, Retry or Retry missed will grade, a durable setting like <see cref="Staff"/>.</summary>
     internal NoteReadingMode Mode { get; private set; } = NoteReadingMode.PitchAndOrder;
+
+    /// <summary>
+    /// The mode the exercise on screen was generated or retried with, which it keeps (running or in review) whatever
+    /// <see cref="Mode"/> is changed to meanwhile. Without an exercise it is just <see cref="Mode"/>.
+    /// </summary>
+    internal NoteReadingMode RunMode => Score is null ? Mode : runMode;
+
+    /// <summary>How the next exercise's notes follow each other: the learner's choice, a durable setting.</summary>
+    internal SightReadingMotion Motion { get; private set; } = SightReadingMotion.Random;
+
+    /// <summary>The interval, in diatonic steps, that intervallic motion uses. A durable setting.</summary>
+    internal int IntervalSteps { get; private set; } = SightReadingExerciseOptions.DefaultIntervalSteps;
+
+    /// <summary>
+    /// Whether the chosen <see cref="Motion"/> can apply: rhythm only repeats one note, and chords and ledger lines pick
+    /// their own notes. The panel disables the Pattern control and says so, instead of silently ignoring the choice.
+    /// </summary>
+    internal bool IsMotionAvailable =>
+        !IsPitchSetupIgnored && SightReadingExerciseComposer.SupportsMotion(PresetId);
+
+    /// <summary>The motion the exercise really uses: <see cref="Motion"/>, unless it cannot apply.</summary>
+    internal SightReadingMotion EffectiveMotion => IsMotionAvailable ? Motion : SightReadingMotion.Random;
 
     /// <summary>
     /// Opt-in "training wheels": when true, note names stay visible even while the exercise is
@@ -42,19 +117,158 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     /// </summary>
     internal bool RevealKeysWhileActive { get; private set; }
 
+    /// <summary>
+    /// Keeps a click sounding through a timed exercise, not only during the count-in: after the count-in in rhythm
+    /// grading, and from the start in Pitch + hold (as a tempo reference). A durable exercise setting like the
+    /// reveal flags, and on by default because a beginner needs the pulse; Generate/Retry/RetryMissed/End do not
+    /// reset it.
+    /// </summary>
+    internal bool ClickWhilePlaying { get; private set; } = true;
+
+    /// <summary>
+    /// Opt-in coaching in the status line after repeated wrong keys, off by default like every other aid that gives
+    /// the answer away (note names, fingering, next-key highlight). A durable setting: Generate/Retry/RetryMissed/End
+    /// do not reset it.
+    /// </summary>
+    internal bool CoachHints { get; private set; }
+
+    /// <summary>Wrong keys on one prompt before a hint says which way to move.</summary>
+    internal const int DirectionHintWrongKeyCount = 2;
+
+    /// <summary>Wrong keys on one prompt before a hint names the note.</summary>
+    internal const int NameHintWrongKeyCount = 4;
+
     internal Score? Score { get; private set; }
 
     internal NoteReadingSession Session => session;
 
+    /// <summary>
+    /// The learner's pacing choice, a durable setting. It only takes effect where it applies, see
+    /// <see cref="EffectivePacing"/>.
+    /// </summary>
+    internal ExercisePacing Pacing { get; private set; } = ExercisePacing.WaitForMe;
+
+    /// <summary>
+    /// The pacing the next exercise will really run with: play-along needs a beat to follow, so a non-onset-graded
+    /// mode always waits for the learner whatever <see cref="Pacing"/> says (and goes back to play-along when an
+    /// onset graded mode is chosen again). The exercise on screen keeps its own, see <see cref="RunPacing"/>.
+    /// </summary>
+    internal ExercisePacing EffectivePacing =>
+        Pacing == ExercisePacing.PlayAlong && UsesCountIn ? ExercisePacing.PlayAlong : ExercisePacing.WaitForMe;
+
+    /// <summary>
+    /// The pacing the exercise on screen was generated or retried with, which it keeps (running or in review)
+    /// whatever <see cref="Pacing"/> or <see cref="Mode"/> are changed to meanwhile. Without an exercise it is just
+    /// <see cref="EffectivePacing"/>.
+    /// </summary>
+    internal ExercisePacing RunPacing => Score is null ? EffectivePacing : runPacing;
+
     internal SightReadingExercisePhase Phase => Score is null
         ? SightReadingExercisePhase.Inactive
-        : session.IsComplete
+        : IsRunComplete
             ? SightReadingExercisePhase.Review
             : SightReadingExercisePhase.Active;
+
+    private bool IsRunComplete => RunPacing == ExercisePacing.PlayAlong
+        ? playAlongOutcome is not null
+        : session.IsComplete;
+
+    /// <summary>
+    /// One view of the run's results for both pacings, so review, history, retry and the counts below behave the
+    /// same whichever engine graded it: the pitch-gated session's prompt results, or the mapped play-along results.
+    /// </summary>
+    internal IReadOnlyList<NoteReadingPromptResult> PromptResults =>
+        RunPacing == ExercisePacing.PlayAlong
+            ? playAlongOutcome?.PromptResults ?? []
+            : session.PromptResults;
+
+    internal int PromptCount => session.PromptCount;
+
+    /// <summary>
+    /// The coaching hint for the prompt the learner is stuck on, or null. Only while a wait-for-me exercise is in
+    /// progress with hints on, and only for wrong *keys* (a late note is not a wrong key): after
+    /// <see cref="DirectionHintWrongKeyCount"/> it says which way to move from the last wrong key, after
+    /// <see cref="NameHintWrongKeyCount"/> it names the note. Reading it has no effect on the run, and the prompt
+    /// stays a first-try miss either way.
+    /// </summary>
+    internal ExerciseCoachHint? GetCoachHint()
+    {
+        if (!CoachHints || RunPacing != ExercisePacing.WaitForMe || Phase != SightReadingExercisePhase.Active)
+        {
+            return null;
+        }
+
+        NoteReadingPromptResult? current = session.PromptResults.LastOrDefault(result => !result.IsComplete);
+        if (current is null || current.WrongPlayedPitches.Length < DirectionHintWrongKeyCount)
+        {
+            return null;
+        }
+
+        Pitch pressed = current.WrongPlayedPitches[^1];
+        if (current.WrongPlayedPitches.Length >= NameHintWrongKeyCount)
+        {
+            return new ExerciseCoachHint(ExerciseCoachHintLevel.Name, current.ExpectedPitches, pressed, null);
+        }
+
+        Pitch nearest = current.ExpectedPitches.MinBy(expected => Math.Abs(expected.DiatonicIndex - pressed.DiatonicIndex));
+        return new ExerciseCoachHint(
+            ExerciseCoachHintLevel.Direction,
+            current.ExpectedPitches,
+            pressed,
+            PitchDistance.Measure(pressed, nearest));
+    }
+
+    /// <summary>
+    /// The mistakes to look at, once the exercise has reached review. Null before that on purpose: the list names
+    /// the expected notes, which an exercise in progress keeps hidden.
+    /// </summary>
+    internal ExerciseReview? ReviewMistakes =>
+        Phase == SightReadingExercisePhase.Review && Score is { } score
+            ? ExerciseReviewBuilder.Build(PromptResults, score.TimeSignature)
+            : null;
+
+    /// <summary>
+    /// Per-verdict counts (including notes that matched nothing) of a finished play-along run, or null for a
+    /// pitch-gated run and until a play-along run finishes. The exercise summary lists them.
+    /// </summary>
+    internal IReadOnlyDictionary<Verdict, int>? PlayAlongVerdictCounts =>
+        RunPacing == ExercisePacing.PlayAlong ? playAlongOutcome?.VerdictCounts : null;
+
+    internal int CompletedPromptCount => RunPacing == ExercisePacing.PlayAlong
+        ? PromptResults.Count(result => result.IsComplete)
+        : session.CompletedPromptCount;
+
+    internal int FirstTryCorrectCount => RunPacing == ExercisePacing.PlayAlong
+        ? PromptResults.Count(result => result.IsComplete && result.IsFirstTryCorrect)
+        : session.FirstTryCorrectCount;
+
+    internal int WrongAttemptCount => RunPacing == ExercisePacing.PlayAlong
+        ? PromptResults.Sum(result => result.WrongAttemptCount)
+        : session.WrongAttemptCount;
+
+    internal double FirstTryAccuracyPercent => CompletedPromptCount == 0
+        ? 0
+        : 100.0 * FirstTryCorrectCount / CompletedPromptCount;
+
+    internal TimeSpan ElapsedTime => RunPacing == ExercisePacing.PlayAlong
+        ? playAlongElapsedTime
+        : session.ElapsedTime;
 
     internal bool IsActive => Phase != SightReadingExercisePhase.Inactive;
 
     internal bool IsCountingIn { get; private set; }
+
+    /// <summary>The persisted name of play-along pacing in history; wait-for-me is stored as no pacing at all.</summary>
+    internal const string PlayAlongPacingName = "playAlong";
+
+    /// <summary>
+    /// Whether the exercise's click should currently be sounding: always during the count-in, and otherwise only
+    /// while a timing-graded exercise is in progress with <see cref="ClickWhilePlaying"/> on. False once it
+    /// reaches review or ends.
+    /// </summary>
+    internal bool ShouldClickSound =>
+        Phase == SightReadingExercisePhase.Active &&
+        (IsCountingIn || (ClickWhilePlaying && SightReadingLabels.IsTimingGraded(RunMode)));
 
     internal void SetStaff(Staff staff) => Staff = staff;
 
@@ -64,9 +278,52 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
 
     internal void SetIsGrandStaff(bool isGrandStaff) => IsGrandStaff = isGrandStaff;
 
-    internal void SetRhythmPreset(SightReadingRhythmPreset rhythmPreset) => RhythmPreset = rhythmPreset;
+    internal void SetHandsTogether(bool handsTogether) => HandsTogether = handsTogether;
+
+    /// <summary>
+    /// Switching between a quarter-note and a dotted-quarter pulse makes a chosen number mean something else (60
+    /// quarters is not 60 dotted quarters), so a chosen tempo is dropped in favor of the new default then.
+    /// </summary>
+    internal void SetRhythmPreset(SightReadingRhythmPreset rhythmPreset)
+    {
+        if (UsesCompoundPulse(rhythmPreset) != UsesCompoundPulse(RhythmPreset))
+        {
+            chosenTempoPulsesPerMinute = null;
+        }
+
+        RhythmPreset = rhythmPreset;
+    }
+
+    internal void SetTempoPulsesPerMinute(int pulsesPerMinute)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            pulsesPerMinute,
+            SightReadingExerciseOptions.MinimumTempoPulsesPerMinute);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            pulsesPerMinute,
+            SightReadingExerciseOptions.MaximumTempoPulsesPerMinute);
+        chosenTempoPulsesPerMinute = pulsesPerMinute;
+    }
+
+    private static bool UsesCompoundPulse(SightReadingRhythmPreset rhythmPreset) =>
+        rhythmPreset == SightReadingRhythmPreset.Compound;
 
     internal void SetMode(NoteReadingMode mode) => Mode = mode;
+
+    internal void SetMotion(SightReadingMotion motion) => Motion = motion;
+
+    internal void SetIntervalSteps(int steps)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(steps, SightReadingExerciseOptions.MinimumIntervalSteps);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(steps, SightReadingExerciseOptions.MaximumIntervalSteps);
+        IntervalSteps = steps;
+    }
+
+    internal void SetClickWhilePlaying(bool enabled) => ClickWhilePlaying = enabled;
+
+    internal void SetPacing(ExercisePacing pacing) => Pacing = pacing;
+
+    internal void SetCoachHints(bool enabled) => CoachHints = enabled;
 
     internal void SetRevealNoteNamesWhileActive(bool reveal) => RevealNoteNamesWhileActive = reveal;
 
@@ -76,49 +333,160 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
 
     /// <summary>
     /// Generates a new exercise. <paramref name="mastery"/> is optional local mastery history — typically
-    /// <c>SightReadingHistory.ComputeMasteryWeakestFirst()</c>'s result, so callers get the same
+    /// <c>SightReadingHistory.ComputeNoteMasteryWeakestFirst()</c>'s result, so callers get the same
     /// "enough attempts to be meaningful" threshold already used for review UI — read fresh on every call (nothing
     /// here is cached across Generate calls), so the very next Generate after a session completes and is saved
-    /// already reflects it. Converted to the composer's neutral-pitch-weight-by-default scheme internally; Core
-    /// itself never sees <see cref="PitchMastery"/> or any history type. Null or empty reproduces the exact same
+    /// already reflects it. Converted to the composer's neutral-note-weight-by-default scheme, keyed by staff, internally;
+    /// Core itself never sees <see cref="NoteMastery"/> or any history type. Null or empty reproduces the exact same
     /// balanced generation as before this parameter existed.
     /// </summary>
-    internal void Generate(Random random, TimeSpan timingTolerance, IReadOnlyList<PitchMastery>? mastery = null)
+    internal void Generate(Random random, TimeSpan timingTolerance, IReadOnlyList<NoteMastery>? mastery = null) =>
+        Generate(random, timingTolerance, mastery, SightReadingGenerationStrategy.CoverageFirst);
+
+    /// <summary>
+    /// Applies a ladder recommendation (the level's staff, grand staff, range, mode, rhythm and length, plus its
+    /// recommended tempo for a timed level) and generates that exercise. Only the settings that define a level are
+    /// changed: pacing, the reveal and hint options, and the click stay as the learner left them, and every setting
+    /// can be changed again afterwards, since the ladder only recommends.
+    /// </summary>
+    internal void GenerateRecommended(
+        Random random,
+        TimeSpan timingTolerance,
+        LevelRecommendation recommendation,
+        IReadOnlyList<NoteMastery>? mastery = null)
+    {
+        ArgumentNullException.ThrowIfNull(recommendation);
+        ExerciseLevel level = recommendation.Level;
+        SetStaff(level.Staff);
+        SetIsGrandStaff(level.IsGrandStaff);
+        SetPresetId(level.PresetId);
+        SetPromptCountOption(level.PromptCount);
+        SetMode(level.Mode);
+        SetRhythmPreset(level.RhythmPreset);
+        if (level.IsTimed)
+        {
+            SetTempoPulsesPerMinute(recommendation.TempoPulsesPerMinute ?? level.StartTempoPulsesPerMinute!.Value);
+        }
+
+        Generate(random, timingTolerance, mastery);
+    }
+
+    /// <summary>
+    /// Generates a drill on the learner's weak notes: the same options as <see cref="Generate"/> (so the range, staff and
+    /// rhythm are the current ones and no note outside the range is used), but the weak notes in
+    /// <paramref name="mastery"/> drive the picks from the first prompt on. An explicit action, never the default, and
+    /// the next ordinary <see cref="Generate"/> is coverage-first again.
+    /// </summary>
+    internal void GenerateWeaknessDrill(Random random, TimeSpan timingTolerance, IReadOnlyList<NoteMastery> mastery)
+    {
+        ArgumentNullException.ThrowIfNull(mastery);
+        Generate(random, timingTolerance, mastery, SightReadingGenerationStrategy.WeaknessFirst);
+    }
+
+    /// <summary>
+    /// Whether a weak-note drill makes sense right now: the exercise draws single notes (not chords, not rhythm only,
+    /// which repeats one note) and at least one of <paramref name="weakNotes"/> lies in the current range on a staff
+    /// this exercise uses. A weak note recorded without a staff counts on either staff.
+    /// </summary>
+    internal DrillAvailability GetDrillAvailability(IReadOnlyList<NoteMastery> weakNotes)
+    {
+        ArgumentNullException.ThrowIfNull(weakNotes);
+        if (IsPitchSetupIgnored)
+        {
+            return DrillAvailability.Unavailable("Rhythm only repeats one note, so there is no note to drill.");
+        }
+
+        if (PresetId == SightReadingPresetId.Chords)
+        {
+            return DrillAvailability.Unavailable("Chord exercises cannot be drilled note by note.");
+        }
+
+        if (PresetId == SightReadingPresetId.Accidentals)
+        {
+            return DrillAvailability.Unavailable(
+                "Accidental exercises choose their notes by their own spelling rules, so they cannot be drilled yet.");
+        }
+
+        if (EffectiveMotion != SightReadingMotion.Random)
+        {
+            return DrillAvailability.Unavailable(
+                "A drill picks notes by how often you miss them, so it needs the Random pattern.");
+        }
+
+        Staff[] staves = IsGrandStaff ? [Staff.Treble, Staff.Bass] : [Staff];
+        bool hasWeakNoteInRange = staves.Any(staff =>
+        {
+            IReadOnlyList<Pitch> range = SightReadingExerciseComposer.GetRangePitches(staff, PresetId);
+            return weakNotes.Any(note => (note.Staff is null || note.Staff == staff) && range.Contains(note.Pitch));
+        });
+        return hasWeakNoteInRange
+            ? DrillAvailability.Available
+            : DrillAvailability.Unavailable("No weak notes in this range yet. Play a few more exercises first.");
+    }
+
+    private void Generate(
+        Random random,
+        TimeSpan timingTolerance,
+        IReadOnlyList<NoteMastery>? mastery,
+        SightReadingGenerationStrategy strategy)
     {
         ArgumentNullException.ThrowIfNull(random);
         var options = new SightReadingExerciseOptions(
             Staff,
-            PresetId,
+            IsPitchSetupIgnored ? SightReadingPresetId.FiveNote : PresetId,
             PromptCountOption,
             Mode,
-            IsGrandStaff,
-            RhythmPreset);
-        Score composed = SightReadingExerciseComposer.Compose(options, random, BuildPitchWeights(mastery));
+            IsGrandStaff && !IsPitchSetupIgnored,
+            EffectiveRhythmPreset,
+            chosenTempoPulsesPerMinute,
+            strategy,
+            EffectiveMotion,
+            IntervalSteps,
+            EffectiveHandsTogether);
+        Score composed = SightReadingExerciseComposer.Compose(options, random, BuildNoteWeights(mastery));
         Score = ScoreFingeringGenerator.Generate(composed);
-        session.Reset(Score, Mode, timingTolerance);
-        hasConsumedCurrentCompletionSummary = false;
+        StartRun(timingTolerance);
         IsCountingIn = false;
     }
 
     /// <summary>
-    /// A pitch's weight scales linearly from 1.0 (neutral — every pitch with no data, or perfect 100% first-try
-    /// accuracy) up to 5.0 (weakest possible — 0% accuracy), so a completely-missed pitch is favored five times as
-    /// strongly as a perfectly-mastered one once <see cref="SightReadingExerciseComposer"/>'s initial
-    /// full-palette-coverage pass is done.
+    /// A note's weight scales linearly from 1.0 (neutral — no data, or a perfect, fast note) with its
+    /// <see cref="NoteMastery.WeaknessScore"/>: a note that was never right first time (weakness 1.0) gets 5.0, so
+    /// it is favored five times as strongly as a mastered one once <see cref="SightReadingExerciseComposer"/>'s
+    /// initial full-palette-coverage pass is done (or from the start, in a weak-note drill).
     /// </summary>
     private const double MaxAdaptiveWeightBonus = 4.0;
 
-    private static IReadOnlyDictionary<Pitch, double>? BuildPitchWeights(IReadOnlyList<PitchMastery>? mastery)
+    /// <summary>
+    /// Weights keyed by (pitch, staff), so a note that is weak on one clef is not boosted on the other. Mastery
+    /// recorded without a staff (older history) applies to both staves, but a staff-specific entry wins.
+    /// </summary>
+    private static IReadOnlyDictionary<(Pitch Pitch, Staff Staff), double>? BuildNoteWeights(
+        IReadOnlyList<NoteMastery>? mastery)
     {
         if (mastery is null || mastery.Count == 0)
         {
             return null;
         }
 
-        return mastery.ToDictionary(
-            pitchMastery => pitchMastery.Pitch,
-            pitchMastery => 1.0 + ((100.0 - pitchMastery.AccuracyPercent) / 100.0 * MaxAdaptiveWeightBonus));
+        var weights = new Dictionary<(Pitch Pitch, Staff Staff), double>();
+        foreach (NoteMastery agnostic in mastery.Where(note => note.Staff is null))
+        {
+            foreach (Staff staff in new[] { Staff.Treble, Staff.Bass })
+            {
+                weights[(agnostic.Pitch, staff)] = ToWeight(agnostic);
+            }
+        }
+
+        foreach (NoteMastery specific in mastery.Where(note => note.Staff is not null))
+        {
+            weights[(specific.Pitch, specific.Staff!.Value)] = ToWeight(specific);
+        }
+
+        return weights;
     }
+
+    private static double ToWeight(NoteMastery note) => 1.0 + (note.WeaknessScore * MaxAdaptiveWeightBonus);
 
     /// <summary>
     /// Starts a one-measure count-in anchored to <paramref name="currentAudioClockTime"/> (from
@@ -176,8 +544,8 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
 
         IsCountingIn = false;
         TimeSpan explicitAnchor = countInAudioClockOrigin + countInDuration;
-        session.Reset(Score, Mode, timingTolerance, explicitAnchor);
-        hasConsumedCurrentCompletionSummary = false;
+        session.Reset(Score, runMode, timingTolerance, explicitAnchor);
+        ResetRunOutcome();
         return true;
     }
 
@@ -186,13 +554,12 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
 
     internal bool Retry(TimeSpan timingTolerance)
     {
-        if (Score is not { } score)
+        if (Score is null)
         {
             return false;
         }
 
-        session.Reset(score, Mode, timingTolerance);
-        hasConsumedCurrentCompletionSummary = false;
+        StartRun(timingTolerance);
         IsCountingIn = false;
         return true;
     }
@@ -206,13 +573,22 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
 
         Score = null;
         session.Reset(null);
+        ResetRunOutcome();
         IsCountingIn = false;
         return true;
     }
 
+    /// <summary>Completed prompts whose pitches were found without a wrong key, whatever their timing.</summary>
+    internal int PitchFirstTryCorrectCount =>
+        PromptResults.Count(result => result.IsComplete && result.IsPitchFirstTryCorrect);
+
+    /// <summary>Completed prompts with an early, late, too-short or too-long outcome.</summary>
+    internal int TimingMistakeCount =>
+        PromptResults.Count(result => result.IsComplete && result.HasTimingMistake);
+
     internal bool HasMissedPrompts =>
         Phase == SightReadingExercisePhase.Review &&
-        session.PromptResults.Any(result => !result.IsFirstTryCorrect);
+        PromptResults.Any(result => !result.IsFirstTryCorrect);
 
     internal bool RetryMissed(TimeSpan timingTolerance)
     {
@@ -221,15 +597,58 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
             return false;
         }
 
-        IReadOnlyList<ScoreNote>[] missedPromptGroups = session.PromptResults
+        IReadOnlyList<ScoreNote>[] missedPromptGroups = PromptResults
             .Where(result => !result.IsFirstTryCorrect)
             .Select(result => (IReadOnlyList<ScoreNote>)result.ExpectedSourceNotes)
             .ToArray();
-        Score missedScore = SightReadingExerciseComposer.ComposeFromMissedPrompts(Score!, missedPromptGroups);
+        // In an onset-graded mode the rhythm is part of what was missed, so the retry replays whole measures with
+        // it; otherwise the missed notes are simply flattened into quarter notes as before.
+        Score missedScore = UsesCountIn
+            ? SightReadingExerciseComposer.ComposeFromMissedMeasures(
+                Score!,
+                missedPromptGroups.SelectMany(group => group).ToArray())
+            : SightReadingExerciseComposer.ComposeFromMissedPrompts(Score!, missedPromptGroups);
         Score = ScoreFingeringGenerator.Generate(missedScore);
-        session.Reset(Score, Mode, timingTolerance);
-        hasConsumedCurrentCompletionSummary = false;
+        StartRun(timingTolerance);
         return true;
+    }
+
+    /// <summary>
+    /// Finishes a play-along run: the exercise moves to review with the run's mapped results, exactly as a
+    /// pitch-gated run does when its last prompt completes. Only valid while a play-along exercise is in progress.
+    /// </summary>
+    internal void CompletePlayAlong(PlayAlongOutcome outcome, TimeSpan elapsedTime)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+        if (Score is null || RunPacing != ExercisePacing.PlayAlong || Phase != SightReadingExercisePhase.Active)
+        {
+            throw new InvalidOperationException(
+                "Play-along can only be completed while a play-along exercise (an onset-graded mode) is in progress.");
+        }
+
+        playAlongOutcome = outcome;
+        playAlongElapsedTime = elapsedTime;
+        hasConsumedCurrentCompletionSummary = false;
+    }
+
+    /// <summary>
+    /// Starts a run of <see cref="Score"/> with the mode and pacing the settings choose right now. The run keeps both
+    /// until the next Generate, Retry or Retry missed, so changing the Mode or Pacing select while it is running or in
+    /// review changes nothing about it.
+    /// </summary>
+    private void StartRun(TimeSpan timingTolerance)
+    {
+        runMode = Mode;
+        runPacing = EffectivePacing;
+        session.Reset(Score, runMode, timingTolerance);
+        ResetRunOutcome();
+    }
+
+    private void ResetRunOutcome()
+    {
+        playAlongOutcome = null;
+        playAlongElapsedTime = TimeSpan.Zero;
+        hasConsumedCurrentCompletionSummary = false;
     }
 
     /// <summary>
@@ -250,9 +669,58 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
             timeProvider.GetUtcNow(),
             PresetId.ToString(),
             Staff,
-            Mode,
-            session.ElapsedTime,
-            session.PromptResults);
+            RunMode,
+            ElapsedTime,
+            PromptResults) with
+        {
+            RhythmPreset = EffectiveRhythmPreset.ToString(),
+            IsGrandStaff = IsGrandStaff && !IsPitchSetupIgnored,
+            TempoBeatsPerMinute = SightReadingLabels.IsTimingGraded(RunMode) ? TempoPulsesPerMinute : null,
+            Pacing = RunPacing == ExercisePacing.PlayAlong ? PlayAlongPacingName : null,
+            Motion = EffectiveMotion.ToString(),
+        };
+    }
+
+    /// <summary>
+    /// The review mark of every source note of every finished prompt, for drawing on the staff, or null while the
+    /// exercise is not in <see cref="SightReadingExercisePhase.Review"/>. Null before review on purpose: a mark says
+    /// which notes were wrong, which an exercise in progress keeps hidden. Both pacings read the same
+    /// <see cref="PromptResults"/>, and the marks are a channel of their own, separate from the live verdict colors.
+    /// </summary>
+    internal IReadOnlyDictionary<ScoreNote, ReviewMark>? BuildReviewMarks() =>
+        Phase == SightReadingExercisePhase.Review
+            ? ExerciseReviewMarks.Build(PromptResults)
+            : null;
+
+    /// <summary>
+    /// The colors of a finished play-along run's notes: the practice engine's verdicts, except that every note of a prompt
+    /// the exercise graded clean is <see cref="Verdict.Correct"/>, the color Wait for me gives a correct note. The engine
+    /// judges every release (a key let go early is "too short" even where the mode does not grade holds), but the exercise
+    /// grades only what its mode asks for, so the clean prompts are taken from the exercise's own results. Notes that were
+    /// not clean keep the engine's colors, and until the exercise has results (the run is going) nothing changes.
+    /// </summary>
+    internal IReadOnlyDictionary<ScoreNote, Verdict> BuildPlayAlongReviewVerdicts(
+        IReadOnlyDictionary<ScoreNote, Verdict> engineVerdicts)
+    {
+        ArgumentNullException.ThrowIfNull(engineVerdicts);
+        if (Phase != SightReadingExercisePhase.Review)
+        {
+            return engineVerdicts;
+        }
+
+        var verdicts = new Dictionary<ScoreNote, Verdict>(engineVerdicts);
+        foreach (NoteReadingPromptResult result in PromptResults)
+        {
+            if (result.IsComplete && ExerciseReviewMarks.Classify(result) == ReviewMark.Clean)
+            {
+                foreach (ScoreNote note in result.ExpectedSourceNotes)
+                {
+                    verdicts[note] = Verdict.Correct;
+                }
+            }
+        }
+
+        return verdicts;
     }
 
     /// <summary>
@@ -263,7 +731,7 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     internal IReadOnlyDictionary<ScoreNote, bool> BuildReviewFirstTryMap()
     {
         var map = new Dictionary<ScoreNote, bool>();
-        foreach (NoteReadingPromptResult result in session.PromptResults)
+        foreach (NoteReadingPromptResult result in PromptResults)
         {
             foreach (ScoreNote note in result.ExpectedSourceNotes)
             {

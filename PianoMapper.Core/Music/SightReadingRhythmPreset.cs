@@ -14,4 +14,19 @@ public enum SightReadingRhythmPreset
 
     /// <summary>6/8 using dotted-quarter notes and beamed eighth-note groups.</summary>
     Compound,
+
+    /// <summary>4/4 using dotted half notes, a whole note, a dotted quarter with an eighth, and an eighth rest.</summary>
+    Extended,
+
+    /// <summary>3/4 using quarter notes, half notes, a dotted half, beamed eighth pairs, and a quarter rest.</summary>
+    ThreeFour,
+
+    /// <summary>2/4 using quarter notes, a half note, beamed eighth pairs, and a quarter rest.</summary>
+    TwoFour,
+
+    /// <summary>
+    /// 4/4 with off-beat eighths and notes tied across the beat and across the barline (a tied pair is one note to play,
+    /// held for both values).
+    /// </summary>
+    Syncopated,
 }

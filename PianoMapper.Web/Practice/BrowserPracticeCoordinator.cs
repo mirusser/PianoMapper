@@ -13,6 +13,8 @@ internal sealed class BrowserPracticeCoordinator(IBrowserScoreAudio audio, NoteT
     private const double CountInClickFrequency = 880;
 
     private readonly BrowserPracticeTimeProvider timeProvider = new();
+    private readonly List<PerformedNote> capturedPerformedNotes = [];
+    private readonly HashSet<PerformedNote> capturedPerformedNoteIdentities = new(ReferenceEqualityComparer.Instance);
     private PracticeSession? session;
 
     internal PracticeSessionState State => session?.State ?? PracticeSessionState.Idle;
@@ -32,19 +34,33 @@ internal sealed class BrowserPracticeCoordinator(IBrowserScoreAudio audio, NoteT
     internal ValueTask StartAsync(Score score, CancellationToken cancellationToken = default) =>
         StartAsync(score, new GradingOptions(), cancellationToken);
 
+    internal ValueTask StartAsync(
+        Score score,
+        GradingOptions gradingOptions,
+        CancellationToken cancellationToken = default) =>
+        StartAsync(score, gradingOptions, new PracticeRunOptions(), cancellationToken);
+
     internal async ValueTask StartAsync(
         Score score,
         GradingOptions gradingOptions,
+        PracticeRunOptions runOptions,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(gradingOptions);
+        ArgumentNullException.ThrowIfNull(runOptions);
         await audio.StopScoreAsync(cancellationToken);
+        capturedPerformedNotes.Clear();
+        capturedPerformedNoteIdentities.Clear();
         TimeSpan startTime = await audio.GetCurrentTimeAsync(cancellationToken) + SchedulingLead;
         CurrentTime = startTime;
         timeProvider.SetTime(startTime);
         session = new PracticeSession(score, timeProvider, gradingOptions);
         session.Start(startTime);
         Result = null;
+        if (!runOptions.ScheduleCountInClicks)
+        {
+            return;
+        }
 
         TimeSpan beatDuration = MusicalTime.BeatsToDuration(1, score.Tempo);
         var countInEvents = Enumerable.Range(0, score.TimeSignature.Numerator)
@@ -70,8 +86,22 @@ internal sealed class BrowserPracticeCoordinator(IBrowserScoreAudio audio, NoteT
         session.Update();
         if (State is PracticeSessionState.Running or PracticeSessionState.Finished)
         {
-            Result = session.Grade(timeline.Snapshot(currentTime));
+            Result = session.Grade(GetPerformedNotes(currentTime));
         }
+    }
+
+    private IReadOnlyList<PerformedNote> GetPerformedNotes(TimeSpan currentTime)
+    {
+        IReadOnlyList<PerformedNote> snapshot = timeline.Snapshot(currentTime);
+        foreach (PerformedNote note in snapshot)
+        {
+            if (capturedPerformedNoteIdentities.Add(note))
+            {
+                capturedPerformedNotes.Add(note);
+            }
+        }
+
+        return capturedPerformedNotes.ToArray();
     }
 
     internal IReadOnlyDictionary<ScoreNote, Verdict> GetVisibleVerdicts() =>
@@ -85,6 +115,8 @@ internal sealed class BrowserPracticeCoordinator(IBrowserScoreAudio audio, NoteT
     {
         session?.Abort();
         Result = null;
+        capturedPerformedNotes.Clear();
+        capturedPerformedNoteIdentities.Clear();
         await audio.StopScoreAsync(cancellationToken);
     }
 }

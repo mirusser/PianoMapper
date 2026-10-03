@@ -8,7 +8,7 @@ namespace PianoMapper.Web.Rendering;
 /// Caller-owned memoization for <see cref="GrandStaffSceneBuilder.BuildScore"/>. A hot loop that
 /// re-renders every tick purely because the playback cursor moved (e.g. practice mode) can reuse
 /// this cache across calls instead of rebuilding barlines, ledger lines, and note glyphs from
-/// scratch every 16ms. Verdict and expected-note changes invalidate the cached notation.
+/// scratch every 16ms. Verdict, review-mark and expected-note changes invalidate the cached notation.
 /// </summary>
 /// <remarks>
 /// This is deliberately an explicit object the caller creates and owns (one per grand-staff view
@@ -28,6 +28,9 @@ internal sealed class GrandStaffSceneCache
     private bool cachedShowNoteLabels;
     private bool cachedShowFingerings;
     private int cachedVisibleMeasureCount;
+    private bool cachedDrawRests;
+    private bool cachedDrawTies;
+    private IReadOnlyDictionary<ScoreNote, ReviewMark>? cachedReviewMarks;
     private GrandStaffStaticScoreParts? cachedStaticParts;
 
     internal GrandStaffScene BuildScore(
@@ -40,18 +43,24 @@ internal sealed class GrandStaffSceneCache
         bool showNoteLabels = true,
         bool showFingerings = true,
         IReadOnlySet<ScoreNote>? expectedNotes = null,
-        int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount)
+        int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount,
+        bool drawRests = false,
+        bool drawTies = false,
+        IReadOnlyDictionary<ScoreNote, ReviewMark>? reviewMarks = null)
     {
         ArgumentNullException.ThrowIfNull(score);
 
         if (cachedStaticParts is not { } staticParts ||
             !ReferenceEquals(cachedScore, score) ||
             cachedFirstVisibleMeasure != firstVisibleMeasure ||
-            !VerdictsEqual(cachedVerdicts, verdicts) ||
+            !MapsEqual(cachedVerdicts, verdicts) ||
             !ScoreNotesEqual(cachedExpectedNotes, expectedNotes) ||
             cachedShowNoteLabels != showNoteLabels ||
             cachedShowFingerings != showFingerings ||
-            cachedVisibleMeasureCount != visibleMeasureCount)
+            cachedVisibleMeasureCount != visibleMeasureCount ||
+            cachedDrawRests != drawRests ||
+            cachedDrawTies != drawTies ||
+            !MapsEqual(cachedReviewMarks, reviewMarks))
         {
             staticParts = GrandStaffSceneBuilder.BuildStaticScoreParts(
                 score,
@@ -60,7 +69,10 @@ internal sealed class GrandStaffSceneCache
                 showNoteLabels,
                 showFingerings,
                 expectedNotes,
-                visibleMeasureCount);
+                visibleMeasureCount,
+                drawRests,
+                drawTies,
+                reviewMarks);
             cachedStaticParts = staticParts;
             cachedScore = score;
             cachedFirstVisibleMeasure = firstVisibleMeasure;
@@ -69,6 +81,9 @@ internal sealed class GrandStaffSceneCache
             cachedShowNoteLabels = showNoteLabels;
             cachedShowFingerings = showFingerings;
             cachedVisibleMeasureCount = visibleMeasureCount;
+            cachedDrawRests = drawRests;
+            cachedDrawTies = drawTies;
+            cachedReviewMarks = reviewMarks;
         }
 
         return GrandStaffSceneBuilder.ComposeScore(
@@ -79,12 +94,14 @@ internal sealed class GrandStaffSceneCache
             performedNotes,
             performedNoteBeats,
             showNoteLabels,
-            visibleMeasureCount);
+            visibleMeasureCount,
+            drawTies);
     }
 
-    private static bool VerdictsEqual(
-        IReadOnlyDictionary<ScoreNote, Verdict>? left,
-        IReadOnlyDictionary<ScoreNote, Verdict>? right)
+    private static bool MapsEqual<TValue>(
+        IReadOnlyDictionary<ScoreNote, TValue>? left,
+        IReadOnlyDictionary<ScoreNote, TValue>? right)
+        where TValue : struct
     {
         if (ReferenceEquals(left, right))
         {
@@ -96,9 +113,9 @@ internal sealed class GrandStaffSceneCache
             return false;
         }
 
-        foreach (var (note, verdict) in left)
+        foreach (var (note, value) in left)
         {
-            if (!right.TryGetValue(note, out var otherVerdict) || otherVerdict != verdict)
+            if (!right.TryGetValue(note, out var otherValue) || !EqualityComparer<TValue>.Default.Equals(otherValue, value))
             {
                 return false;
             }

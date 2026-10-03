@@ -8,9 +8,18 @@ public sealed class NoteReadingSession
     private const double BeatComparisonTolerance = 1e-9;
     private static readonly TimeSpan DefaultTimingTolerance = TimeSpan.FromMilliseconds(60);
 
+    /// <summary>
+    /// How far a release may stray from the written duration, as a fraction of that duration. Players routinely lift
+    /// a key slightly early, so judging a release as tightly as an onset (a fixed +/-60 ms) flags normal playing.
+    /// The release window is <c>max(onset tolerance, 25% of the written duration)</c>: long notes get a
+    /// proportionally forgiving window, and very short notes never get less than the onset tolerance.
+    /// </summary>
+    private const double ReleaseToleranceRatio = 0.25;
+
     private readonly TimeProvider timeProvider;
     private readonly HashSet<int> matchedMidiNumbers = [];
     private readonly Dictionary<int, HoldAttempt> activeHolds = [];
+    private readonly Dictionary<int, int> matchedEventMidiByPressedKey = [];
     private IReadOnlyList<Step> steps = [];
     private readonly Dictionary<ScoreNote, Verdict> mutableVerdicts = [];
     private IReadOnlyDictionary<ScoreNote, Verdict> verdicts = new Dictionary<ScoreNote, Verdict>();
@@ -18,6 +27,7 @@ public sealed class NoteReadingSession
     private IReadOnlyList<NoteReadingPromptResult> promptResults = [];
     private Tempo? tempo;
     private NoteReadingMode mode = NoteReadingMode.PitchAndOrder;
+    private GradedAxes gradedAxes = GradedAxes.Pitch;
     private TimeSpan timingTolerance = DefaultTimingTolerance;
     private TimeSpan? rhythmAnchor;
     private long startTimestamp;
@@ -25,6 +35,7 @@ public sealed class NoteReadingSession
     private TimeSpan completedElapsedTime;
     private int stepIndex;
     private int completedPromptCount;
+    private TimeSpan? lastAttackCompletedAt;
 
     public NoteReadingSession(TimeProvider? timeProvider = null)
     {
@@ -48,6 +59,12 @@ public sealed class NoteReadingSession
     public int FirstTryCorrectCount { get; private set; }
 
     public int WrongAttemptCount { get; private set; }
+
+    /// <summary>Wrong-key attempts. Together with <see cref="TimingMistakeCount"/> this partitions <see cref="WrongAttemptCount"/>.</summary>
+    public int PitchMistakeCount { get; private set; }
+
+    /// <summary>Right-key attempts graded early, late, too short or too long.</summary>
+    public int TimingMistakeCount { get; private set; }
 
     public double FirstTryAccuracyPercent => CompletedPromptCount == 0
         ? 0
@@ -88,6 +105,7 @@ public sealed class NoteReadingSession
         }
 
         mode = noteReadingMode;
+        gradedAxes = noteReadingMode.GetGradedAxes();
         timingTolerance = noteTimingTolerance;
         tempo = score?.Tempo;
         rhythmAnchor = explicitRhythmAnchor;
@@ -95,11 +113,15 @@ public sealed class NoteReadingSession
         mutableVerdicts.Clear();
         PublishVerdicts();
         matchedMidiNumbers.Clear();
+        matchedEventMidiByPressedKey.Clear();
         activeHolds.Clear();
         stepIndex = 0;
         completedPromptCount = 0;
         FirstTryCorrectCount = 0;
         WrongAttemptCount = 0;
+        PitchMistakeCount = 0;
+        TimingMistakeCount = 0;
+        lastAttackCompletedAt = null;
         startTimestamp = timeProvider.GetTimestamp();
         firstAttemptTimestamp = null;
         completedElapsedTime = TimeSpan.Zero;
@@ -121,7 +143,7 @@ public sealed class NoteReadingSession
                 Step latestPendingStep = activeHolds.Values
                     .MaxBy(hold => hold.Step.OnsetBeats)!
                     .Step;
-                RecordWrongAttempt(latestPendingStep, pitch);
+                RecordPitchMistake(latestPendingStep, pitch);
                 PublishPromptResults();
                 return new CheckResult(IsCorrect: false, DidAdvance: false, IsComplete: false)
                 {
@@ -136,13 +158,14 @@ public sealed class NoteReadingSession
         ScoreEvent[] pendingEvents = step.Events
             .Where(scoreEvent => !matchedMidiNumbers.Contains(scoreEvent.Pitch.MidiNumber))
             .ToArray();
-        ScoreEvent[] matchingEvents = pendingEvents
-            .Where(scoreEvent => scoreEvent.Pitch.MidiNumber == pitch.MidiNumber)
-            .ToArray();
+        // Without a pitch axis (rhythm only) any key matches the next pending event of the step.
+        ScoreEvent[] matchingEvents = GradesPitch
+            ? pendingEvents.Where(scoreEvent => scoreEvent.Pitch.MidiNumber == pitch.MidiNumber).ToArray()
+            : pendingEvents.Take(1).ToArray();
         if (matchingEvents.Length == 0 ||
             RequiresHoldValidation && activeHolds.ContainsKey(pitch.MidiNumber))
         {
-            RecordWrongAttempt(step, pitch);
+            RecordPitchMistake(step, pitch);
             PublishPromptResults();
             return new CheckResult(IsCorrect: false, DidAdvance: false, IsComplete: IsComplete)
             {
@@ -151,16 +174,27 @@ public sealed class NoteReadingSession
         }
 
         step.IsAttempted = true;
-        matchedMidiNumbers.Add(pitch.MidiNumber);
+        RecordFirstCorrectAttack(step, eventTime);
+        int matchedEventMidi = matchingEvents[0].Pitch.MidiNumber;
+        matchedMidiNumbers.Add(matchedEventMidi);
+        if (!GradesPitch)
+        {
+            matchedEventMidiByPressedKey[pitch.MidiNumber] = matchedEventMidi;
+        }
         foreach (ScoreNote matchedNote in GetSourceNotes(matchingEvents))
         {
             mutableVerdicts.Remove(matchedNote);
         }
 
-        Verdict onsetVerdict = ClassifyOnset(step, eventTime);
+        (Verdict onsetVerdict, TimeSpan onsetDeviation) = ClassifyOnset(step, eventTime);
+        if (GradesOnset)
+        {
+            step.RecordOnset(onsetVerdict, onsetDeviation);
+        }
+
         if (onsetVerdict != Verdict.Correct)
         {
-            RecordWrongAttempt(step);
+            RecordTimingMistake(step);
             SetVerdict(matchingEvents, onsetVerdict);
         }
 
@@ -178,7 +212,7 @@ public sealed class NoteReadingSession
         }
         else
         {
-            SetVerdict(matchingEvents, Verdict.Correct);
+            SetVerdict(matchingEvents, onsetVerdict);
         }
 
         bool didAdvance = step.Events
@@ -188,8 +222,10 @@ public sealed class NoteReadingSession
         if (didAdvance)
         {
             step.AttackComplete = true;
+            lastAttackCompletedAt = eventTime;
             stepIndex++;
             matchedMidiNumbers.Clear();
+            matchedEventMidiByPressedKey.Clear();
             TryFinalizeStep(step);
         }
 
@@ -227,6 +263,7 @@ public sealed class NoteReadingSession
         foreach (ScoreEvent scoreEvent in hold.Events)
         {
             Verdict eventDurationVerdict = ClassifyDuration(hold, scoreEvent, eventTime);
+            hold.Step.RecordDuration(eventDurationVerdict);
             Verdict eventVerdict = eventDurationVerdict != Verdict.Correct
                 ? eventDurationVerdict
                 : hold.OnsetVerdict;
@@ -245,7 +282,7 @@ public sealed class NoteReadingSession
 
         if (hasDurationMistake && !hold.WrongAttemptRecorded)
         {
-            RecordWrongAttempt(hold.Step);
+            RecordTimingMistake(hold.Step);
         }
 
         if (!hold.Step.AttackComplete)
@@ -301,18 +338,22 @@ public sealed class NoteReadingSession
         expectedNotes = updatedExpectedNotes;
     }
 
-    private bool RequiresHoldValidation => mode is NoteReadingMode.PitchAndHold or NoteReadingMode.PitchHoldAndRhythm;
+    private bool RequiresHoldValidation => gradedAxes.HasFlag(GradedAxes.Duration);
+
+    private bool GradesOnset => gradedAxes.HasFlag(GradedAxes.Onset);
+
+    private bool GradesPitch => gradedAxes.HasFlag(GradedAxes.Pitch);
 
     private TimeSpan GetSessionElapsedTime() => timeProvider.GetElapsedTime(startTimestamp);
 
     private TimeSpan GetFairElapsedTime() =>
         firstAttemptTimestamp is null ? TimeSpan.Zero : timeProvider.GetElapsedTime(firstAttemptTimestamp.Value);
 
-    private Verdict ClassifyOnset(Step step, TimeSpan eventTime)
+    private (Verdict Verdict, TimeSpan Deviation) ClassifyOnset(Step step, TimeSpan eventTime)
     {
-        if (mode != NoteReadingMode.PitchHoldAndRhythm || tempo is not { } scoreTempo)
+        if (!GradesOnset || tempo is not { } scoreTempo)
         {
-            return Verdict.Correct;
+            return (Verdict.Correct, TimeSpan.Zero);
         }
 
         rhythmAnchor ??= eventTime - MusicalTime.BeatsToDuration(step.OnsetBeats, scoreTempo);
@@ -320,10 +361,24 @@ public sealed class NoteReadingSession
         TimeSpan deviation = eventTime - expectedOnset;
         if (deviation < -timingTolerance)
         {
-            return Verdict.Early;
+            return (Verdict.Early, deviation);
         }
 
-        return deviation > timingTolerance ? Verdict.Late : Verdict.Correct;
+        return (deviation > timingTolerance ? Verdict.Late : Verdict.Correct, deviation);
+    }
+
+    private void RecordFirstCorrectAttack(Step step, TimeSpan eventTime)
+    {
+        if (step.FirstCorrectAttackAt is not null)
+        {
+            return;
+        }
+
+        step.FirstCorrectAttackAt = eventTime;
+        if (!GradesOnset && lastAttackCompletedAt is { } previousAttackCompletedAt)
+        {
+            step.ResponseTime = eventTime - previousAttackCompletedAt;
+        }
     }
 
     private Verdict ClassifyDuration(HoldAttempt hold, ScoreEvent scoreEvent, TimeSpan eventTime)
@@ -335,25 +390,34 @@ public sealed class NoteReadingSession
 
         TimeSpan performedDuration = eventTime - hold.StartTime;
         TimeSpan expectedDuration = MusicalTime.BeatsToDuration(scoreEvent.DurationBeats, scoreTempo);
-        if (performedDuration + timingTolerance < expectedDuration)
+        TimeSpan releaseTolerance = TimeSpan.FromTicks(Math.Max(
+            timingTolerance.Ticks,
+            (long)(expectedDuration.Ticks * ReleaseToleranceRatio)));
+        if (performedDuration + releaseTolerance < expectedDuration)
         {
             return Verdict.TooShort;
         }
 
-        return performedDuration - timingTolerance > expectedDuration
+        return performedDuration - releaseTolerance > expectedDuration
             ? Verdict.TooLong
             : Verdict.Correct;
     }
 
     private ReleaseResult ReleasePitchAndOrder(Pitch pitch)
     {
-        if (!matchedMidiNumbers.Remove(pitch.MidiNumber) || stepIndex >= steps.Count)
+        int releasedEventMidi = pitch.MidiNumber;
+        if (!GradesPitch && !matchedEventMidiByPressedKey.Remove(pitch.MidiNumber, out releasedEventMidi))
+        {
+            return new ReleaseResult(WasTracked: false, Verdict: null, IsComplete: IsComplete);
+        }
+
+        if (!matchedMidiNumbers.Remove(releasedEventMidi) || stepIndex >= steps.Count)
         {
             return new ReleaseResult(WasTracked: false, Verdict: null, IsComplete: IsComplete);
         }
 
         foreach (ScoreNote releasedNote in GetSourceNotes(
-            steps[stepIndex].Events.Where(scoreEvent => scoreEvent.Pitch.MidiNumber == pitch.MidiNumber)))
+            steps[stepIndex].Events.Where(scoreEvent => scoreEvent.Pitch.MidiNumber == releasedEventMidi)))
         {
             mutableVerdicts.Remove(releasedNote);
         }
@@ -378,6 +442,7 @@ public sealed class NoteReadingSession
         }
 
         matchedMidiNumbers.Clear();
+        matchedEventMidiByPressedKey.Clear();
         PublishVerdicts();
         UpdateExpectedNotes();
         PublishPromptResults();
@@ -412,16 +477,26 @@ public sealed class NoteReadingSession
         }
     }
 
-    private void RecordWrongAttempt(Step step, Pitch? wrongPitch = null)
+    private void RecordPitchMistake(Step step, Pitch wrongPitch)
+    {
+        PitchMistakeCount++;
+        step.HasPitchMistake = true;
+        step.WrongPlayedPitches.Add(wrongPitch);
+        RecordWrongAttempt(step);
+    }
+
+    private void RecordTimingMistake(Step step)
+    {
+        TimingMistakeCount++;
+        RecordWrongAttempt(step);
+    }
+
+    private void RecordWrongAttempt(Step step)
     {
         WrongAttemptCount++;
         step.HasWrongAttempt = true;
         step.IsAttempted = true;
         step.WrongAttemptCount++;
-        if (wrongPitch is { } pitch)
-        {
-            step.WrongPlayedPitches.Add(pitch);
-        }
     }
 
     private void SetVerdict(IEnumerable<ScoreEvent> scoreEvents, Verdict verdict) =>
@@ -461,7 +536,14 @@ public sealed class NoteReadingSession
                 WrongAttemptCount: step.WrongAttemptCount,
                 IsFirstTryCorrect: !step.HasWrongAttempt,
                 IsComplete: step.IsFinalized,
-                CompletedAt: step.CompletedAt));
+                CompletedAt: step.CompletedAt)
+            {
+                IsPitchFirstTryCorrect = !step.HasPitchMistake,
+                OnsetVerdict = step.OnsetVerdict,
+                DurationVerdict = step.DurationVerdict,
+                OnsetDeviation = step.OnsetDeviation,
+                ResponseTime = step.ResponseTime,
+            });
         }
 
         return results;
@@ -480,29 +562,9 @@ public sealed class NoteReadingSession
             scoreEvents = CollapseOverlappingPitches(scoreEvents);
         }
 
-        return GroupByOnsetTolerance(scoreEvents);
-    }
-
-    private static IReadOnlyList<Step> GroupByOnsetTolerance(IReadOnlyList<ScoreEvent> scoreEvents)
-    {
-        var steps = new List<Step>();
-        List<ScoreEvent>? currentGroupEvents = null;
-        double currentGroupOnsetBeats = 0;
-
-        foreach (ScoreEvent scoreEvent in scoreEvents.OrderBy(candidate => candidate.OnsetBeats))
-        {
-            if (currentGroupEvents is null ||
-                scoreEvent.OnsetBeats - currentGroupOnsetBeats > BeatComparisonTolerance)
-            {
-                currentGroupOnsetBeats = scoreEvent.OnsetBeats;
-                currentGroupEvents = [];
-                steps.Add(new Step(currentGroupOnsetBeats, currentGroupEvents));
-            }
-
-            currentGroupEvents.Add(scoreEvent);
-        }
-
-        return steps;
+        return ScoreDerivation.GroupByOnset(scoreEvents)
+            .Select(group => new Step(group[0].OnsetBeats, group))
+            .ToArray();
     }
 
     private static IReadOnlyList<ScoreEvent> CollapseOverlappingPitches(
@@ -578,6 +640,39 @@ public sealed class NoteReadingSession
         public bool AttackComplete { get; set; }
 
         public bool HasWrongAttempt { get; set; }
+
+        public bool HasPitchMistake { get; set; }
+
+        public Verdict? OnsetVerdict { get; private set; }
+
+        public TimeSpan? OnsetDeviation { get; private set; }
+
+        public Verdict? DurationVerdict { get; private set; }
+
+        public TimeSpan? FirstCorrectAttackAt { get; set; }
+
+        public TimeSpan? ResponseTime { get; set; }
+
+        /// <summary>Keeps the onset with the largest deviation, so a chord reports its worst key.</summary>
+        public void RecordOnset(Verdict verdict, TimeSpan deviation)
+        {
+            if (OnsetDeviation is { } current && current.Duration() >= deviation.Duration())
+            {
+                return;
+            }
+
+            OnsetVerdict = verdict;
+            OnsetDeviation = deviation;
+        }
+
+        /// <summary>Keeps the first duration mistake, otherwise <see cref="Verdict.Correct"/>.</summary>
+        public void RecordDuration(Verdict verdict)
+        {
+            if (DurationVerdict is null or Verdict.Correct)
+            {
+                DurationVerdict = verdict;
+            }
+        }
 
         public int PendingHoldCount { get; set; }
 

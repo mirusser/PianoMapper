@@ -20,6 +20,11 @@ import {
     octaveShiftLineKind,
     octaveShiftNumeralGlyphKind,
     pianoRollSceneKind,
+    restGlyphKind,
+    reviewMarkClean,
+    reviewMarkMissed,
+    reviewMarkPitch,
+    reviewMarkTiming,
     staffLineKind,
     stemDirectionUp,
     verdictColors,
@@ -50,6 +55,17 @@ test("accidental glyph kind constant matches GrandStaffGlyphKind.Accidental ordi
 
 test("octave-shift numeral kind constant matches GrandStaffGlyphKind ordinal", () => {
     assert.equal(octaveShiftNumeralGlyphKind, 9);
+});
+
+test("rest glyph kind constant matches GrandStaffGlyphKind.Rest ordinal", () => {
+    assert.equal(restGlyphKind, 10);
+});
+
+test("review mark constants match ReviewMark ordinals", () => {
+    assert.equal(reviewMarkClean, 0);
+    assert.equal(reviewMarkTiming, 1);
+    assert.equal(reviewMarkPitch, 2);
+    assert.equal(reviewMarkMissed, 3);
 });
 
 test("stem direction up constant matches StemDirection.Up ordinal", () => {

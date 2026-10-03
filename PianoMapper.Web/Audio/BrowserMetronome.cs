@@ -17,11 +17,25 @@ internal sealed class BrowserMetronome(IBrowserMetronomeAudio audio)
         CancellationToken cancellationToken = default)
     {
         TimeSpan anchor = await audio.GetCurrentTimeAsync(cancellationToken) + SchedulingLead;
+        await StartAsync(timeSignature, tempo, anchor, cancellationToken);
+    }
+
+    /// <summary>
+    /// Starts the click on a caller-chosen audio-clock anchor, used verbatim: for a click that has to line up with
+    /// something already scheduled (a play-along run's start) instead of starting "a moment from now".
+    /// </summary>
+    internal async ValueTask StartAsync(
+        TimeSignature timeSignature,
+        Tempo tempo,
+        TimeSpan anchor,
+        CancellationToken cancellationToken = default)
+    {
         var grid = new MetronomeGrid(anchor, tempo, timeSignature);
         await audio.StartMetronomeAsync(
             grid.Anchor,
             grid.BeatDuration,
             grid.TimeSignature.Numerator,
+            grid.BeatsPerGroup,
             cancellationToken);
         Grid = grid;
     }

@@ -189,6 +189,402 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.Equal(sparseBarlines, denseBarlines);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void BuildScore_MeasureLedByAnAccidental_KeepsTheGlyphClearOfTheBarlineBeforeIt(int measureIndex)
+    {
+        // The accidental's centre sits 0.019 scene-X left of its notehead and the glyph is roughly 0.018 wide (measured
+        // from a rendered screenshot: about 8 px at 458 px per scene-X unit), so its left edge needs the centre to be at
+        // least ~0.012 right of the barline. Before the leading-accidental clearance it was 0.001: the glyph was drawn on
+        // top of the barline.
+        ScoreMeasure[] measures = Enumerable.Range(0, 2)
+            .Select(index => new ScoreMeasure(
+                [
+                    new ScoreNote(
+                        new Pitch(NoteLetter.F, index == measureIndex ? 1 : 0, 4),
+                        new NoteValue(4),
+                        index,
+                        0,
+                        Staff.Treble,
+                        Accidental: index == measureIndex ? ScoreAccidental.Sharp : null),
+                    new ScoreNote(new Pitch(NoteLetter.G, 0, 4), new NoteValue(4), index, 1, Staff.Treble),
+                ],
+                []))
+            .ToArray();
+        var score = new Score("test", new TimeSignature(4, new NoteValue(4)), new Tempo(120), 0, measures);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        GrandStaffGlyph accidental = Assert.Single(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Accidental);
+        double barlineBefore = scene.Lines
+            .Where(line => line.Kind == GrandStaffLineKind.Barline && line.X0 < accidental.X)
+            .Max(line => line.X0);
+        Assert.True(
+            accidental.X - barlineBefore >= 0.012,
+            $"The accidental (X={accidental.X}) sits on the barline before it (X={barlineBefore}).");
+    }
+
+    [Fact]
+    public void BuildScore_MeasureWithoutALeadingAccidental_KeepsItsNotesWhereTheyWere()
+    {
+        ScoreNote[] withLaterAccidental =
+        [
+            new(new Pitch(NoteLetter.G, 0, 4), new NoteValue(4), 0, 0, Staff.Treble),
+            new(new Pitch(NoteLetter.F, 1, 4), new NoteValue(4), 0, 1, Staff.Treble, Accidental: ScoreAccidental.Sharp),
+        ];
+        ScoreNote[] withNone =
+        [
+            new(new Pitch(NoteLetter.G, 0, 4), new NoteValue(4), 0, 0, Staff.Treble),
+            new(new Pitch(NoteLetter.F, 0, 4), new NoteValue(4), 0, 1, Staff.Treble),
+        ];
+
+        var scene = GrandStaffSceneBuilder.BuildScore(ScoreWithNotes(withLaterAccidental), firstVisibleMeasure: 0);
+        var plain = GrandStaffSceneBuilder.BuildScore(ScoreWithNotes(withNone), firstVisibleMeasure: 0);
+
+        Assert.Equal(plain.Notes[0].X, scene.Notes[0].X);
+    }
+
+    // Measured on a real 916 x 240 canvas (440 px per scene-X unit across the staff): the previous note's stem stands half a
+    // notehead (4.5 px) right of its centre, and the accidental's ink reaches 3.3 px left of the glyph's centre. Both plus
+    // 1 px of air are 0.020 scene-X (8.8 px); the glyph's centre sits 0.019 scene-X left of its note (0.024 for a stem-down
+    // note), so the note needs to sit at least that much plus 0.020 right of the one before it (0.039 for a stem-up note).
+    private const double ReachLeftOfAnAccidentalGlyph = 0.020;
+
+    [Fact]
+    public void BuildScore_AccidentalsOnCrowdedEighths_KeepEachGlyphClearOfThePreviousNote()
+    {
+        // The shape of a real generated Accidentals exercise (Basic rhythm, seed 1, measure 3): two accidentals on
+        // beamed eighths, then more accidentals on the quarters after them. Four accidental onsets in one measure used
+        // to exhaust the spacing budget, which left the second eighth's sharp drawn on the first eighth's stem.
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.C, 1, 4), new NoteValue(8), 0, 0, Staff.Treble, Accidental: ScoreAccidental.Sharp),
+            new(new Pitch(NoteLetter.F, 1, 4), new NoteValue(8), 0, 0.5, Staff.Treble, Accidental: ScoreAccidental.Sharp),
+            new(new Pitch(NoteLetter.B, -1, 4), new NoteValue(4), 0, 1, Staff.Treble, Accidental: ScoreAccidental.Flat),
+            new(new Pitch(NoteLetter.A, 0, 4), new NoteValue(4), 0, 2, Staff.Treble),
+            new(new Pitch(NoteLetter.E, -1, 4), new NoteValue(4), 0, 3, Staff.Treble, Accidental: ScoreAccidental.Flat),
+        ];
+
+        var scene = GrandStaffSceneBuilder.BuildScore(ScoreWithNotes(notes), firstVisibleMeasure: 0);
+
+        AssertAccidentalsClearOfPreviousNote(scene);
+    }
+
+    [Fact]
+    public void BuildScore_AccidentalsOnCrowdedEighths_KeepEveryNoteInsideItsMeasure()
+    {
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.C, 1, 4), new NoteValue(8), 0, 0, Staff.Treble, Accidental: ScoreAccidental.Sharp),
+            new(new Pitch(NoteLetter.F, 1, 4), new NoteValue(8), 0, 0.5, Staff.Treble, Accidental: ScoreAccidental.Sharp),
+            new(new Pitch(NoteLetter.B, -1, 4), new NoteValue(4), 0, 1, Staff.Treble, Accidental: ScoreAccidental.Flat),
+            new(new Pitch(NoteLetter.A, 0, 4), new NoteValue(4), 0, 2, Staff.Treble),
+            new(new Pitch(NoteLetter.E, -1, 4), new NoteValue(4), 0, 3, Staff.Treble, Accidental: ScoreAccidental.Flat),
+        ];
+
+        var scene = GrandStaffSceneBuilder.BuildScore(ScoreWithNotes(notes), firstVisibleMeasure: 0);
+
+        double[] barlines = scene.Lines
+            .Where(line => line.Kind == GrandStaffLineKind.Barline)
+            .Select(line => line.X0)
+            .Order()
+            .ToArray();
+        double measureStart = barlines.First(barline => barline < scene.Notes.Min(note => note.X) - 0.0001);
+        double measureEnd = barlines.First(barline => barline > scene.Notes.Max(note => note.X));
+        Assert.All(scene.Notes, note => Assert.InRange(note.X, measureStart, measureEnd - 0.02 + 0.000001));
+    }
+
+    [Theory]
+    [InlineData(SightReadingRhythmPreset.Basic, Staff.Treble)]
+    [InlineData(SightReadingRhythmPreset.Basic, Staff.Bass)]
+    [InlineData(SightReadingRhythmPreset.Extended, Staff.Treble)]
+    [InlineData(SightReadingRhythmPreset.Syncopated, Staff.Treble)]
+    [InlineData(SightReadingRhythmPreset.Syncopated, Staff.Bass)]
+    [InlineData(SightReadingRhythmPreset.Compound, Staff.Treble)]
+    public void BuildScore_AccidentalsExercisesWithEighths_KeepEveryGlyphClearOfThePreviousNote(
+        SightReadingRhythmPreset rhythmPreset,
+        Staff staff)
+    {
+        for (int seed = 1; seed <= 25; seed++)
+        {
+            var options = new SightReadingExerciseOptions(
+                staff,
+                SightReadingPresetId.Accidentals,
+                16,
+                NoteReadingMode.PitchAndRhythm,
+                RhythmPreset: rhythmPreset);
+            Score score = ScoreFingeringGenerator.Generate(
+                SightReadingExerciseComposer.Compose(options, new Random(seed)));
+
+            for (int firstMeasure = 0; firstMeasure < score.Measures.Count; firstMeasure += 5)
+            {
+                var scene = GrandStaffSceneBuilder.BuildScore(
+                    score,
+                    firstMeasure,
+                    showNoteLabels: false,
+                    showFingerings: false,
+                    drawRests: true,
+                    drawTies: true);
+
+                AssertAccidentalsClearOfPreviousNote(scene, $"{rhythmPreset} {staff} seed {seed} from measure {firstMeasure}");
+            }
+        }
+    }
+
+    private static void AssertAccidentalsClearOfPreviousNote(GrandStaffScene scene, string context = "scene")
+    {
+        GrandStaffNote[] notes = scene.Notes.OrderBy(note => note.X).ToArray();
+        foreach (GrandStaffGlyph accidental in scene.Glyphs.Where(glyph => glyph.Kind == GrandStaffGlyphKind.Accidental))
+        {
+            GrandStaffNote owner = FindAccidentalOwner(scene, accidental);
+            GrandStaffNote? previous = notes.LastOrDefault(note => note.X < owner.X - 0.0001);
+            if (previous is null || scene.Lines.Any(line =>
+                    line.Kind == GrandStaffLineKind.Barline && line.X0 > previous.X && line.X0 < owner.X))
+            {
+                continue;
+            }
+
+            Assert.True(
+                owner.X - previous.X >= (owner.X - accidental.X) + ReachLeftOfAnAccidentalGlyph - 0.000001,
+                $"{context}: the {accidental.Text} before {owner.Label} (X={owner.X}) is {owner.X - previous.X} right of " +
+                $"{previous.Label}, which would draw it on that note's stem or head.");
+        }
+    }
+
+    // Measured on a real 916 x 240 canvas (440 px per scene-X unit, 7.5 px staff space): a note's stem stands half a
+    // notehead (4.5 px) from its head's centre and is drawn 2 px wide, a sharp's ink reaches 3.83 px right of its centre
+    // and a flat's 2.72 px. A stem-down stem is left of the head, in the accidental's way.
+    private const double PixelsPerSceneX = 440;
+    private const double StemOffsetFromHeadPx = 4.5;
+    private const double StemHalfWidthPx = 1;
+    private const double AirBetweenAccidentalAndStemPx = 1;
+
+    [Theory]
+    [InlineData(ScoreAccidental.Sharp, 3.83)]
+    [InlineData(ScoreAccidental.Flat, 2.72)]
+    public void BuildScore_StemDownNoteWithAnAccidental_KeepsTheGlyphClearOfItsOwnStem(
+        ScoreAccidental accidental,
+        double inkReachPx)
+    {
+        // C5 is above the middle line, so its stem points down: the stem stands on the left of the head, where the
+        // accidental goes. At 0.019 scene-X the sharp's ink overlapped the stem and the flat's touched it (0.14 px).
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.C, accidental == ScoreAccidental.Sharp ? 1 : -1, 5), new NoteValue(4), 0, 0, Staff.Treble, Accidental: accidental),
+        ];
+
+        var scene = GrandStaffSceneBuilder.BuildScore(ScoreWithNotes(notes), firstVisibleMeasure: 0);
+
+        GrandStaffNote note = Assert.Single(scene.Notes);
+        Assert.True(note.HasStem);
+        Assert.Equal(StemDirection.Down, note.StemDirection);
+        GrandStaffGlyph glyph = Assert.Single(scene.Glyphs, candidate => candidate.Kind == GrandStaffGlyphKind.Accidental);
+        AssertGlyphClearOfOwnDownStem(glyph, note, inkReachPx, "a single stem-down note");
+    }
+
+    [Fact]
+    public void BuildScore_BeamedStemDownPairWithAccidentals_KeepsEachGlyphClearOfItsOwnStem()
+    {
+        // The stem direction of a beamed pair comes from the beam, not from the note, so the clearance has to follow it.
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.F, 1, 5), new NoteValue(8), 0, 0, Staff.Treble, BeamState: BeamState.Begin, Accidental: ScoreAccidental.Sharp),
+            new(new Pitch(NoteLetter.E, -1, 5), new NoteValue(8), 0, 0.5, Staff.Treble, BeamState: BeamState.End, Accidental: ScoreAccidental.Flat),
+        ];
+
+        var scene = GrandStaffSceneBuilder.BuildScore(ScoreWithNotes(notes), firstVisibleMeasure: 0);
+
+        Assert.All(scene.Notes, note => Assert.Equal(StemDirection.Down, note.StemDirection));
+        GrandStaffNote[] byX = scene.Notes.OrderBy(note => note.X).ToArray();
+        GrandStaffGlyph[] glyphs = scene.Glyphs.Where(glyph => glyph.Kind == GrandStaffGlyphKind.Accidental).OrderBy(glyph => glyph.X).ToArray();
+        AssertGlyphClearOfOwnDownStem(glyphs[0], byX[0], 3.83, "the beamed sharp");
+        AssertGlyphClearOfOwnDownStem(glyphs[1], byX[1], 2.72, "the beamed flat");
+    }
+
+    [Fact]
+    public void BuildScore_StemUpNoteWithAnAccidental_KeepsTheGlyphWhereItAlwaysWas()
+    {
+        // A stem-up stem is on the right of the head, away from the accidental, so those notes are untouched.
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.F, 1, 4), new NoteValue(4), 0, 0, Staff.Treble, Accidental: ScoreAccidental.Sharp),
+        ];
+
+        var scene = GrandStaffSceneBuilder.BuildScore(ScoreWithNotes(notes), firstVisibleMeasure: 0);
+
+        GrandStaffNote note = Assert.Single(scene.Notes);
+        Assert.Equal(StemDirection.Up, note.StemDirection);
+        GrandStaffGlyph glyph = Assert.Single(scene.Glyphs, candidate => candidate.Kind == GrandStaffGlyphKind.Accidental);
+        Assert.Equal(0.019, note.X - glyph.X, precision: 5);
+    }
+
+    [Theory]
+    [InlineData(SightReadingRhythmPreset.Fixed, Staff.Treble)]
+    [InlineData(SightReadingRhythmPreset.Fixed, Staff.Bass)]
+    [InlineData(SightReadingRhythmPreset.Basic, Staff.Treble)]
+    [InlineData(SightReadingRhythmPreset.Basic, Staff.Bass)]
+    [InlineData(SightReadingRhythmPreset.Extended, Staff.Treble)]
+    [InlineData(SightReadingRhythmPreset.Syncopated, Staff.Bass)]
+    [InlineData(SightReadingRhythmPreset.Compound, Staff.Treble)]
+    public void BuildScore_AccidentalsExercises_KeepEveryGlyphClearOfItsOwnStemDownStem(
+        SightReadingRhythmPreset rhythmPreset,
+        Staff staff)
+    {
+        int checkedGlyphs = 0;
+        for (int seed = 1; seed <= 25; seed++)
+        {
+            var options = new SightReadingExerciseOptions(
+                staff,
+                SightReadingPresetId.Accidentals,
+                16,
+                rhythmPreset == SightReadingRhythmPreset.Fixed ? NoteReadingMode.PitchAndOrder : NoteReadingMode.PitchAndRhythm,
+                RhythmPreset: rhythmPreset);
+            Score score = ScoreFingeringGenerator.Generate(
+                SightReadingExerciseComposer.Compose(options, new Random(seed)));
+
+            for (int firstMeasure = 0; firstMeasure < score.Measures.Count; firstMeasure += 5)
+            {
+                var scene = GrandStaffSceneBuilder.BuildScore(
+                    score,
+                    firstMeasure,
+                    showNoteLabels: false,
+                    showFingerings: false,
+                    drawRests: true,
+                    drawTies: true);
+
+                foreach (GrandStaffGlyph glyph in scene.Glyphs.Where(candidate => candidate.Kind == GrandStaffGlyphKind.Accidental))
+                {
+                    GrandStaffNote owner = FindAccidentalOwner(scene, glyph);
+                    if (owner.HasStem && owner.StemDirection == StemDirection.Down)
+                    {
+                        AssertGlyphClearOfOwnDownStem(
+                            glyph,
+                            owner,
+                            glyph.Text == "♯" ? 3.83 : 2.72,
+                            $"{rhythmPreset} {staff} seed {seed} from measure {firstMeasure}");
+                        checkedGlyphs++;
+                    }
+                }
+            }
+        }
+
+        Assert.True(checkedGlyphs >= 10, $"Only {checkedGlyphs} stem-down accidentals were examined.");
+    }
+
+    /// <summary>The accidental's note: the nearest note at the glyph's height a little to its right.</summary>
+    private static GrandStaffNote FindAccidentalOwner(GrandStaffScene scene, GrandStaffGlyph accidental) =>
+        scene.Notes
+            .Where(note => note.X > accidental.X && note.X - accidental.X < 0.035)
+            .MinBy(note => Math.Abs(note.Y - accidental.Y) + (note.X - accidental.X))!;
+
+    private static void AssertGlyphClearOfOwnDownStem(
+        GrandStaffGlyph glyph,
+        GrandStaffNote note,
+        double inkReachPx,
+        string context)
+    {
+        double stemLeftEdgeX = note.X - ((StemOffsetFromHeadPx + StemHalfWidthPx) / PixelsPerSceneX);
+        double inkRightEdgeX = glyph.X + (inkReachPx / PixelsPerSceneX);
+        double gapPx = (stemLeftEdgeX - inkRightEdgeX) * PixelsPerSceneX;
+        Assert.True(
+            gapPx >= AirBetweenAccidentalAndStemPx - 0.01,
+            $"{context}: the {glyph.Text} before {note.Label} leaves {gapPx:F2} px to its own stem, " +
+            $"wanted at least {AirBetweenAccidentalAndStemPx} px.");
+    }
+
+    [Fact]
+    public void BuildScore_AccidentalsDerivedFromTheKeySignature_ReserveTheSameRoomAsExplicitOnes()
+    {
+        // The renderer draws a glyph for a note whose alteration differs from the key signature even when the score states
+        // no accidental for it (MusicXML omits the element for a repeated accidental, and a hand-built score may never
+        // state one). Those glyphs landed on the previous note's stem because only explicit accidentals got spacing room.
+        Pitch[] pitches = [new(NoteLetter.C, 1, 4), new(NoteLetter.F, 1, 4), new(NoteLetter.B, -1, 4), new(NoteLetter.A, 0, 4), new(NoteLetter.E, -1, 4)];
+        NoteValue[] values = [new(8), new(8), new(4), new(4), new(4)];
+        double[] beats = [0, 0.5, 1, 2, 3];
+        ScoreAccidental?[] explicitAccidentals = [ScoreAccidental.Sharp, ScoreAccidental.Sharp, ScoreAccidental.Flat, null, ScoreAccidental.Flat];
+
+        ScoreNote[] Notes(bool stateAccidentals) => pitches
+            .Select((pitch, index) => new ScoreNote(
+                pitch, values[index], 0, beats[index], Staff.Treble,
+                Accidental: stateAccidentals ? explicitAccidentals[index] : null))
+            .ToArray();
+        var explicitScene = GrandStaffSceneBuilder.BuildScore(ScoreWithNotes(Notes(stateAccidentals: true)), firstVisibleMeasure: 0);
+        var derivedScene = GrandStaffSceneBuilder.BuildScore(ScoreWithNotes(Notes(stateAccidentals: false)), firstVisibleMeasure: 0);
+
+        Assert.Equal(
+            explicitScene.Glyphs.Where(glyph => glyph.Kind == GrandStaffGlyphKind.Accidental).Select(glyph => glyph.Text),
+            derivedScene.Glyphs.Where(glyph => glyph.Kind == GrandStaffGlyphKind.Accidental).Select(glyph => glyph.Text));
+        Assert.Equal(explicitScene.Notes.Select(note => note.X), derivedScene.Notes.Select(note => note.X));
+        AssertAccidentalsClearOfPreviousNote(derivedScene, "derived accidentals in C major");
+    }
+
+    [Fact]
+    public void BuildScore_DerivedNaturalInASharpKey_ReservesRoomLikeAnExplicitNatural()
+    {
+        // In G major (one sharp) a plain F is a natural against the key signature and is drawn with a natural sign.
+        Pitch[] pitches = [new(NoteLetter.D, 0, 5), new(NoteLetter.F, 0, 5), new(NoteLetter.G, 0, 5), new(NoteLetter.F, 0, 5)];
+        NoteValue[] values = [new(8), new(8), new(4), new(4)];
+        double[] beats = [0, 0.5, 1, 2];
+
+        ScoreNote[] Notes(bool stateAccidentals) => pitches
+            .Select((pitch, index) => new ScoreNote(
+                pitch, values[index], 0, beats[index], Staff.Treble,
+                Accidental: stateAccidentals && pitch.Letter == NoteLetter.F ? ScoreAccidental.Natural : null))
+            .ToArray();
+        var explicitScene = GrandStaffSceneBuilder.BuildScore(ScoreWithNotes(Notes(true), keyFifths: 1), firstVisibleMeasure: 0);
+        var derivedScene = GrandStaffSceneBuilder.BuildScore(ScoreWithNotes(Notes(false), keyFifths: 1), firstVisibleMeasure: 0);
+
+        Assert.Equal(2, derivedScene.Glyphs.Count(glyph => glyph.Kind == GrandStaffGlyphKind.Accidental && glyph.Text == "♮"));
+        Assert.Equal(explicitScene.Notes.Select(note => note.X), derivedScene.Notes.Select(note => note.X));
+    }
+
+    [Fact]
+    public void BuildScore_NoteThatMatchesTheKeySignature_ReservesNoExtraRoom()
+    {
+        // Guard: in G major an F sharp prints no glyph, so it must be spaced exactly like a plain note with no glyph.
+        Pitch[] sharpPitches = [new(NoteLetter.G, 0, 4), new(NoteLetter.F, 1, 4), new(NoteLetter.A, 0, 4), new(NoteLetter.F, 1, 4)];
+        Pitch[] plainPitches = [new(NoteLetter.G, 0, 4), new(NoteLetter.E, 0, 4), new(NoteLetter.A, 0, 4), new(NoteLetter.E, 0, 4)];
+        NoteValue[] values = [new(8), new(8), new(4), new(4)];
+        double[] beats = [0, 0.5, 1, 2];
+
+        ScoreNote[] Notes(Pitch[] pitches) => pitches
+            .Select((pitch, index) => new ScoreNote(pitch, values[index], 0, beats[index], Staff.Treble))
+            .ToArray();
+        var inKey = GrandStaffSceneBuilder.BuildScore(ScoreWithNotes(Notes(sharpPitches), keyFifths: 1), firstVisibleMeasure: 0);
+        var plain = GrandStaffSceneBuilder.BuildScore(ScoreWithNotes(Notes(plainPitches), keyFifths: 1), firstVisibleMeasure: 0);
+
+        Assert.DoesNotContain(inKey.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Accidental);
+        Assert.Equal(plain.Notes.Select(note => note.X), inKey.Notes.Select(note => note.X));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void BuildScore_MeasureLedByADerivedAccidental_KeepsTheGlyphClearOfTheBarlineBeforeIt(int measureIndex)
+    {
+        // Same as the explicit-accidental case above, for a first note whose sharp comes from the key signature (C major).
+        ScoreMeasure[] measures = Enumerable.Range(0, 2)
+            .Select(index => new ScoreMeasure(
+                [
+                    new ScoreNote(new Pitch(NoteLetter.F, index == measureIndex ? 1 : 0, 4), new NoteValue(4), index, 0, Staff.Treble),
+                    new ScoreNote(new Pitch(NoteLetter.G, 0, 4), new NoteValue(4), index, 1, Staff.Treble),
+                ],
+                []))
+            .ToArray();
+        var score = new Score("test", new TimeSignature(4, new NoteValue(4)), new Tempo(120), 0, measures);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        GrandStaffGlyph accidental = Assert.Single(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Accidental);
+        double barlineBefore = scene.Lines
+            .Where(line => line.Kind == GrandStaffLineKind.Barline && line.X0 < accidental.X)
+            .Max(line => line.X0);
+        Assert.True(
+            accidental.X - barlineBefore >= 0.012,
+            $"The derived accidental (X={accidental.X}) sits on the barline before it (X={barlineBefore}).");
+    }
+
     [Fact]
     public void BuildScore_CursorAtDenseChordOnset_AlignsWithChordsUndisplacedNotehead()
     {
@@ -2184,6 +2580,137 @@ public sealed class GrandStaffSceneBuilderTests
     }
 
     [Fact]
+    public void BuildScore_ReviewMarks_CarryTheMarkOnTheSourceNoteWithoutTouchingItsVerdict()
+    {
+        var sourceNote = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
+        var score = SingleNoteScore(sourceNote);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(
+            score,
+            firstVisibleMeasure: 0,
+            verdicts: new Dictionary<ScoreNote, Verdict> { [sourceNote] = Verdict.Late },
+            reviewMarks: new Dictionary<ScoreNote, ReviewMark> { [sourceNote] = ReviewMark.Timing });
+
+        var note = Assert.Single(scene.Notes);
+        Assert.Equal(ReviewMark.Timing, note.ReviewMark);
+        Assert.Equal(Verdict.Late, note.Verdict);
+    }
+
+    [Fact]
+    public void BuildScore_WithoutReviewMarks_NotesCarryNoMarkAndNoGroup()
+    {
+        var sourceNote = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(SingleNoteScore(sourceNote), firstVisibleMeasure: 0);
+
+        var note = Assert.Single(scene.Notes);
+        Assert.Null(note.ReviewMark);
+        Assert.Null(note.ReviewMarkGroup);
+    }
+
+    [Fact]
+    public void BuildScore_ReviewMarks_ANoteWithoutAMarkStaysUnmarked()
+    {
+        var marked = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
+        var unmarked = new ScoreNote(new Pitch(NoteLetter.D, 0, 4), new NoteValue(4), 0, 1, Staff.Treble);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(
+            ScoreWithNotes([marked, unmarked]),
+            firstVisibleMeasure: 0,
+            reviewMarks: new Dictionary<ScoreNote, ReviewMark> { [marked] = ReviewMark.Pitch });
+
+        Assert.Equal(ReviewMark.Pitch, scene.Notes[0].ReviewMark);
+        Assert.Null(scene.Notes[1].ReviewMark);
+        Assert.Null(scene.Notes[1].ReviewMarkGroup);
+    }
+
+    [Fact]
+    public void BuildScore_ReviewMarks_ChordMembersOnOneStaffShareOneGroupAndOtherOnsetsDoNot()
+    {
+        var chord = new[]
+        {
+            new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble),
+            new ScoreNote(new Pitch(NoteLetter.E, 0, 4), new NoteValue(4), 0, 0, Staff.Treble),
+            new ScoreNote(new Pitch(NoteLetter.G, 0, 4), new NoteValue(4), 0, 0, Staff.Treble),
+        };
+        var next = new ScoreNote(new Pitch(NoteLetter.D, 0, 4), new NoteValue(4), 0, 1, Staff.Treble);
+        var marks = chord.Append(next).ToDictionary(note => note, _ => ReviewMark.Missed);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(
+            ScoreWithNotes([.. chord, next]),
+            firstVisibleMeasure: 0,
+            reviewMarks: marks);
+
+        int?[] groups = scene.Notes.Select(note => note.ReviewMarkGroup).ToArray();
+        Assert.All(groups, group => Assert.NotNull(group));
+        Assert.Single(groups.Take(3).Distinct());
+        Assert.NotEqual(groups[0], groups[3]);
+    }
+
+    [Fact]
+    public void BuildScore_ReviewMarks_AHandsTogetherPromptOnTwoStavesGetsOneGroupPerStaff()
+    {
+        var treble = new ScoreNote(new Pitch(NoteLetter.E, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
+        var bass = new ScoreNote(new Pitch(NoteLetter.E, 0, 3), new NoteValue(4), 0, 0, Staff.Bass);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(
+            ScoreWithNotes([treble, bass]),
+            firstVisibleMeasure: 0,
+            reviewMarks: new Dictionary<ScoreNote, ReviewMark>
+            {
+                [treble] = ReviewMark.Pitch,
+                [bass] = ReviewMark.Pitch,
+            });
+
+        Assert.Equal(2, scene.Notes.Select(note => note.ReviewMarkGroup).Distinct().Count());
+    }
+
+    [Fact]
+    public void BuildScore_ReviewMarks_DoNotChangeAnyGeometry()
+    {
+        var notes = new[]
+        {
+            new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(8), 0, 0, Staff.Treble, BeamState: BeamState.Begin),
+            new ScoreNote(new Pitch(NoteLetter.D, 0, 4), new NoteValue(8), 0, 0.5, Staff.Treble, BeamState: BeamState.End),
+            new ScoreNote(new Pitch(NoteLetter.E, 0, 4), new NoteValue(4), 0, 1, Staff.Treble),
+            new ScoreNote(new Pitch(NoteLetter.G, 0, 4), new NoteValue(4), 0, 1, Staff.Treble),
+        };
+        var score = ScoreWithNotes(notes);
+        var marks = notes.ToDictionary(note => note, _ => ReviewMark.Pitch);
+
+        var plain = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+        var marked = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0, reviewMarks: marks);
+
+        Assert.Equal(plain.Lines, marked.Lines);
+        Assert.Equal(plain.Glyphs, marked.Glyphs);
+        Assert.Equal(plain.Beams, marked.Beams);
+        Assert.Equal(plain.Bands, marked.Bands);
+        Assert.Equal(plain.Ties, marked.Ties);
+        Assert.Equal(
+            plain.Notes,
+            marked.Notes.Select(note => note with { ReviewMark = null, ReviewMarkGroup = null }));
+    }
+
+    [Fact]
+    public void BuildScore_ReviewMarks_ForNotesOutsideTheVisibleWindowAreIgnored()
+    {
+        var visible = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
+        var hidden = new ScoreNote(new Pitch(NoteLetter.D, 0, 4), new NoteValue(4), 1, 0, Staff.Treble);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(
+            TwoMeasureScore(visible, hidden),
+            firstVisibleMeasure: 0,
+            visibleMeasureCount: 1,
+            reviewMarks: new Dictionary<ScoreNote, ReviewMark>
+            {
+                [visible] = ReviewMark.Timing,
+                [hidden] = ReviewMark.Pitch,
+            });
+
+        Assert.Equal(ReviewMark.Timing, Assert.Single(scene.Notes).ReviewMark);
+    }
+
+    [Fact]
     public void BuildScore_ExpectedNote_ReturnsActiveScoreNote()
     {
         var expectedNote = new ScoreNote(
@@ -2860,6 +3387,285 @@ public sealed class GrandStaffSceneBuilderTests
         Assert.InRange(renderedNote.X, -1, 1);
         Assert.InRange(renderedNote.Y, -1, 1);
     }
+
+    [Theory]
+    [InlineData(Staff.Treble)]
+    [InlineData(Staff.Bass)]
+    public void BuildScore_QuarterRestWithRestsEnabled_DrawsRestAtItsBeatOnTheStaffMiddleLine(Staff staff)
+    {
+        // A rest at beat 2 sits where a note at beat 2 would: compare against the same measure with a note there.
+        ScoreNote beatOne = ExerciseNote(staff, beatOffset: 1);
+        ScoreNote beatThree = ExerciseNote(staff, beatOffset: 3);
+        var restScore = new Score(
+            "rest",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(60),
+            0,
+            [new ScoreMeasure([beatOne, beatThree], [new ScoreRest(new NoteValue(4), 0, 2, staff)])]);
+        var noteScore = new Score(
+            "note",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(60),
+            0,
+            [new ScoreMeasure([beatOne, ExerciseNote(staff, beatOffset: 2), beatThree], [])]);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(restScore, firstVisibleMeasure: 0, drawRests: true);
+        var referenceScene = GrandStaffSceneBuilder.BuildScore(noteScore, firstVisibleMeasure: 0);
+
+        var rest = Assert.Single(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Rest);
+        GrandStaffNote referenceNoteAtBeatTwo = referenceScene.Notes.Single(note => note.ScoreOnsetBeats == 2);
+        IReadOnlyList<float> staffLines = staff == Staff.Treble
+            ? GrandStaffLayout.TrebleLineYs
+            : GrandStaffLayout.BassLineYs;
+        Assert.Equal("𝄽", rest.Text);
+        Assert.Equal(referenceNoteAtBeatTwo.X, rest.X, precision: 6);
+        Assert.Equal(GrandStaffLayout.SeparateStaffY(staffLines[2], staff), rest.Y, precision: 6);
+        Assert.Equal(3 * GrandStaffLayout.GetRenderedStaffSpace(staff), rest.Height!.Value, precision: 6);
+    }
+
+    [Theory]
+    [InlineData(Staff.Treble)]
+    [InlineData(Staff.Bass)]
+    public void BuildScore_EighthRestWithRestsEnabled_DrawsAnEighthRestAtItsBeatOnTheStaffMiddleLine(Staff staff)
+    {
+        ScoreNote beatOne = ExerciseNote(staff, beatOffset: 1);
+        ScoreNote offBeat = ExerciseNote(staff, beatOffset: 2.5);
+        var restScore = new Score(
+            "rest",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(60),
+            0,
+            [new ScoreMeasure([beatOne, offBeat], [new ScoreRest(new NoteValue(8), 0, 2, staff)])]);
+        var noteScore = new Score(
+            "note",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(60),
+            0,
+            [new ScoreMeasure([beatOne, ExerciseNote(staff, beatOffset: 2), offBeat], [])]);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(restScore, firstVisibleMeasure: 0, drawRests: true);
+        var referenceScene = GrandStaffSceneBuilder.BuildScore(noteScore, firstVisibleMeasure: 0);
+
+        var rest = Assert.Single(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Rest);
+        GrandStaffNote referenceNoteAtBeatThree = referenceScene.Notes.Single(note => note.ScoreOnsetBeats == 2);
+        IReadOnlyList<float> staffLines = staff == Staff.Treble
+            ? GrandStaffLayout.TrebleLineYs
+            : GrandStaffLayout.BassLineYs;
+        Assert.Equal("𝄾", rest.Text);
+        Assert.Equal(referenceNoteAtBeatThree.X, rest.X, precision: 6);
+        Assert.Equal(GrandStaffLayout.SeparateStaffY(staffLines[2], staff), rest.Y, precision: 6);
+        Assert.Equal(2 * GrandStaffLayout.GetRenderedStaffSpace(staff), rest.Height!.Value, precision: 6);
+    }
+
+    [Fact]
+    public void BuildScore_HalfAndWholeRests_AreNotDrawnBecauseNoPatternUsesThem()
+    {
+        var score = new Score(
+            "rest",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(60),
+            0,
+            [new ScoreMeasure([], [new ScoreRest(new NoteValue(2), 0, 0, Staff.Treble), new ScoreRest(new NoteValue(2), 0, 2, Staff.Treble)])]);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0, drawRests: true);
+
+        Assert.DoesNotContain(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Rest);
+    }
+
+    private static ScoreNote TiedNote(Pitch pitch, int measureIndex, double beatOffset, bool tiesToNext, NoteValue? value = null) =>
+        new(pitch, value ?? new NoteValue(4), measureIndex, beatOffset, Staff.Treble, TiesToNext: tiesToNext);
+
+    private static Score TwoMeasureScore(params ScoreNote[] notes) =>
+        new(
+            "tie",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(60),
+            0,
+            [
+                new ScoreMeasure(notes.Where(note => note.MeasureIndex == 0).ToArray(), []),
+                new ScoreMeasure(notes.Where(note => note.MeasureIndex == 1).ToArray(), []),
+            ]);
+
+    [Theory]
+    [InlineData(NoteLetter.E, 4, StemDirection.Down)] // E4 sits below the middle line: stem up, so the tie curves below
+    [InlineData(NoteLetter.B, 4, StemDirection.Up)] // B4 is on the middle line: stem down, so the tie curves above
+    public void BuildScore_TiedNotesWithTiesEnabled_DrawsOneTieBetweenTheirNoteheadsOppositeTheStem(
+        NoteLetter letter,
+        int octave,
+        StemDirection expectedCurve)
+    {
+        var pitch = new Pitch(letter, 0, octave);
+        Score score = TwoMeasureScore(TiedNote(pitch, 0, 1, true), TiedNote(pitch, 0, 2, false));
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0, drawTies: true);
+
+        var tie = Assert.Single(scene.Ties);
+        Assert.Equal(scene.Notes[0].X, tie.X0);
+        Assert.Equal(scene.Notes[1].X, tie.X1);
+        Assert.Equal(scene.Notes[0].Y, tie.Y0);
+        Assert.Equal(scene.Notes[1].Y, tie.Y1);
+        Assert.Equal(expectedCurve, tie.CurveDirection);
+        Assert.False(tie.IsActive);
+    }
+
+    [Fact]
+    public void BuildScore_TieAcrossTheBarline_ConnectsTheLastNoteOfOneMeasureToTheFirstOfTheNext()
+    {
+        var pitch = new Pitch(NoteLetter.G, 0, 4);
+        Score score = TwoMeasureScore(TiedNote(pitch, 0, 3, true), TiedNote(pitch, 1, 0, false));
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0, drawTies: true);
+
+        var tie = Assert.Single(scene.Ties);
+        Assert.Equal(scene.Notes[0].X, tie.X0);
+        Assert.Equal(scene.Notes[1].X, tie.X1);
+        Assert.True(tie.X1 > tie.X0);
+    }
+
+    [Fact]
+    public void BuildScore_TiedNotesWithoutTheTiesOption_DrawsNoTie()
+    {
+        var pitch = new Pitch(NoteLetter.G, 0, 4);
+        Score score = TwoMeasureScore(TiedNote(pitch, 0, 1, true), TiedNote(pitch, 0, 2, false));
+
+        Assert.Empty(GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0).Ties);
+    }
+
+    [Fact]
+    public void BuildScore_TieThatLeavesTheVisibleMeasures_DrawsAHalfTieToTheRightEdgeAndTheNextWindowOneFromTheLeftEdge()
+    {
+        var pitch = new Pitch(NoteLetter.G, 0, 4);
+        Score score = TwoMeasureScore(TiedNote(pitch, 0, 3, true), TiedNote(pitch, 1, 0, false));
+
+        var firstWindow = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0, visibleMeasureCount: 1, drawTies: true);
+        var secondWindow = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 1, visibleMeasureCount: 1, drawTies: true);
+
+        var outgoing = Assert.Single(firstWindow.Ties);
+        Assert.Equal(firstWindow.Notes[0].X, outgoing.X0);
+        Assert.Equal(GrandStaffLayout.ScoreX1, outgoing.X1);
+        var incoming = Assert.Single(secondWindow.Ties);
+        Assert.Equal(OpeningBarlineX(secondWindow), incoming.X0);
+        Assert.Equal(secondWindow.Notes[0].X, incoming.X1);
+    }
+
+    // Measured on a real 916 x 240 canvas (440 px per scene-X unit, 7.5 px staff space): a tie stops 0.8 staff space (6 px)
+    // short of the notehead centre it arrives at, so a half tie from the opening barline to a note 8.8 px (0.02) right of
+    // the barline was about 2.8 px long, and when the note sat on the row's left edge it had no length at all.
+    private const double TieEndGapPx = 6.0;
+
+    /// <summary>The barline that opens the row: the nearest one left of its first note.</summary>
+    private static double OpeningBarlineX(GrandStaffScene scene) =>
+        scene.Lines
+            .Where(line => line.Kind == GrandStaffLineKind.Barline && line.X0 < scene.Notes.Min(note => note.X))
+            .Max(line => line.X0);
+
+    [Fact]
+    public void BuildScore_RowStartingWithATiedContinuation_LeavesRoomForTheArrivingTieToBeSeen()
+    {
+        var pitch = new Pitch(NoteLetter.G, 0, 4);
+        Score score = TwoMeasureScore(TiedNote(pitch, 0, 3, true), TiedNote(pitch, 1, 0, false));
+
+        var secondWindow = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 1, visibleMeasureCount: 1, drawTies: true);
+
+        var incoming = Assert.Single(secondWindow.Ties);
+        double visibleLengthPx = ((incoming.X1 - incoming.X0) * PixelsPerSceneX) - TieEndGapPx;
+        Assert.True(
+            visibleLengthPx >= 10,
+            $"The tie arriving at the start of the row is only {visibleLengthPx:F1} px long between the barline and its note.");
+    }
+
+    [Fact]
+    public void BuildScore_RowStartingWithATiedContinuationButNoTieOption_KeepsItsNotesWhereTheyWere()
+    {
+        var pitch = new Pitch(NoteLetter.G, 0, 4);
+        Score tied = TwoMeasureScore(TiedNote(pitch, 0, 3, true), TiedNote(pitch, 1, 0, false));
+        Score untied = TwoMeasureScore(TiedNote(pitch, 0, 3, false), TiedNote(pitch, 1, 0, false));
+
+        var withoutTies = GrandStaffSceneBuilder.BuildScore(tied, firstVisibleMeasure: 1, visibleMeasureCount: 1);
+        var reference = GrandStaffSceneBuilder.BuildScore(untied, firstVisibleMeasure: 1, visibleMeasureCount: 1, drawTies: true);
+
+        // Imported scores draw no ties, so a tie flag alone must not move anything.
+        Assert.Equal(reference.Notes[0].X, withoutTies.Notes[0].X);
+    }
+
+    [Fact]
+    public void BuildScore_RowStartingWithAnUntiedNote_KeepsItsNotesWhereTheyWere()
+    {
+        var pitch = new Pitch(NoteLetter.G, 0, 4);
+        Score score = TwoMeasureScore(TiedNote(pitch, 0, 3, false), TiedNote(pitch, 1, 0, false));
+
+        var withTies = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 1, visibleMeasureCount: 1, drawTies: true);
+        var withoutTies = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 1, visibleMeasureCount: 1);
+
+        Assert.Equal(GrandStaffLayout.ScoreX0, withTies.Notes[0].X, 6);
+        Assert.Equal(withoutTies.Notes[0].X, withTies.Notes[0].X);
+    }
+
+    [Fact]
+    public void BuildScore_RowStartingWithATiedContinuation_KeepsTheCursorOnItsNote()
+    {
+        var pitch = new Pitch(NoteLetter.G, 0, 4);
+        Score score = TwoMeasureScore(TiedNote(pitch, 0, 3, true), TiedNote(pitch, 1, 0, false));
+
+        var scene = GrandStaffSceneBuilder.BuildScore(
+            score, firstVisibleMeasure: 1, cursorBeats: 4, visibleMeasureCount: 1, drawTies: true);
+
+        var cursor = Assert.Single(scene.Lines, line => line.Kind == GrandStaffLineKind.Cursor);
+        Assert.Equal(scene.Notes[0].X, cursor.X0, 6);
+    }
+
+    [Fact]
+    public void BuildScore_TieFlagWithNoContinuation_DrawsNothingForItBeyondTheScoresEnd()
+    {
+        var pitch = new Pitch(NoteLetter.G, 0, 4);
+        Score score = TwoMeasureScore(TiedNote(pitch, 1, 3, true));
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0, drawTies: true);
+
+        Assert.Empty(scene.Ties);
+    }
+
+    [Fact]
+    public void BuildScore_QuarterRestWithoutTheRestsOption_DrawsNoRestGlyph()
+    {
+        var score = new Score(
+            "rest",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(60),
+            0,
+            [new ScoreMeasure([ExerciseNote(Staff.Treble, beatOffset: 0)], [new ScoreRest(new NoteValue(4), 0, 1, Staff.Treble)])]);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        Assert.DoesNotContain(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Rest);
+    }
+
+    [Fact]
+    public void BuildScore_RestsOutsideTheVisibleWindowOrOfAnUnmappedValue_AreNotDrawn()
+    {
+        var score = new Score(
+            "rests",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(60),
+            0,
+            [
+                new ScoreMeasure([], [new ScoreRest(new NoteValue(2), 0, 0, Staff.Treble)]),
+                new ScoreMeasure([], []),
+                new ScoreMeasure([], [new ScoreRest(new NoteValue(4), 2, 0, Staff.Treble)]),
+            ]);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(
+            score,
+            firstVisibleMeasure: 0,
+            drawRests: true,
+            visibleMeasureCount: 2);
+
+        // The half rest has no glyph mapping yet, and the quarter rest is in measure 2, outside the 2-measure window.
+        Assert.DoesNotContain(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Rest);
+    }
+
+    private static ScoreNote ExerciseNote(Staff staff, double beatOffset) =>
+        new(new Pitch(NoteLetter.C, 0, staff == Staff.Treble ? 5 : 3), new NoteValue(4), 0, beatOffset, staff);
 
     private static Score CreateScore(int measureCount) =>
         new(

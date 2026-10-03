@@ -472,11 +472,14 @@ public sealed class NoteReadingSessionTests
         Assert.Equal(100, session.FirstTryAccuracyPercent);
     }
 
+    // Deliberately updated for Task 2 (proportional release tolerance): the quarter note lasts 500 ms at 120 BPM, so
+    // its release window is now max(60 ms onset tolerance, 25% of 500 ms) = 125 ms instead of the fixed 60 ms.
+    // The inclusive edges therefore moved from 440/560 ms to 375/625 ms; the inclusive behavior itself is unchanged.
     [Theory]
-    [InlineData(439, Verdict.TooShort)]
-    [InlineData(440, Verdict.Correct)]
-    [InlineData(560, Verdict.Correct)]
-    [InlineData(561, Verdict.TooLong)]
+    [InlineData(374, Verdict.TooShort)]
+    [InlineData(375, Verdict.Correct)]
+    [InlineData(625, Verdict.Correct)]
+    [InlineData(626, Verdict.TooLong)]
     public void Release_PitchAndHoldAtToleranceBoundary_ClassifiesInclusively(
         int releaseMilliseconds,
         Verdict expectedVerdict)
@@ -494,6 +497,79 @@ public sealed class NoteReadingSessionTests
             TimeSpan.FromMilliseconds(releaseMilliseconds));
 
         Assert.Equal(expectedVerdict, result.Verdict);
+    }
+
+    [Theory]
+    [InlineData(400, Verdict.Correct)]
+    [InlineData(300, Verdict.TooShort)]
+    [InlineData(700, Verdict.TooLong)]
+    public void Release_PitchAndHoldReleasedAtFractionOfWrittenValue_UsesProportionalWindow(
+        int releaseMilliseconds,
+        Verdict expectedVerdict)
+    {
+        var note = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([note]),
+            NoteReadingMode.PitchAndHold,
+            TimeSpan.FromMilliseconds(60));
+        session.Check(note.Pitch, TimeSpan.Zero);
+
+        NoteReadingSession.ReleaseResult result = session.Release(
+            note.Pitch,
+            TimeSpan.FromMilliseconds(releaseMilliseconds));
+
+        Assert.Equal(expectedVerdict, result.Verdict);
+    }
+
+    [Theory]
+    [InlineData(66, Verdict.Correct)]
+    [InlineData(64, Verdict.TooShort)]
+    [InlineData(184, Verdict.Correct)]
+    [InlineData(186, Verdict.TooLong)]
+    public void Release_PitchAndHoldVeryShortNote_NeverGetsWindowBelowOnsetTolerance(
+        int releaseMilliseconds,
+        Verdict expectedVerdict)
+    {
+        // A sixteenth note lasts 125 ms at 120 BPM; 25% of that is only about 31 ms, so the 60 ms floor applies.
+        var note = CreateNote(
+            NoteLetter.C,
+            measureIndex: 0,
+            beatOffset: 0,
+            noteValue: new NoteValue(16));
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([note]),
+            NoteReadingMode.PitchAndHold,
+            TimeSpan.FromMilliseconds(60));
+        session.Check(note.Pitch, TimeSpan.Zero);
+
+        NoteReadingSession.ReleaseResult result = session.Release(
+            note.Pitch,
+            TimeSpan.FromMilliseconds(releaseMilliseconds));
+
+        Assert.Equal(expectedVerdict, result.Verdict);
+    }
+
+    [Fact]
+    public void Check_PitchHoldAndRhythmOnsetNearProportionalWindow_StillUsesOnsetTolerance()
+    {
+        var firstNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 1);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([firstNote, secondNote]),
+            NoteReadingMode.PitchHoldAndRhythm,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+        session.Check(firstNote.Pitch, TimeSpan.FromSeconds(10));
+        session.Release(firstNote.Pitch, TimeSpan.FromMilliseconds(10_500));
+
+        NoteReadingSession.CheckResult result = session.Check(
+            secondNote.Pitch,
+            TimeSpan.FromMilliseconds(10_600));
+
+        Assert.Equal(Verdict.Late, result.Verdict);
     }
 
     [Fact]
@@ -1126,6 +1202,382 @@ public sealed class NoteReadingSessionTests
         Assert.Equal(Verdict.Correct, result.Verdict);
     }
 
+    [Fact]
+    public void Check_PitchOnlyMode_LeavesTimingOutcomesNull()
+    {
+        var note = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var session = new NoteReadingSession();
+        session.Reset(CreateScore([note]));
+
+        session.Check(note.Pitch, TimeSpan.FromSeconds(3));
+
+        NoteReadingPromptResult result = Assert.Single(session.PromptResults);
+        Assert.True(result.IsPitchFirstTryCorrect);
+        Assert.True(result.IsFirstTryCorrect);
+        Assert.Null(result.OnsetVerdict);
+        Assert.Null(result.DurationVerdict);
+        Assert.Null(result.OnsetDeviation);
+        Assert.Equal(0, session.PitchMistakeCount);
+        Assert.Equal(0, session.TimingMistakeCount);
+    }
+
+    [Fact]
+    public void Check_WrongThenCorrectPitchOnTime_RecordsPitchMistakeButCorrectOnset()
+    {
+        var firstNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 1);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([firstNote, secondNote]),
+            NoteReadingMode.PitchHoldAndRhythm,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+        session.Check(firstNote.Pitch, TimeSpan.FromSeconds(10));
+        session.Release(firstNote.Pitch, TimeSpan.FromSeconds(10.5));
+
+        session.Check(new Pitch(NoteLetter.G, 0, 4), TimeSpan.FromSeconds(10.45));
+        session.Check(secondNote.Pitch, TimeSpan.FromSeconds(10.5));
+        session.Release(secondNote.Pitch, TimeSpan.FromSeconds(11));
+
+        NoteReadingPromptResult result = session.PromptResults[1];
+        Assert.False(result.IsPitchFirstTryCorrect);
+        Assert.False(result.IsFirstTryCorrect);
+        Assert.Equal(Verdict.Correct, result.OnsetVerdict);
+        Assert.Equal(TimeSpan.Zero, result.OnsetDeviation);
+        Assert.Equal(1, session.PitchMistakeCount);
+        Assert.Equal(0, session.TimingMistakeCount);
+        Assert.Equal(session.WrongAttemptCount, session.PitchMistakeCount + session.TimingMistakeCount);
+    }
+
+    [Fact]
+    public void Check_RightPitchLate_KeepsPitchCorrectAndRecordsLateOnset()
+    {
+        var firstNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 1);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([firstNote, secondNote]),
+            NoteReadingMode.PitchHoldAndRhythm,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+        session.Check(firstNote.Pitch, TimeSpan.FromSeconds(10));
+        session.Release(firstNote.Pitch, TimeSpan.FromSeconds(10.5));
+
+        session.Check(secondNote.Pitch, TimeSpan.FromMilliseconds(10_585));
+        session.Release(secondNote.Pitch, TimeSpan.FromMilliseconds(11_085));
+
+        NoteReadingPromptResult result = session.PromptResults[1];
+        Assert.True(result.IsPitchFirstTryCorrect);
+        Assert.False(result.IsFirstTryCorrect);
+        Assert.Equal(Verdict.Late, result.OnsetVerdict);
+        Assert.Equal(TimeSpan.FromMilliseconds(85), result.OnsetDeviation);
+        Assert.Equal(Verdict.Correct, result.DurationVerdict);
+        Assert.Equal(0, session.PitchMistakeCount);
+        Assert.Equal(1, session.TimingMistakeCount);
+        Assert.Equal(session.WrongAttemptCount, session.PitchMistakeCount + session.TimingMistakeCount);
+    }
+
+    [Fact]
+    public void Release_PitchAndHoldNoteLiftedTooSoon_RecordsDurationOnly()
+    {
+        var note = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([note]),
+            NoteReadingMode.PitchAndHold,
+            TimeSpan.FromMilliseconds(60));
+        session.Check(note.Pitch, TimeSpan.FromSeconds(1));
+
+        NoteReadingPromptResult beforeRelease = Assert.Single(session.PromptResults);
+        Assert.Null(beforeRelease.OnsetVerdict);
+        Assert.Null(beforeRelease.DurationVerdict);
+
+        session.Release(note.Pitch, TimeSpan.FromSeconds(1.2));
+
+        NoteReadingPromptResult result = Assert.Single(session.PromptResults);
+        Assert.True(result.IsPitchFirstTryCorrect);
+        Assert.False(result.IsFirstTryCorrect);
+        Assert.Null(result.OnsetVerdict);
+        Assert.Null(result.OnsetDeviation);
+        Assert.Equal(Verdict.TooShort, result.DurationVerdict);
+        Assert.Equal(0, session.PitchMistakeCount);
+        Assert.Equal(1, session.TimingMistakeCount);
+    }
+
+    [Fact]
+    public void Release_PitchHoldAndRhythmEarlyAndShort_CountsOneTimingMistakePerAttempt()
+    {
+        var firstNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 1);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([firstNote, secondNote]),
+            NoteReadingMode.PitchHoldAndRhythm,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+        session.Check(firstNote.Pitch, TimeSpan.FromSeconds(10));
+        session.Release(firstNote.Pitch, TimeSpan.FromSeconds(10.5));
+        session.Check(secondNote.Pitch, TimeSpan.FromSeconds(10.4));
+        session.Release(secondNote.Pitch, TimeSpan.FromSeconds(10.5));
+
+        NoteReadingPromptResult result = session.PromptResults[1];
+        Assert.Equal(Verdict.Early, result.OnsetVerdict);
+        Assert.Equal(TimeSpan.FromMilliseconds(-100), result.OnsetDeviation);
+        Assert.Equal(Verdict.TooShort, result.DurationVerdict);
+        Assert.True(result.IsPitchFirstTryCorrect);
+        Assert.Equal(1, session.TimingMistakeCount);
+    }
+
+    [Fact]
+    public void Check_RhythmChordWithLateMember_ReportsWorstOnsetOfTheChord()
+    {
+        var lowerNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var upperNote = CreateNote(NoteLetter.E, measureIndex: 0, beatOffset: 0);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([lowerNote, upperNote]),
+            NoteReadingMode.PitchHoldAndRhythm,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+
+        session.Check(lowerNote.Pitch, TimeSpan.FromMilliseconds(10_010));
+        session.Check(upperNote.Pitch, TimeSpan.FromMilliseconds(10_120));
+        session.Release(lowerNote.Pitch, TimeSpan.FromSeconds(10.5));
+        session.Release(upperNote.Pitch, TimeSpan.FromSeconds(10.5));
+
+        NoteReadingPromptResult result = Assert.Single(session.PromptResults);
+        Assert.Equal(Verdict.Late, result.OnsetVerdict);
+        Assert.Equal(TimeSpan.FromMilliseconds(120), result.OnsetDeviation);
+        Assert.True(result.IsPitchFirstTryCorrect);
+    }
+
+    [Fact]
+    public void Check_PitchOnlyMode_RecordsResponseTimeFromPreviousAttackToFirstCorrectAttack()
+    {
+        var firstNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 1);
+        var session = new NoteReadingSession();
+        session.Reset(CreateScore([firstNote, secondNote]));
+
+        session.Check(firstNote.Pitch, TimeSpan.FromSeconds(5));
+        session.Check(new Pitch(NoteLetter.G, 0, 4), TimeSpan.FromSeconds(6));
+        session.Check(secondNote.Pitch, TimeSpan.FromSeconds(7.5));
+
+        Assert.Null(session.PromptResults[0].ResponseTime);
+        Assert.Equal(TimeSpan.FromSeconds(2.5), session.PromptResults[1].ResponseTime);
+    }
+
+    [Fact]
+    public void Check_RhythmMode_LeavesResponseTimeNull()
+    {
+        var firstNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 1);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([firstNote, secondNote]),
+            NoteReadingMode.PitchHoldAndRhythm,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+
+        session.Check(firstNote.Pitch, TimeSpan.FromSeconds(10));
+        session.Release(firstNote.Pitch, TimeSpan.FromSeconds(10.5));
+        session.Check(secondNote.Pitch, TimeSpan.FromSeconds(10.5));
+
+        Assert.All(session.PromptResults, result => Assert.Null(result.ResponseTime));
+    }
+
+    [Fact]
+    public void Reset_AfterMistakes_ClearsMistakeCounts()
+    {
+        var note = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        Score score = CreateScore([note]);
+        var session = new NoteReadingSession();
+        session.Reset(score);
+        session.Check(new Pitch(NoteLetter.D, 0, 4));
+
+        session.Reset(score);
+
+        Assert.Equal(0, session.PitchMistakeCount);
+        Assert.Equal(0, session.TimingMistakeCount);
+    }
+
+    [Fact]
+    public void Check_PitchAndRhythmLateRightPitch_RecordsOnsetVerdictWithoutHoldTracking()
+    {
+        var firstNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 1);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([firstNote, secondNote]),
+            NoteReadingMode.PitchAndRhythm,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+
+        session.Check(firstNote.Pitch, TimeSpan.FromSeconds(10));
+        NoteReadingSession.CheckResult late = session.Check(secondNote.Pitch, TimeSpan.FromMilliseconds(10_600));
+
+        Assert.Equal(Verdict.Late, late.Verdict);
+        Assert.True(session.IsComplete);
+        Assert.Equal(Verdict.Late, session.Verdicts[secondNote]);
+        NoteReadingPromptResult result = session.PromptResults[1];
+        Assert.True(result.IsPitchFirstTryCorrect);
+        Assert.Equal(Verdict.Late, result.OnsetVerdict);
+        Assert.Equal(TimeSpan.FromMilliseconds(100), result.OnsetDeviation);
+        Assert.Null(result.DurationVerdict);
+        Assert.Equal(1, session.TimingMistakeCount);
+        Assert.Equal(0, session.PitchMistakeCount);
+    }
+
+    [Fact]
+    public void Release_PitchAndRhythm_DoesNotTrackHolds()
+    {
+        var note = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([note]),
+            NoteReadingMode.PitchAndRhythm,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+        session.Check(note.Pitch, TimeSpan.FromSeconds(10));
+
+        NoteReadingSession.ReleaseResult release = session.Release(note.Pitch, TimeSpan.FromMilliseconds(10_050));
+
+        Assert.False(release.WasTracked);
+        Assert.Equal(Verdict.Correct, session.Verdicts[note]);
+    }
+
+    [Fact]
+    public void Check_PitchAndRhythmWrongKey_IsAPitchMistakeAndOnsetStaysGraded()
+    {
+        var note = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([note]),
+            NoteReadingMode.PitchAndRhythm,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+
+        NoteReadingSession.CheckResult wrong = session.Check(new Pitch(NoteLetter.E, 0, 4), TimeSpan.FromSeconds(10));
+        session.Check(note.Pitch, TimeSpan.FromMilliseconds(10_010));
+
+        Assert.Equal(Verdict.WrongPitch, wrong.Verdict);
+        NoteReadingPromptResult result = Assert.Single(session.PromptResults);
+        Assert.False(result.IsPitchFirstTryCorrect);
+        Assert.Equal(Verdict.Correct, result.OnsetVerdict);
+    }
+
+    [Fact]
+    public void Release_PitchAndRhythmChordMemberBeforeCompletion_UnmatchesItLikePitchOnly()
+    {
+        var lower = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var upper = CreateNote(NoteLetter.E, measureIndex: 0, beatOffset: 0);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([lower, upper]),
+            NoteReadingMode.PitchAndRhythm,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+        session.Check(lower.Pitch, TimeSpan.FromSeconds(10));
+
+        session.Release(lower.Pitch, TimeSpan.FromMilliseconds(10_020));
+
+        Assert.Contains(lower, session.ExpectedNotes);
+        Assert.False(session.IsComplete);
+    }
+
+    [Fact]
+    public void Check_RhythmOnlyAnyKey_MatchesTheNextEventAndNeverRecordsAWrongPitch()
+    {
+        var firstNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 1);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([firstNote, secondNote]),
+            NoteReadingMode.RhythmOnly,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+
+        NoteReadingSession.CheckResult first = session.Check(new Pitch(NoteLetter.A, 0, 2), TimeSpan.FromSeconds(10));
+        NoteReadingSession.CheckResult second = session.Check(new Pitch(NoteLetter.G, 1, 6), TimeSpan.FromMilliseconds(10_430));
+
+        Assert.True(first.IsCorrect);
+        Assert.True(first.DidAdvance);
+        Assert.Equal(Verdict.Correct, first.Verdict);
+        Assert.True(second.IsCorrect);
+        Assert.Equal(Verdict.Early, second.Verdict);
+        Assert.True(session.IsComplete);
+        Assert.Equal(0, session.PitchMistakeCount);
+        Assert.Equal(1, session.TimingMistakeCount);
+        Assert.All(session.PromptResults, result =>
+        {
+            Assert.True(result.IsPitchFirstTryCorrect);
+            Assert.Empty(result.WrongPlayedPitches);
+            Assert.Null(result.DurationVerdict);
+            Assert.Null(result.ResponseTime);
+        });
+        Assert.Equal(TimeSpan.FromMilliseconds(-70), session.PromptResults[1].OnsetDeviation);
+        Assert.Equal(Verdict.Early, session.Verdicts[secondNote]);
+    }
+
+    [Fact]
+    public void Check_RhythmOnlyChordStep_CompletesByPressCount()
+    {
+        var lower = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var upper = CreateNote(NoteLetter.E, measureIndex: 0, beatOffset: 0);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([lower, upper]),
+            NoteReadingMode.RhythmOnly,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+
+        NoteReadingSession.CheckResult first = session.Check(new Pitch(NoteLetter.A, 0, 3), TimeSpan.FromSeconds(10));
+        Assert.True(first.IsCorrect);
+        Assert.False(first.DidAdvance);
+        Assert.False(session.IsComplete);
+
+        NoteReadingSession.CheckResult second = session.Check(new Pitch(NoteLetter.B, 0, 3), TimeSpan.FromSeconds(10));
+        Assert.True(second.DidAdvance);
+        Assert.True(session.IsComplete);
+    }
+
+    [Fact]
+    public void Release_RhythmOnlyUnfinishedChordStep_UnmatchesThePressedKey()
+    {
+        var lower = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var upper = CreateNote(NoteLetter.E, measureIndex: 0, beatOffset: 0);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([lower, upper]),
+            NoteReadingMode.RhythmOnly,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+        var pressedKey = new Pitch(NoteLetter.A, 0, 3);
+        session.Check(pressedKey, TimeSpan.FromSeconds(10));
+        Assert.Single(session.ExpectedNotes);
+
+        session.Release(pressedKey, TimeSpan.FromMilliseconds(10_030));
+
+        Assert.Equal(2, session.ExpectedNotes.Count);
+        session.Check(new Pitch(NoteLetter.B, 0, 3), TimeSpan.FromMilliseconds(10_040));
+        Assert.False(session.IsComplete);
+        session.Check(new Pitch(NoteLetter.D, 0, 4), TimeSpan.FromMilliseconds(10_050));
+        Assert.True(session.IsComplete);
+    }
+
+    [Fact]
+    public void Reset_NewModesWithUndefinedNeighbour_ThrowsForUndefinedValues()
+    {
+        var session = new NoteReadingSession();
+        Score score = CreateScore([CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0)]);
+
+        session.Reset(score, NoteReadingMode.RhythmOnly, TimeSpan.FromMilliseconds(60));
+        session.Reset(score, NoteReadingMode.PitchAndRhythm, TimeSpan.FromMilliseconds(60));
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => session.Reset(score, (NoteReadingMode)6, TimeSpan.FromMilliseconds(60)));
+    }
+
     private static ScoreNote CreateNote(
         NoteLetter letter,
         int measureIndex,
@@ -1148,4 +1600,43 @@ public sealed class NoteReadingSessionTests
             new Tempo(120),
             0,
             [new ScoreMeasure(notes, [])]);
+
+    [Fact]
+    public void Reset_TiedNotes_FormOnePromptWithBothSourceNotesAndOnePitch()
+    {
+        var first = new ScoreNote(new Pitch(NoteLetter.E, 0, 4), new NoteValue(4), 0, 1, Staff.Treble, TiesToNext: true);
+        var continuation = new ScoreNote(new Pitch(NoteLetter.E, 0, 4), new NoteValue(4), 0, 2, Staff.Treble);
+        var after = new ScoreNote(new Pitch(NoteLetter.G, 0, 4), new NoteValue(4), 0, 3, Staff.Treble);
+        var session = new NoteReadingSession();
+
+        session.Reset(CreateScore([first, continuation, after]));
+        session.Check(first.Pitch);
+
+        Assert.Equal(2, session.PromptCount);
+        NoteReadingPromptResult tiedPrompt = session.PromptResults[0];
+        Assert.Equal([first.Pitch], tiedPrompt.ExpectedPitches.ToArray());
+        Assert.Equal([first, continuation], tiedPrompt.ExpectedSourceNotes.ToArray());
+        Assert.Equal(1, tiedPrompt.OnsetBeats);
+    }
+
+    [Fact]
+    public void Release_TiedNotesInHoldMode_AreHeldForTheirSummedDuration()
+    {
+        // CreateScore runs at 120 beats per minute, so each quarter note is 0.5 s and the tied pair is 1.0 s.
+        var first = new ScoreNote(new Pitch(NoteLetter.E, 0, 4), new NoteValue(4), 0, 0, Staff.Treble, TiesToNext: true);
+        var continuation = new ScoreNote(new Pitch(NoteLetter.E, 0, 4), new NoteValue(4), 0, 1, Staff.Treble);
+        Score score = CreateScore([first, continuation]);
+        var held = new NoteReadingSession();
+        var lifted = new NoteReadingSession();
+        held.Reset(score, NoteReadingMode.PitchAndHold, TimeSpan.FromMilliseconds(60));
+        lifted.Reset(score, NoteReadingMode.PitchAndHold, TimeSpan.FromMilliseconds(60));
+
+        held.Check(first.Pitch, TimeSpan.Zero);
+        held.Release(first.Pitch, TimeSpan.FromSeconds(1));
+        lifted.Check(first.Pitch, TimeSpan.Zero);
+        lifted.Release(first.Pitch, TimeSpan.FromSeconds(0.5));
+
+        Assert.Equal(Verdict.Correct, held.PromptResults[0].DurationVerdict);
+        Assert.Equal(Verdict.TooShort, lifted.PromptResults[0].DurationVerdict);
+    }
 }

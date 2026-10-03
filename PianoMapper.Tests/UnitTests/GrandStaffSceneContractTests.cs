@@ -51,6 +51,37 @@ public sealed class GrandStaffSceneContractTests
     }
 
     [Fact]
+    public void GrandStaffGlyphKind_RestMatchesCanvasJsConstantAndIsAppendedLast()
+    {
+        Assert.Equal(10, (int)GrandStaffGlyphKind.Rest);
+        Assert.Equal(11, Enum.GetValues<GrandStaffGlyphKind>().Length);
+    }
+
+    [Fact]
+    public void ReviewMark_OrdinalsMatchCanvasJsReviewMarkConstantsAndAreAppendedOnly()
+    {
+        Assert.Equal(0, (int)ReviewMark.Clean);
+        Assert.Equal(1, (int)ReviewMark.Timing);
+        Assert.Equal(2, (int)ReviewMark.Pitch);
+        Assert.Equal(3, (int)ReviewMark.Missed);
+
+        // A new ReviewMark value needs a matching constant and drawing style in canvas.js.
+        Assert.Equal(4, Enum.GetValues<ReviewMark>().Length);
+    }
+
+    [Fact]
+    public void ReviewMarks_AreTheirOwnChannel_VerdictAndItsColorTableAreNotExtended()
+    {
+        // D3: review marks never reuse Verdict, so the verdictColors indexing contract keeps its exact size and the
+        // scene note carries both channels side by side.
+        Assert.Equal(8, Enum.GetValues<Verdict>().Length);
+        var properties = typeof(GrandStaffNote).GetProperties().Select(property => property.Name).ToArray();
+        Assert.Contains(nameof(GrandStaffNote.Verdict), properties);
+        Assert.Contains(nameof(GrandStaffNote.ReviewMark), properties);
+        Assert.Contains(nameof(GrandStaffNote.ReviewMarkGroup), properties);
+    }
+
+    [Fact]
     public void StemDirection_UpMatchesCanvasJsStemDirectionUpConstant()
     {
         Assert.Equal(0, (int)StemDirection.Up);

@@ -63,6 +63,92 @@ public sealed class GraderTests
     }
 
     [Fact]
+    public void Grade_IgnorePitch_AcceptsAnyKeyWithinTheOnsetWindowAndNeverEmitsWrongPitch()
+    {
+        ScoreEvent[] expected =
+        [
+            new ScoreEvent(C4, 0, 1, Staff.Treble, []),
+            new ScoreEvent(C4, 1, 1, Staff.Treble, []),
+        ];
+        PerformedNote[] performed =
+        [
+            new PerformedNote
+            {
+                Pitch = new Pitch(NoteLetter.G, 0, 2),
+                StartTime = Anchor,
+                ReleaseTime = Anchor + TimeSpan.FromSeconds(1),
+            },
+            new PerformedNote
+            {
+                Pitch = new Pitch(NoteLetter.A, 1, 5),
+                StartTime = Anchor + TimeSpan.FromSeconds(1),
+                ReleaseTime = Anchor + TimeSpan.FromSeconds(2),
+            },
+        ];
+
+        var result = Grader.Grade(
+            expected,
+            Tempo,
+            performed,
+            Anchor,
+            Anchor + TimeSpan.FromSeconds(3),
+            new GradingOptions { IgnorePitch = true });
+
+        Assert.All(result.Events, gradedEvent => Assert.Equal(Verdict.Correct, gradedEvent.Verdict));
+        Assert.Equal(0, result.Summary.Counts[Verdict.WrongPitch]);
+        Assert.Equal(100, result.Summary.AccuracyPercent);
+    }
+
+    [Fact]
+    public void Grade_IgnorePitch_StillReportsLateAndMissedNotes()
+    {
+        ScoreEvent[] expected =
+        [
+            new ScoreEvent(C4, 0, 1, Staff.Treble, []),
+            new ScoreEvent(C4, 1, 1, Staff.Treble, []),
+        ];
+        PerformedNote[] performed =
+        [
+            new PerformedNote
+            {
+                Pitch = new Pitch(NoteLetter.F, 0, 3),
+                StartTime = Anchor + TimeSpan.FromMilliseconds(120),
+                ReleaseTime = Anchor + TimeSpan.FromSeconds(1),
+            },
+        ];
+
+        var result = Grader.Grade(
+            expected,
+            Tempo,
+            performed,
+            Anchor,
+            Anchor + TimeSpan.FromSeconds(3),
+            new GradingOptions { IgnorePitch = true });
+
+        Assert.Equal(Verdict.Late, result.Events[0].Verdict);
+        Assert.Equal(Verdict.Missed, result.Events[1].Verdict);
+    }
+
+    [Fact]
+    public void Grade_DefaultOptions_StillEmitsWrongPitch()
+    {
+        ScoreEvent[] expected = [new ScoreEvent(C4, 0, 1, Staff.Treble, [])];
+        PerformedNote[] performed =
+        [
+            new PerformedNote
+            {
+                Pitch = new Pitch(NoteLetter.D, 0, 4),
+                StartTime = Anchor,
+                ReleaseTime = Anchor + TimeSpan.FromSeconds(1),
+            },
+        ];
+
+        var result = Grader.Grade(expected, Tempo, performed, Anchor, Anchor + TimeSpan.FromSeconds(2));
+
+        Assert.Equal(Verdict.WrongPitch, result.Events[0].Verdict);
+    }
+
+    [Fact]
     public void Grade_UnmatchedExpectedAndPerformed_ReturnsMissedAndExtra()
     {
         ScoreEvent[] expected = [new ScoreEvent(C4, 0, 1, Staff.Treble, [])];

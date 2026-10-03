@@ -47,6 +47,54 @@ public static class ScoreDerivation
         return events;
     }
 
+    /// <summary>
+    /// Groups events into prompts: events whose onsets lie within a billionth of a beat of the group's first onset
+    /// are one chord (the same tolerance wherever a prompt is formed, so every engine agrees on what a prompt is).
+    /// Groups are in onset order.
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyList<ScoreEvent>> GroupByOnset(IReadOnlyList<ScoreEvent> scoreEvents)
+    {
+        ArgumentNullException.ThrowIfNull(scoreEvents);
+        var groups = new List<IReadOnlyList<ScoreEvent>>();
+        List<ScoreEvent>? currentGroup = null;
+        double currentGroupOnsetBeats = 0;
+        foreach (ScoreEvent scoreEvent in scoreEvents.OrderBy(candidate => candidate.OnsetBeats))
+        {
+            if (currentGroup is null || scoreEvent.OnsetBeats - currentGroupOnsetBeats > BeatComparisonTolerance)
+            {
+                currentGroupOnsetBeats = scoreEvent.OnsetBeats;
+                currentGroup = [];
+                groups.Add(currentGroup);
+            }
+
+            currentGroup.Add(scoreEvent);
+        }
+
+        return groups;
+    }
+
+    /// <summary>
+    /// The note that continues <paramref name="tiedNote"/>'s tie: same staff and pitch, starting where it ends (in the
+    /// same measure or the next one), or null when the score has none. The same rule <see cref="Flatten"/> merges by.
+    /// </summary>
+    public static ScoreNote? FindTieContinuation(Score score, ScoreNote tiedNote)
+    {
+        ArgumentNullException.ThrowIfNull(score);
+        ArgumentNullException.ThrowIfNull(tiedNote);
+        double endBeats = GetOnsetBeats(tiedNote, score.TimeSignature) +
+            MusicalTime.GetBeats(tiedNote.NoteValue, score.TimeSignature);
+        int measureIndex = (int)Math.Floor((endBeats + BeatComparisonTolerance) / score.TimeSignature.Numerator);
+        if (measureIndex < 0 || measureIndex >= score.Measures.Count)
+        {
+            return null;
+        }
+
+        return score.Measures[measureIndex].Notes.FirstOrDefault(candidate =>
+            candidate.Pitch == tiedNote.Pitch &&
+            candidate.Staff == tiedNote.Staff &&
+            Math.Abs(GetOnsetBeats(candidate, score.TimeSignature) - endBeats) <= BeatComparisonTolerance);
+    }
+
     private static int FindTieContinuation(
         IReadOnlyList<ScoreNote> notes,
         IReadOnlyList<bool> consumed,

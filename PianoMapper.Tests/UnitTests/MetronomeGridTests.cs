@@ -25,6 +25,40 @@ public sealed class MetronomeGridTests
         Assert.Equal(expectedDeviationSeconds, deviation.TotalSeconds, 6);
     }
 
+    [Theory]
+    [InlineData(6, 8, 3)]
+    [InlineData(9, 8, 3)]
+    [InlineData(12, 8, 3)]
+    [InlineData(4, 4, 1)]
+    [InlineData(3, 4, 1)]
+    [InlineData(2, 4, 1)]
+    [InlineData(3, 8, 1)]
+    [InlineData(5, 8, 1)]
+    [InlineData(6, 4, 1)]
+    public void BeatsPerGroup_TimeSignature_GroupsOnlyCompoundEighthNoteMeters(
+        int numerator,
+        int denominator,
+        int expectedBeatsPerGroup)
+    {
+        var grid = new MetronomeGrid(
+            TimeSpan.Zero,
+            new Tempo(120),
+            new TimeSignature(numerator, new NoteValue(denominator)));
+
+        Assert.Equal(expectedBeatsPerGroup, grid.BeatsPerGroup);
+    }
+
+    [Fact]
+    public void BeatsPerGroup_DottedEighthBeat_IsNotTreatedAsCompoundMeter()
+    {
+        var grid = new MetronomeGrid(
+            TimeSpan.Zero,
+            new Tempo(120),
+            new TimeSignature(6, new NoteValue(8, dots: 1)));
+
+        Assert.Equal(1, grid.BeatsPerGroup);
+    }
+
     [Fact]
     public void BeatDuration_SixEightAtNinetyBpm_UsesEighthNoteBeat()
     {

@@ -8,6 +8,7 @@ internal interface IBrowserMetronomeAudio
         TimeSpan anchor,
         TimeSpan beatDuration,
         int beatsPerMeasure,
+        int beatsPerGroup,
         CancellationToken cancellationToken = default);
 
     ValueTask StopMetronomeAsync(CancellationToken cancellationToken = default);

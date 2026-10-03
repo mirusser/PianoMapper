@@ -573,6 +573,11 @@ select option {
     align-items: center;
 }
 
+.exercise-actions ~ .tempo-feedback {
+    justify-content: center;
+    margin-top: 0.9rem;
+}
+
 .metronome-pulse {
     width: 0.75rem;
     height: 0.75rem;

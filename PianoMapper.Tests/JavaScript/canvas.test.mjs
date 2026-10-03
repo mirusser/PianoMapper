@@ -13,6 +13,7 @@ import {
     render,
     startScoreCursor,
     stopScoreCursor,
+    verdictColors,
 } from "../../PianoMapper.Web/wwwroot/js/canvas.js";
 import {
     dispose as disposeAudio,
@@ -36,6 +37,7 @@ class FakeCanvasContext {
     strokeCalls = 0;
     drawImageCalls = 0;
     ellipseCalls = [];
+    arcCalls = [];
     curveCalls = [];
     filledPathCalls = [];
     strokedPathCalls = [];
@@ -45,6 +47,7 @@ class FakeCanvasContext {
     clipCalls = 0;
     operations = [];
     rectCalls = [];
+    roundRectCalls = [];
     lineDashCalls = [];
     pathStart = undefined;
     currentPath = undefined;
@@ -71,6 +74,8 @@ class FakeCanvasContext {
             actualBoundingBoxAscent: 80,
             actualBoundingBoxDescent: 20,
             actualBoundingBoxRight: 50,
+            // A proportional text model (half the font size per character) so label-fitting is deterministic here.
+            width: (Number.parseFloat(this.font) || 16) * text.length * 0.5,
         };
     }
     save() { }
@@ -79,6 +84,7 @@ class FakeCanvasContext {
     restore() { }
     beginPath() {
         this.pathStart = undefined;
+        this.lastRoundRect = undefined;
         this.currentPath = { bezierCurves: [], isClosed: false };
     }
     moveTo(x, y) {
@@ -97,10 +103,28 @@ class FakeCanvasContext {
     rect(...args) {
         this.rectCalls.push(args);
     }
+    roundRect(x, y, width, height, radius) {
+        const call = {
+            x,
+            y,
+            width,
+            height,
+            radius,
+            strokeStyle: this.strokeStyle,
+            lineWidth: this.lineWidth,
+            lineDash: [...(this.lineDashCalls.at(-1) ?? [])],
+            stroked: false,
+        };
+        this.lastRoundRect = call;
+        this.roundRectCalls.push(call);
+        this.operations.push({ kind: "roundRect", call });
+    }
     clip() {
         this.clipCalls++;
     }
-    arc() { }
+    arc(...args) {
+        this.arcCalls.push(args);
+    }
     quadraticCurveTo(controlX, controlY, x, y) {
         const curve = {
             ...this.pathStart,
@@ -153,6 +177,10 @@ class FakeCanvasContext {
 
     stroke() {
         this.strokeCalls++;
+        if (this.lastRoundRect) {
+            this.lastRoundRect.stroked = true;
+        }
+
         if (this.currentPath?.bezierCurves.length > 0) {
             const strokedPath = {
                 ...this.currentPath,
@@ -225,6 +253,9 @@ async function createScoreCursorHarness(currentTime) {
         },
         querySelector() {
             return null;
+        },
+        querySelectorAll() {
+            return [];
         },
     };
     globalThis.ResizeObserver = class {
@@ -785,6 +816,46 @@ test("grand staff draws compact angled noteheads", () => {
     assert.equal(ellipse[4], -Math.PI / 8);
 });
 
+test("grand staff keeps a dotted stem-up note's dot clear of its stem", () => {
+    const dottedNote = (stemDirection) => ({
+        x: 0,
+        y: 0,
+        isActive: false,
+        isFilled: false,
+        hasStem: true,
+        stemEndY: -0.3,
+        stemDirection,
+        hasDot: true,
+        flagCount: 0,
+        label: "F4",
+    });
+    const render = (note) => renderGrandStaffScene({
+        kind: 0,
+        lines: [
+            { x0: -0.8, y0: 0.1, x1: 0.8, y1: 0.1, kind: 0 },
+            { x0: -0.8, y0: 0, x1: 0.8, y1: 0, kind: 0 },
+        ],
+        glyphs: [],
+        notes: [note],
+        beams: [],
+        shouldClipNotesAtClefs: false,
+    }, 1280);
+
+    const stemUp = render(dottedNote(0));
+    const stemDown = render(dottedNote(1));
+
+    const staffSpace = Math.abs(stemUp.lineSegments[0].y - stemUp.lineSegments[1].y);
+    const [upDotX, , upDotRadius] = stemUp.arcCalls[0];
+    const upStemX = stemUp.lineSegments.at(-1).x;
+    const [downDotX] = stemDown.arcCalls[0];
+    const noteX = stemUp.ellipseCalls[0][0];
+    // The dot's left edge must leave a visible gap (at least a quarter of a staff space) to the stem on its left.
+    assert.ok(upDotX - upDotRadius - upStemX >= staffSpace * 0.25 - 1e-9,
+        `dot edge ${upDotX - upDotRadius} is too close to the stem at ${upStemX}`);
+    // A stem-down note has its stem on the other side, so its dot keeps the usual closer offset.
+    assert.ok(downDotX - noteX < upDotX - noteX);
+});
+
 test("grand staff draws pitch labels on the supplied shared row", () => {
     const context = renderGrandStaffScene({
         kind: 0,
@@ -804,6 +875,148 @@ test("grand staff draws pitch labels on the supplied shared row", () => {
     const labelYs = context.fillTextCalls.map(call => call.args[2]);
     assert.equal(labelYs.length, 2);
     assert.equal(labelYs[0], labelYs[1]);
+});
+
+// A note-name label is 16 px text centred under its note. Labels of neighbouring notes in one row that would touch are
+// drawn smaller (down to a floor), so a run of three-character names (F#4 Eb4 C#4) stays readable at a narrow width.
+// The fake context measures text at half the font size per character, and 640 px is 302 px per scene-X unit.
+function labelScene(notes) {
+    return {
+        kind: 0,
+        lines: [
+            { x0: -0.8, y0: 0.4, x1: 0.8, y1: 0.4, kind: 0 },
+            { x0: -0.8, y0: 0.3, x1: 0.8, y1: 0.3, kind: 0 },
+        ],
+        glyphs: [],
+        notes: notes.map(note => ({ y: 0.35, labelY: 0.1, isActive: false, isFilled: true, ...note })),
+        beams: [],
+        shouldClipNotesAtClefs: false,
+    };
+}
+
+function labelFontSizes(context) {
+    return context.fillTextCalls.map(call => ({ text: call.args[0], size: Number.parseFloat(call.font) }));
+}
+
+test("grand staff draws a label at full size when its neighbours leave room", () => {
+    const context = renderGrandStaffScene(labelScene([
+        { x: -0.2, label: "F#4" },
+        { x: 0.2, label: "Eb4" },
+    ]));
+
+    assert.deepEqual(labelFontSizes(context), [{ text: "F#4", size: 16 }, { text: "Eb4", size: 16 }]);
+});
+
+test("grand staff shrinks labels that would touch their neighbour so they keep a gap", () => {
+    // 0.04 either side of the centre is 24.16 px between the labels; three characters at 16 px are 24 px wide.
+    const context = renderGrandStaffScene(labelScene([
+        { x: -0.04, label: "F#4" },
+        { x: 0.04, label: "Eb4" },
+    ]));
+
+    const expectedSize = 16 * (24.16 - 2) / 24;
+    const sizes = labelFontSizes(context);
+    assert.equal(sizes.length, 2);
+    for (const { size } of sizes) {
+        assert.ok(Math.abs(size - expectedSize) < 0.01, `expected ${expectedSize}, got ${size}`);
+        // The two labels together now leave at least the minimum gap between them.
+        assert.ok((size / 16 * 24 / 2) * 2 + 2 <= 24.16 + 1e-9);
+    }
+});
+
+test("grand staff never shrinks a label below its floor, however close the neighbour", () => {
+    const context = renderGrandStaffScene(labelScene([
+        { x: -0.01, label: "F#4" },
+        { x: 0.01, label: "Eb4" },
+    ]));
+
+    for (const { size } of labelFontSizes(context)) {
+        assert.ok(Math.abs(size - 8) < 1e-9, `expected the 8 px floor (half the normal size), got ${size}`);
+    }
+});
+
+test("grand staff only compares labels in the same row", () => {
+    // Same x, different rows: a chord's stacked names never shrink each other.
+    const context = renderGrandStaffScene(labelScene([
+        { x: 0, label: "G4", labelY: 0.1 },
+        { x: 0, label: "E4", labelY: 0.04 },
+    ]));
+
+    assert.deepEqual(labelFontSizes(context).map(label => label.size), [16, 16]);
+});
+
+test("grand staff leaves labels of the same moment at their own size", () => {
+    // 0.01 scene-X is 3 px: two notes of one chord or a live note over another, which shrinking cannot separate.
+    const context = renderGrandStaffScene(labelScene([
+        { x: 0, label: "E4" },
+        { x: 0.01, label: "C4" },
+    ]));
+
+    assert.deepEqual(labelFontSizes(context).map(label => label.size), [16, 16]);
+});
+
+test("grand staff fits a label by its own neighbours' distance, so only the crowded one shrinks", () => {
+    // Left pair 24.16 px apart (crowded), right neighbour 200 px away: the middle label follows its nearest neighbour.
+    const context = renderGrandStaffScene(labelScene([
+        { x: -0.04, label: "F#4" },
+        { x: 0.04, label: "Eb4" },
+        { x: 0.7, label: "C#5" },
+    ]));
+
+    const sizes = Object.fromEntries(labelFontSizes(context).map(label => [label.text, label.size]));
+    assert.ok(sizes["F#4"] < 16);
+    assert.ok(sizes["Eb4"] < 16);
+    assert.equal(sizes["C#5"], 16);
+});
+
+test("grand staff applies the fit on top of a label's own severe-stack scale", () => {
+    const context = renderGrandStaffScene(labelScene([
+        { x: -0.04, label: "F#4", labelFontScale: 0.75 },
+        { x: 0.04, label: "Eb4", labelFontScale: 0.75 },
+    ]));
+
+    // At 0.75 x 16 px a three-character name is 18 px wide, which fits 24.16 px with the gap: left alone.
+    assert.deepEqual(labelFontSizes(context).map(label => label.size), [12, 12]);
+});
+
+test("score playback highlight redraws a crowded label at the same fitted size", async () => {
+    const harness = await createScoreCursorHarness(1);
+    const canvas = harness.createCanvas();
+    const noteX = mapScoreNotationBeatToX(1, 4, 0);
+    const note = { y: 0.2, labelY: 0.1, isActive: false, isFilled: true, scoreOnsetBeats: 1, scoreEndBeats: 2 };
+
+    try {
+        render(canvas, {
+            kind: 0,
+            lines: [
+                { x0: -0.8, y0: 0.3, x1: 0.8, y1: 0.3, kind: 0 },
+                { x0: -0.8, y0: 0.2, x1: 0.8, y1: 0.2, kind: 0 },
+            ],
+            glyphs: [],
+            notes: [
+                { ...note, x: noteX, label: "F#4" },
+                { ...note, x: noteX + 0.04, label: "Eb4", scoreOnsetBeats: 2, scoreEndBeats: 3 },
+            ],
+            beams: [],
+            shouldClipNotesAtClefs: false,
+        });
+        startScoreCursor(canvas, {
+            anchorSeconds: 0,
+            beatsPerMinute: 60,
+            beatsPerMeasure: 4,
+            firstVisibleMeasure: 0,
+            completionSeconds: 5,
+            cursorY0: -0.5,
+            cursorY1: 0.5,
+            visibleMeasureCount: 5,
+        });
+
+        const labelCalls = canvas.context.fillTextCalls.filter(call => call.args[0] === "F#4");
+        assert.equal(labelCalls.length, 1, "the highlight redraws the highlighted note's label once on the main canvas");
+        assert.ok(Number.parseFloat(labelCalls[0].font) < 16, `highlighted label font ${labelCalls[0].font} was not fitted`);
+    } finally {
+        await harness.dispose();
+    }
 });
 
 test("grand staff ledger lines extend visibly beyond noteheads", () => {
@@ -890,8 +1103,10 @@ test("grand staff tie height and tapered thickness derive from staff spacing", (
         shouldClipNotesAtClefs: false,
     };
 
-    const narrowContext = renderGrandStaffScene(scene, 640, 240);
-    const wideContext = renderGrandStaffScene(scene, 1280, 240);
+    // Tall canvases (28 px staff space), where 0.08 staff space is above the 1.2 px minimum thickness: this test pins the
+    // staff-space rule itself, the minimum is pinned by the "at least 1.2 px thick" tests.
+    const narrowContext = renderGrandStaffScene(scene, 640, 600);
+    const wideContext = renderGrandStaffScene(scene, 1280, 600);
     const narrowTie = narrowContext.filledPathCalls[0];
     const wideTie = wideContext.filledPathCalls[0];
     const staffSpace = Math.abs(
@@ -913,6 +1128,108 @@ test("grand staff tie height and tapered thickness derive from staff spacing", (
     assert.ok(wideApexHeight <= staffSpace * 0.45 + 1e-9);
     assert.ok(Math.abs(centerThickness - (staffSpace * 0.08)) < 1e-9);
     assert.ok(Math.abs(wideCenterThickness - (staffSpace * 0.08)) < 1e-9);
+});
+
+// The thickest point of a tie, from the control points of its two bezier arcs (each shifted by 2/3 of the thickness).
+function tieThickness(filledTie) {
+    const [firstArc, returnArc] = filledTie.bezierCurves;
+    return Math.abs(firstArc.controlY1 - returnArc.controlY2) * 0.75;
+}
+
+// Real scene geometry of the exercise score view: staff lines 0.0738 scene units apart, on the smallest clamped canvas
+// (916 x 240), which makes a staff space 7.5 px.
+const scoreViewTieScene = ties => ({
+    kind: 0,
+    lines: [
+        { x0: -0.92, y0: 0.5155, x1: 0.96, y1: 0.5155, kind: 0 },
+        { x0: -0.92, y0: 0.4417, x1: 0.96, y1: 0.4417, kind: 0 },
+    ],
+    glyphs: [],
+    notes: [],
+    beams: [],
+    ties,
+    shouldClipNotesAtClefs: false,
+});
+
+test("grand staff ties stay at least 1.2 px thick on the smallest score canvas", () => {
+    const context = renderGrandStaffScene(
+        scoreViewTieScene([{ x0: -0.2, y0: 0.45, x1: 0.2, y1: 0.45, curveDirection: 1, isActive: false }]),
+        916,
+        240);
+
+    const staffSpace = Math.abs(context.lineSegments[0].y - context.lineSegments[1].y);
+    assert.ok(Math.abs(staffSpace - 7.5) < 0.05, `staff space ${staffSpace}`);
+    assert.ok(
+        tieThickness(context.filledPathCalls[0]) >= 1.2 - 1e-9,
+        `thickness ${tieThickness(context.filledPathCalls[0])} px`);
+});
+
+test("grand staff ties on the free-play canvas keep their staff-space thickness", () => {
+    // The free-play (live) staff uses the same line spacing on a 460 px canvas at a 1000 px viewport and 544 px at its
+    // largest: 15.6 px and 18.5 px staff spaces, where 0.08 staff space (1.25 px and 1.5 px) already exceeds the minimum.
+    for (const [height, expectedStaffSpace] of [[460, 15.6], [544, 18.7]]) {
+        const context = renderGrandStaffScene(
+            scoreViewTieScene([{ x0: -0.2, y0: 0.45, x1: 0.2, y1: 0.45, curveDirection: 1, isActive: false }]),
+            916,
+            height);
+
+        const staffSpace = Math.abs(context.lineSegments[0].y - context.lineSegments[1].y);
+        assert.ok(Math.abs(staffSpace - expectedStaffSpace) < 0.2, `staff space ${staffSpace} at ${height}`);
+        assert.ok(
+            Math.abs(tieThickness(context.filledPathCalls[0]) - (staffSpace * 0.08)) < 1e-9,
+            `thickness ${tieThickness(context.filledPathCalls[0])} at ${height} px`);
+    }
+});
+
+test("grand staff keeps a tie's tapered shape and endpoint gaps when it thickens it", () => {
+    const tie = { x0: -0.2, y0: 0.45, x1: 0.2, y1: 0.45, curveDirection: 1, isActive: false };
+    for (const height of [240, 900]) {
+        const context = renderGrandStaffScene(scoreViewTieScene([tie]), 916, height);
+        const filled = context.filledPathCalls[0];
+        const staffSpace = Math.abs(context.lineSegments[0].y - context.lineSegments[1].y);
+        const startCenterX = 18 + (0.8 / 2) * (916 - 36);
+        const endCenterX = 18 + (1.2 / 2) * (916 - 36);
+
+        // Both arcs run between the same two points (a lens, zero thickness at the ends), 0.8 staff space from the note
+        // centres: only the control points move when the tie is thickened.
+        assert.equal(filled.bezierCurves.length, 2);
+        assert.ok(filled.isClosed);
+        assert.ok(Math.abs(filled.start.x - (startCenterX + staffSpace * 0.8)) < 1e-9, `height ${height}`);
+        assert.ok(Math.abs(filled.bezierCurves[0].x1 - (endCenterX - staffSpace * 0.8)) < 1e-9, `height ${height}`);
+        assert.equal(filled.bezierCurves[0].x1, filled.bezierCurves[1].x);
+        assert.equal(filled.bezierCurves[0].y1, filled.bezierCurves[1].y);
+        assert.equal(filled.bezierCurves[1].x1, filled.start.x);
+        assert.equal(filled.bezierCurves[1].y1, filled.start.y);
+    }
+});
+
+test("grand staff starts the tie that arrives at a row at the opening barline, with no gap before it", () => {
+    // The scene's X values are float-derived: ScoreX0 (-0.56f) - 0.02 arrives as -0.5800000023841858.
+    const arriving = { x0: -0.5800000023841858, y0: 0.45, x1: -0.54, y1: 0.45, curveDirection: 0, isActive: false };
+    const inRow = { x0: -0.3, y0: 0.45, x1: -0.26, y1: 0.45, curveDirection: 0, isActive: false };
+
+    const arrivingContext = renderGrandStaffScene(scoreViewTieScene([arriving]), 916, 240);
+    const inRowContext = renderGrandStaffScene(scoreViewTieScene([inRow]), 916, 240);
+
+    const staffSpace = Math.abs(arrivingContext.lineSegments[0].y - arrivingContext.lineSegments[1].y);
+    const arrivingStart = arrivingContext.filledPathCalls[0].start.x;
+    const inRowStart = inRowContext.filledPathCalls[0].start.x;
+    assert.ok(Math.abs(arrivingStart - (18 + (0.42 / 2) * 880)) < 1e-3, `starts at ${arrivingStart}`);
+    assert.ok(Math.abs(inRowStart - (18 + (0.7 / 2) * 880 + staffSpace * 0.8)) < 1e-3, `starts at ${inRowStart}`);
+    // It ends the usual 0.8 staff space short of its note, and is long enough to see.
+    const arrivingEnd = arrivingContext.filledPathCalls[0].bezierCurves[0].x1;
+    assert.ok(Math.abs(arrivingEnd - (18 + (0.46 / 2) * 880 - staffSpace * 0.8)) < 1e-3);
+    assert.ok(arrivingEnd - arrivingStart >= 10, `${arrivingEnd - arrivingStart} px long`);
+});
+
+test("grand staff ties arriving from the left edge are at least 1.2 px thick too", () => {
+    // The half tie of a note at the start of the next row: from the score's left edge to the first note.
+    const context = renderGrandStaffScene(
+        scoreViewTieScene([{ x0: -0.56, y0: 0.45, x1: -0.535, y1: 0.45, curveDirection: 0, isActive: false }]),
+        916,
+        240);
+
+    assert.ok(tieThickness(context.filledPathCalls[0]) >= 1.2 - 1e-9);
 });
 
 test("grand staff scenes without ties keep their previous canvas operations", () => {
@@ -1075,4 +1392,188 @@ test("grand staff scenes without arpeggio marks keep their previous canvas opera
 
     assert.equal(omittedMarks.curveCalls.length, emptyMarks.curveCalls.length);
     assert.equal(omittedMarks.strokeCalls, emptyMarks.strokeCalls);
+});
+
+function reviewMarkScene(notes, { glyphs = [], bands = [], ties = [], lines = undefined } = {}) {
+    return {
+        kind: 0,
+        lines: lines ?? [
+            { x0: -0.8, y0: 0.1, x1: 0.8, y1: 0.1, kind: 0 },
+            { x0: -0.8, y0: 0, x1: 0.8, y1: 0, kind: 0 },
+        ],
+        glyphs,
+        notes: notes.map(note => ({ isActive: false, isFilled: true, hasStem: false, flagCount: 0, label: "C4", ...note })),
+        beams: [],
+        ties,
+        bands,
+        shouldClipNotesAtClefs: false,
+    };
+}
+
+const reviewMarkClean = 0;
+const reviewMarkTiming = 1;
+const reviewMarkPitch = 2;
+const reviewMarkMissed = 3;
+
+// The halos are the stroked rounded rectangles (the annotation bands are filled ones).
+function ringsOf(context) {
+    return context.roundRectCalls.filter(call => call.stroked);
+}
+
+test("review marks draw one ring per marked note and nothing for a clean or unmarked note", () => {
+    const context = renderGrandStaffScene(reviewMarkScene([
+        { x: -0.4, y: 0, reviewMark: reviewMarkTiming, reviewMarkGroup: 0 },
+        { x: -0.2, y: 0, reviewMark: reviewMarkClean, reviewMarkGroup: 1 },
+        { x: 0, y: 0, reviewMark: reviewMarkMissed, reviewMarkGroup: 2 },
+        { x: 0.2, y: 0 },
+    ]));
+
+    assert.equal(ringsOf(context).length, 2);
+    // Both rings are drawn around a head, and the heads themselves are still drawn.
+    assert.equal(context.ellipseCalls.length, 4);
+});
+
+test("review marks leave scenes without marks (or with only clean marks) exactly as they were", () => {
+    const notes = [{ x: -0.2, y: 0 }, { x: 0.2, y: 0 }];
+    const plain = renderGrandStaffScene(reviewMarkScene(notes));
+    const allClean = renderGrandStaffScene(reviewMarkScene(notes.map((note, index) => ({
+        ...note,
+        reviewMark: reviewMarkClean,
+        reviewMarkGroup: index,
+    }))));
+
+    assert.equal(ringsOf(allClean).length, 0);
+    assert.deepEqual(allClean.operations, plain.operations);
+    assert.equal(allClean.strokeCalls, plain.strokeCalls);
+});
+
+test("review marks are shape coded as well as colored: thick pitch ring, dashed missed ring, plain timing ring", () => {
+    const context = renderGrandStaffScene(reviewMarkScene([
+        { x: -0.4, y: 0, reviewMark: reviewMarkTiming, reviewMarkGroup: 0 },
+        { x: 0, y: 0, reviewMark: reviewMarkPitch, reviewMarkGroup: 1 },
+        { x: 0.4, y: 0, reviewMark: reviewMarkMissed, reviewMarkGroup: 2 },
+    ]));
+
+    const [timing, pitch, missed] = ringsOf(context);
+    assert.deepEqual(timing.lineDash, []);
+    assert.deepEqual(pitch.lineDash, []);
+    assert.ok(missed.lineDash.length >= 2 && missed.lineDash.every(length => length > 0));
+    assert.ok(pitch.lineWidth > timing.lineWidth);
+    assert.equal(new Set([timing.strokeStyle, pitch.strokeStyle, missed.strokeStyle]).size, 3);
+});
+
+test("review marks draw a ring around the heads of a chord as one halo", () => {
+    const context = renderGrandStaffScene(reviewMarkScene([
+        { x: 0, y: 0.1, reviewMark: reviewMarkPitch, reviewMarkGroup: 4 },
+        { x: 0, y: 0, reviewMark: reviewMarkPitch, reviewMarkGroup: 4 },
+        { x: 0, y: -0.1, reviewMark: reviewMarkPitch, reviewMarkGroup: 4 },
+    ]));
+
+    assert.equal(ringsOf(context).length, 1);
+    const ring = ringsOf(context)[0];
+    const headCenters = context.ellipseCalls.map(call => call[1]);
+    const headHeight = context.ellipseCalls[0][3] * 2;
+    assert.ok(ring.y < Math.min(...headCenters) - (headHeight / 2));
+    assert.ok(ring.y + ring.height > Math.max(...headCenters) + (headHeight / 2));
+});
+
+test("review marks give two groups at the same beat on different staves a ring each", () => {
+    const context = renderGrandStaffScene(reviewMarkScene([
+        { x: 0, y: 0.5, reviewMark: reviewMarkTiming, reviewMarkGroup: 0 },
+        { x: 0, y: -0.5, reviewMark: reviewMarkTiming, reviewMarkGroup: 1 },
+    ]));
+
+    assert.equal(ringsOf(context).length, 2);
+});
+
+test("review marks wrap a note's accidental instead of cutting through it", () => {
+    const accidentalX = -0.019;
+    const context = renderGrandStaffScene(reviewMarkScene(
+        [{ x: 0, y: 0, reviewMark: reviewMarkTiming, reviewMarkGroup: 0 }],
+        { glyphs: [{ text: "♯", x: accidentalX, y: 0, kind: 1, height: 0.1 }] }));
+
+    const ring = ringsOf(context)[0];
+    const accidentalCenter = mapXForTest(accidentalX);
+    assert.ok(ring.x < accidentalCenter, "the ring must start left of the accidental's center");
+    assert.ok(ring.x + (ring.lineWidth / 2) < accidentalCenter - 1);
+});
+
+test("review marks stay clear of an annotation strip and never draw over their own head", () => {
+    // The head sits about 4 px above the strip, so there is no room for a full ring below it.
+    const staffSpace = 10.2;
+    const headY = 0.0;
+    const stripTopY = headY - ((staffSpace * 0.4 + 4) / 102);
+    const context = renderGrandStaffScene(reviewMarkScene(
+        [{ x: 0, y: headY, reviewMark: reviewMarkPitch, reviewMarkGroup: 0 }],
+        { bands: [{ x0: -0.9, y0: stripTopY, x1: 0.9, y1: stripTopY - 0.3 }] }));
+
+    const ring = ringsOf(context)[0];
+    const stripTop = context.ellipseCalls[0][1] + (staffSpace * 0.4 + 4);
+    const headBottom = context.ellipseCalls[0][1] + context.ellipseCalls[0][3];
+    assert.ok(ring.y + ring.height + (ring.lineWidth / 2) < stripTop, "the ring's outer edge must stay above the strip");
+    assert.ok(ring.y + ring.height - (ring.lineWidth / 2) >= headBottom - 1e-9, "the ring must not cut into the head");
+});
+
+test("review marks stay off a neighbouring head, and share the space with a neighbour's own ring", () => {
+    const neighbourX = 0.0736; // 22.2 px between centers: the heads are 12.2 px wide, so 10 px of free space
+    const unmarkedNeighbour = renderGrandStaffScene(reviewMarkScene([
+        { x: 0, y: 0, reviewMark: reviewMarkPitch, reviewMarkGroup: 0 },
+        { x: neighbourX, y: 0 },
+    ]));
+    const markedNeighbour = renderGrandStaffScene(reviewMarkScene([
+        { x: 0, y: 0, reviewMark: reviewMarkPitch, reviewMarkGroup: 0 },
+        { x: neighbourX, y: 0, reviewMark: reviewMarkPitch, reviewMarkGroup: 1 },
+    ]));
+
+    const neighbourHeadLeft = unmarkedNeighbour.ellipseCalls[1][0] - unmarkedNeighbour.ellipseCalls[1][2];
+    const [ring] = ringsOf(unmarkedNeighbour);
+    assert.ok(ring.x + ring.width + (ring.lineWidth / 2) <= neighbourHeadLeft, "ring touches the neighbouring head");
+    const [first, second] = ringsOf(markedNeighbour);
+    assert.ok(first.x + first.width + (first.lineWidth / 2) <= second.x - (second.lineWidth / 2) + 1e-9,
+        "two neighbouring rings overlap");
+});
+
+test("review marks stay off barlines and rests", () => {
+    const barlineX = -0.0334; // 4 px left of the head's left edge, as for the first note of a measure
+    const lines = [
+        { x0: -0.8, y0: 0.1, x1: 0.8, y1: 0.1, kind: 0 },
+        { x0: -0.8, y0: 0, x1: 0.8, y1: 0, kind: 0 },
+        { x0: barlineX, y0: 0.2, x1: barlineX, y1: -0.2, kind: 2 },
+    ];
+    const context = renderGrandStaffScene(reviewMarkScene(
+        [{ x: 0, y: 0, reviewMark: reviewMarkTiming, reviewMarkGroup: 0 }],
+        { lines, glyphs: [{ text: "𝄽", x: 0.0736, y: 0.05, kind: 10, height: 0.12 }] }));
+
+    const ring = ringsOf(context)[0];
+    assert.ok(ring.x - (ring.lineWidth / 2) >= mapXForTest(barlineX), "the ring crosses the barline");
+    const restHalfWidth = (0.12 / 2 * 204) * 0.2;
+    assert.ok(ring.x + ring.width + (ring.lineWidth / 2) <= mapXForTest(0.0736) - restHalfWidth + 1e-9,
+        "the ring reaches into the rest");
+});
+
+test("review marks are drawn under the noteheads and the ties", () => {
+    const context = renderGrandStaffScene(reviewMarkScene(
+        [
+            { x: -0.2, y: 0, reviewMark: reviewMarkPitch, reviewMarkGroup: 0 },
+            { x: 0.2, y: 0 },
+        ],
+        { ties: [{ x0: -0.2, y0: 0, x1: 0.2, y1: 0, curveDirection: 1, isActive: false }] }));
+
+    const ringIndex = context.operations.findIndex(operation => operation.kind === "roundRect");
+    const firstHeadIndex = context.operations.findIndex(operation => operation.kind === "ellipse");
+    const tieIndex = context.operations.findIndex(operation => operation.kind === "filledPath");
+    assert.ok(ringIndex >= 0 && ringIndex < firstHeadIndex, "the ring must be drawn before any notehead");
+    assert.ok(ringIndex < tieIndex, "the ring must be drawn before the tie");
+});
+
+test("review marks never use the verdict channel", () => {
+    // A note that carries both a live verdict (Late, orange) and a Pitch review mark gets the mark's own ring color,
+    // not the verdict's.
+    const context = renderGrandStaffScene(reviewMarkScene([
+        { x: 0, y: 0, verdict: 3, reviewMark: reviewMarkPitch, reviewMarkGroup: 0 },
+    ]));
+
+    assert.equal(ringsOf(context).length, 1);
+    assert.equal(ringsOf(context)[0].strokeStyle, "#f87171");
+    assert.notEqual(ringsOf(context)[0].strokeStyle, verdictColors[3]);
 });

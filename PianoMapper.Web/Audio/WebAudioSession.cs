@@ -139,13 +139,15 @@ internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio
         TimeSpan anchor,
         TimeSpan beatDuration,
         int beatsPerMeasure,
+        int beatsPerGroup,
         CancellationToken cancellationToken = default) =>
         GetInitializedModule().InvokeVoidAsync(
             "startMetronome",
             cancellationToken,
             anchor.TotalSeconds,
             beatDuration.TotalSeconds,
-            beatsPerMeasure);
+            beatsPerMeasure,
+            beatsPerGroup);
 
     public ValueTask StopMetronomeAsync(CancellationToken cancellationToken = default) =>
         GetInitializedModule().InvokeVoidAsync("stopMetronome", cancellationToken);

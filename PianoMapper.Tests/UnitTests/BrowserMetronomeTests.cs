@@ -23,6 +23,38 @@ public sealed class BrowserMetronomeTests
         Assert.Equal(TimeSpan.FromSeconds(10.05), audio.Anchor);
         Assert.Equal(TimeSpan.FromSeconds(2.0 / 3.0), audio.BeatDuration);
         Assert.Equal(6, audio.BeatsPerMeasure);
+        Assert.Equal(3, audio.BeatsPerGroup);
+    }
+
+    [Fact]
+    public async Task StartAsync_SimpleMeter_AccentsEveryBeatGroupOfOne()
+    {
+        var audio = new FakeMetronomeAudio(TimeSpan.FromSeconds(10));
+        var metronome = new BrowserMetronome(audio);
+
+        await metronome.StartAsync(new TimeSignature(4, new NoteValue(4)), new Tempo(120));
+
+        Assert.Equal(4, audio.BeatsPerMeasure);
+        Assert.Equal(1, audio.BeatsPerGroup);
+    }
+
+    [Fact]
+    public async Task StartAsync_ExplicitAnchor_UsesItVerbatimWithoutTheSchedulingLead()
+    {
+        var audio = new FakeMetronomeAudio(TimeSpan.FromSeconds(10));
+        var metronome = new BrowserMetronome(audio);
+        var timeSignature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(60);
+        var anchor = TimeSpan.FromSeconds(10.05);
+
+        await metronome.StartAsync(timeSignature, tempo, anchor);
+
+        Assert.True(metronome.IsRunning);
+        Assert.Equal(anchor, metronome.Grid?.Anchor);
+        Assert.Equal(anchor, audio.Anchor);
+        Assert.Equal(TimeSpan.FromSeconds(1), audio.BeatDuration);
+        Assert.Equal(4, audio.BeatsPerMeasure);
+        Assert.Equal(1, audio.BeatsPerGroup);
     }
 
     [Fact]
@@ -57,6 +89,8 @@ public sealed class BrowserMetronomeTests
 
         internal int? BeatsPerMeasure { get; private set; }
 
+        internal int? BeatsPerGroup { get; private set; }
+
         internal int StartCount { get; private set; }
 
         internal int StopCount { get; private set; }
@@ -68,12 +102,14 @@ public sealed class BrowserMetronomeTests
             TimeSpan anchor,
             TimeSpan beatDuration,
             int beatsPerMeasure,
+            int beatsPerGroup,
             CancellationToken cancellationToken = default)
         {
             StartCount++;
             Anchor = anchor;
             BeatDuration = beatDuration;
             BeatsPerMeasure = beatsPerMeasure;
+            BeatsPerGroup = beatsPerGroup;
             return ValueTask.CompletedTask;
         }
 

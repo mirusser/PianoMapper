@@ -14,6 +14,8 @@ import {
     noteOn,
     scheduleScore,
     setSoundSource,
+    startMetronome,
+    stopMetronome,
     stopScore,
 } from "../../PianoMapper.Web/wwwroot/js/audio.js";
 
@@ -26,6 +28,7 @@ test("audio initialization falls back to PC piano when the saved FP-10 output is
         value: {
             cookie: "pianomapper-sound-source=external-midi",
             querySelector: () => null,
+            querySelectorAll: () => [],
         },
     });
     Object.defineProperty(globalThis, "fetch", {
@@ -87,6 +90,7 @@ test("external MIDI sound sends generated notes to Roland without echoing its in
         value: {
             cookie: "pianomapper-sound-source=external-midi",
             querySelector: () => null,
+            querySelectorAll: () => [],
         },
     });
     Object.defineProperty(globalThis, "navigator", {
@@ -154,6 +158,144 @@ test("external MIDI sound sends generated notes to Roland without echoing its in
     }
 });
 
+test("metronome pulse marks every beat indicator on the page and clears them together", async () => {
+    const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const originalFetch = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const indicators = [createFakeIndicator(), createFakeIndicator()];
+    const timers = [];
+    Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: {
+            cookie: "",
+            querySelector: () => null,
+            querySelectorAll: selector => selector === "[data-metronome-pulse]" ? indicators : [],
+        },
+    });
+    Object.defineProperty(globalThis, "fetch", {
+        configurable: true,
+        value: () => Promise.resolve({
+            ok: true,
+            arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+        }),
+    });
+    Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: {
+            AudioContext: FakeAudioContext,
+            clearInterval() {},
+            clearTimeout() {},
+            setInterval() {
+                return 1;
+            },
+            setTimeout(callback) {
+                timers.push(callback);
+                return timers.length;
+            },
+        },
+    });
+
+    try {
+        await initialize();
+        startMetronome(2, 0.5, 4);
+
+        assert.ok(timers.length > 0);
+        timers[0]();
+
+        for (const indicator of indicators) {
+            assert.ok(indicator.classes.has("metronome-pulse-active"));
+            assert.ok(indicator.classes.has("metronome-pulse-downbeat"));
+        }
+
+        stopMetronome();
+
+        for (const indicator of indicators) {
+            assert.equal(indicator.classes.size, 0);
+        }
+    } finally {
+        stopMetronome();
+        await disposeAudio();
+        restoreProperty("document", originalDocument);
+        restoreProperty("fetch", originalFetch);
+        restoreProperty("window", originalWindow);
+    }
+});
+
+test("metronome accents the downbeat strongest and each beat group start in 6/8 only", async () => {
+    const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const originalFetch = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: { cookie: "", querySelector: () => null, querySelectorAll: () => [] },
+    });
+    Object.defineProperty(globalThis, "fetch", {
+        configurable: true,
+        value: () => Promise.resolve({
+            ok: true,
+            arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+        }),
+    });
+    Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: {
+            AudioContext: FakeAudioContext,
+            clearInterval() {},
+            clearTimeout() {},
+            setInterval() {
+                return 1;
+            },
+            setTimeout() {
+                return 1;
+            },
+        },
+    });
+
+    try {
+        await initialize();
+
+        createdClicks.length = 0;
+        startMetronome(2, 0.01, 6, 3);
+        const compound = createdClicks.slice(0, 12).map(click => click.frequency);
+        stopMetronome();
+
+        createdClicks.length = 0;
+        startMetronome(2, 0.01, 4, 1);
+        const simple = createdClicks.slice(0, 8).map(click => click.frequency);
+        stopMetronome();
+
+        const [downbeat, groupStart, ordinary] = [1760, 1540, 1320];
+        assert.deepEqual(compound, [
+            downbeat, ordinary, ordinary, groupStart, ordinary, ordinary,
+            downbeat, ordinary, ordinary, groupStart, ordinary, ordinary,
+        ]);
+        assert.deepEqual(simple, [
+            downbeat, ordinary, ordinary, ordinary,
+            downbeat, ordinary, ordinary, ordinary,
+        ]);
+    } finally {
+        stopMetronome();
+        await disposeAudio();
+        restoreProperty("document", originalDocument);
+        restoreProperty("fetch", originalFetch);
+        restoreProperty("window", originalWindow);
+    }
+});
+
+function createFakeIndicator() {
+    const classes = new Set();
+    return {
+        classes,
+        classList: {
+            add: (...names) => names.forEach(name => classes.add(name)),
+            remove: (...names) => names.forEach(name => classes.delete(name)),
+            toggle: (name, force) => (force ? classes.add(name) : classes.delete(name)),
+        },
+    };
+}
+
+const createdClicks = [];
+
 class FakeAudioContext {
     constructor() {
         this.currentTime = 2;
@@ -170,7 +312,29 @@ class FakeAudioContext {
     createGain() {
         return {
             connect() {},
-            gain: { value: 0 },
+            disconnect() {},
+            gain: {
+                value: 0,
+                cancelScheduledValues() {},
+                exponentialRampToValueAtTime() {},
+                setValueAtTime() {},
+            },
+        };
+    }
+
+    createOscillator() {
+        const click = { frequency: undefined };
+        createdClicks.push(click);
+        return {
+            connect() {},
+            disconnect() {},
+            frequency: {
+                setValueAtTime(value) {
+                    click.frequency = value;
+                },
+            },
+            start() {},
+            stop() {},
         };
     }
 

@@ -31,6 +31,7 @@ let metronomeInterval;
 let metronomeAnchorSeconds;
 let metronomeSecondsPerBeat;
 let metronomeBeatsPerMeasure;
+let metronomeBeatsPerGroup = 1;
 let nextMetronomeBeatIndex;
 
 const attackSeconds = 0.012;
@@ -195,13 +196,14 @@ export function stopScore() {
     }
 }
 
-export function startMetronome(anchorSeconds, secondsPerBeat, beatsPerMeasure) {
+export function startMetronome(anchorSeconds, secondsPerBeat, beatsPerMeasure, beatsPerGroup = 1) {
     ensureReady();
     stopMetronome();
 
     metronomeAnchorSeconds = anchorSeconds;
     metronomeSecondsPerBeat = secondsPerBeat;
     metronomeBeatsPerMeasure = beatsPerMeasure;
+    metronomeBeatsPerGroup = beatsPerGroup;
     nextMetronomeBeatIndex = Math.max(
         0,
         Math.ceil((audioContext.currentTime - anchorSeconds) / secondsPerBeat));
@@ -248,19 +250,26 @@ function scheduleMetronomeClicks() {
             return;
         }
 
+        const isDownbeat = nextMetronomeBeatIndex % metronomeBeatsPerMeasure === 0;
+        const isGroupStart = metronomeBeatsPerGroup > 1 &&
+            !isDownbeat &&
+            nextMetronomeBeatIndex % metronomeBeatsPerGroup === 0;
         scheduleMetronomeClick(
             Math.max(clickTime, audioContext.currentTime),
-            nextMetronomeBeatIndex % metronomeBeatsPerMeasure === 0);
+            isDownbeat,
+            isGroupStart);
         nextMetronomeBeatIndex++;
     }
 }
 
-function scheduleMetronomeClick(startTime, isDownbeat) {
+function scheduleMetronomeClick(startTime, isDownbeat, isGroupStart = false) {
     const oscillator = audioContext.createOscillator();
     const envelope = audioContext.createGain();
-    const peakGain = isDownbeat ? 0.55 : 0.35;
+    // Downbeat strongest, a beat group's start (6/8: beats 1 and 4) in between, every other beat plainest.
+    const peakGain = isDownbeat ? 0.55 : isGroupStart ? 0.45 : 0.35;
+    const frequency = isDownbeat ? 1760 : isGroupStart ? 1540 : 1320;
     oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(isDownbeat ? 1760 : 1320, startTime);
+    oscillator.frequency.setValueAtTime(frequency, startTime);
     envelope.gain.setValueAtTime(0.0001, startTime);
     envelope.gain.exponentialRampToValueAtTime(peakGain, startTime + 0.002);
     envelope.gain.exponentialRampToValueAtTime(0.0001, startTime + metronomeClickDurationSeconds);
@@ -282,21 +291,26 @@ function scheduleMetronomeClick(startTime, isDownbeat) {
 }
 
 function pulseMetronome(click, isDownbeat) {
-    const pulse = document.querySelector("[data-metronome-pulse]");
-    if (!pulse) {
+    // The beat indicator can be on the page twice (the Timing card and the exercise panel): pulse them together.
+    const pulses = document.querySelectorAll("[data-metronome-pulse]");
+    if (pulses.length === 0) {
         return;
     }
 
-    pulse.classList.toggle("metronome-pulse-downbeat", isDownbeat);
-    pulse.classList.add("metronome-pulse-active");
+    for (const pulse of pulses) {
+        pulse.classList.toggle("metronome-pulse-downbeat", isDownbeat);
+        pulse.classList.add("metronome-pulse-active");
+    }
+
     click.pulseClearTimer = window.setTimeout(
         () => clearMetronomePulse(),
         90);
 }
 
 function clearMetronomePulse() {
-    const pulse = document.querySelector("[data-metronome-pulse]");
-    pulse?.classList.remove("metronome-pulse-active", "metronome-pulse-downbeat");
+    for (const pulse of document.querySelectorAll("[data-metronome-pulse]")) {
+        pulse.classList.remove("metronome-pulse-active", "metronome-pulse-downbeat");
+    }
 }
 
 function createNote(noteId, frequency, velocity, startTime) {

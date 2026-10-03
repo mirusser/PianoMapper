@@ -23,4 +23,6 @@ public sealed record GrandStaffNote(
     double? ScoreEndBeats = null,
     string? Fingering = null,
     double? FingeringY = null,
-    ScoreNoteAddress? Address = null);
+    ScoreNoteAddress? Address = null,
+    ReviewMark? ReviewMark = null,
+    int? ReviewMarkGroup = null);

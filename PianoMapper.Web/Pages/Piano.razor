@@ -2,6 +2,7 @@
 @implements IAsyncDisposable
 @inject WebAudioSession AudioSession
 @inject BrowserMetronome Metronome
+@inject ExerciseClick ExerciseClick
 @inject BrowserScorePlayback ScorePlaybackSession
 @inject IJSRuntime JS
 
@@ -329,11 +330,13 @@
                            max="@MaximumMeterNumerator"
                            step="1"
                            value="@displayTimeSignature.Numerator"
+                           disabled="@IsSightReadingExerciseActive"
                            @onchange="SelectMeterNumeratorAsync" />
                 </label>
                 <label class="timing-field">
                     <span>One beat is a</span>
                     <select value="@displayTimeSignature.BeatNoteValue.Denominator"
+                            disabled="@IsSightReadingExerciseActive"
                             @onchange="SelectBeatNoteAsync">
                         <option value="1">Whole note (1)</option>
                         <option value="2">Half note (2)</option>
@@ -349,6 +352,7 @@
                            max="@MaximumTempoBeatsPerMinute"
                            step="1"
                            value="@TempoBeatsPerMinuteText"
+                           disabled="@IsSightReadingExerciseActive"
                            @onchange="SelectTempoAsync" />
                 </label>
                 <label class="timing-field">
@@ -368,6 +372,13 @@
             <p class="control-note">
                 Timing changes stop score or practice playback. A running metronome restarts on the new beat grid.
             </p>
+            @if (IsSightReadingExerciseActive)
+            {
+                <p class="control-note" role="status">
+                    The note reading exercise sets the beats, beat note and tempo while it is active. Change its
+                    tempo in the exercise panel, or end the exercise to edit them here.
+                </p>
+            }
             <details class="learning-disclosure">
                 <summary>Understand the timing controls</summary>
                 <dl class="music-term-grid">
@@ -466,39 +477,8 @@
                 @if (showSightReadingExercisePanel)
                 {
                     <div id="sight-reading-exercise-panel">
-                        <SightReadingExercisePanel SelectedStaff="@sightReadingExerciseCoordinator.Staff"
-                                                   PresetId="@sightReadingExerciseCoordinator.PresetId"
-                                                   PromptCountOption="@sightReadingExerciseCoordinator.PromptCountOption"
-                                                   IsGrandStaff="@sightReadingExerciseCoordinator.IsGrandStaff"
-                                                   RhythmPreset="@sightReadingExerciseCoordinator.RhythmPreset"
-                                                   Mode="@sightReadingExerciseCoordinator.Mode"
-                                                   RevealNoteNamesWhileActive="@sightReadingExerciseCoordinator.RevealNoteNamesWhileActive"
-                                                   RevealFingeringWhileActive="@sightReadingExerciseCoordinator.RevealFingeringWhileActive"
-                                                   RevealKeysWhileActive="@sightReadingExerciseCoordinator.RevealKeysWhileActive"
-                                                   IsActive="@sightReadingExerciseCoordinator.IsActive"
-                                                   IsComplete="@noteReadingSession.IsComplete"
-                                                   HasMissedPrompts="@sightReadingExerciseCoordinator.HasMissedPrompts"
-                                                   IsMidiInputConnected="@(midiInputNames.Count > 0)"
-                                                   IsComputerPianoEnabled="@computerPianoState.IsEnabled"
-                                                   PromptCount="@noteReadingSession.PromptCount"
-                                                   CompletedPromptCount="@noteReadingSession.CompletedPromptCount"
-                                                   FirstTryCorrectCount="@noteReadingSession.FirstTryCorrectCount"
-                                                   WrongAttemptCount="@noteReadingSession.WrongAttemptCount"
-                                                   FirstTryAccuracyPercent="@noteReadingSession.FirstTryAccuracyPercent"
-                                                   ElapsedTime="@noteReadingSession.ElapsedTime"
-                                                   SelectedStaffChanged="SetSightReadingStaff"
-                                                   PresetIdChanged="SetSightReadingPresetId"
-                                                   PromptCountOptionChanged="SetSightReadingPromptCount"
-                                                   IsGrandStaffChanged="SetSightReadingIsGrandStaff"
-                                                   RhythmPresetChanged="SetSightReadingRhythmPreset"
-                                                   ModeChanged="SetSightReadingMode"
-                                                   RevealNoteNamesWhileActiveChanged="SetSightReadingRevealNoteNamesWhileActive"
-                                                   RevealFingeringWhileActiveChanged="SetSightReadingRevealFingeringWhileActive"
-                                                   RevealKeysWhileActiveChanged="SetSightReadingRevealKeysWhileActive"
-                                                   Generate="GenerateSightReadingExerciseAsync"
-                                                   Retry="RetrySightReadingExerciseAsync"
-                                                   RetryMissed="RetryMissedSightReadingExerciseAsync"
-                                                   End="EndSightReadingExerciseAsync" />
+                        <SightReadingExercisePanel Presentation="@ExercisePresentation"
+                                                   OnAction="HandleSightReadingExerciseActionAsync" />
                     </div>
                 }
 
@@ -508,6 +488,8 @@
                         <SightReadingHistoryPanel RecentSessions="@RecentSightReadingSessions"
                                                    WeakestPitches="@sightReadingHistory.ComputeMasteryWeakestFirst()"
                                                    InsufficientDataPitchCount="@InsufficientMasteryDataPitchCount"
+                                                   Insights="@sightReadingInsights"
+                                                   Ladder="@sightReadingLadder"
                                                    ClearHistory="ClearSightReadingHistoryAsync" />
                     </div>
                 }
@@ -548,6 +530,9 @@
     private readonly SightReadingExerciseCoordinator sightReadingExerciseCoordinator;
     private BrowserSightReadingHistoryStore sightReadingHistoryStore = null!;
     private SightReadingHistory sightReadingHistory = SightReadingHistory.Empty;
+    private SightReadingInsightReport sightReadingInsights = SightReadingInsights.Build(SightReadingHistory.Empty);
+    private IReadOnlyList<NoteMastery> sightReadingWeakNotes = [];
+    private LevelProgressionReport sightReadingLadder = LevelProgression.Evaluate(SightReadingHistory.Empty);
     private readonly HashSet<PerformedNote> wrongScoreInputNotes = new(ReferenceEqualityComparer.Instance);
     private ElementReference playSurface;
     private AudioClockAnchor? audioClockAnchor;
@@ -571,6 +556,7 @@
     private ScoreNoteAddress? selectedScoreNoteAddress;
     private readonly AsyncTicker playbackTicker = new();
     private BrowserPracticeCoordinator practiceCoordinator = null!;
+    private ExercisePlayAlongController playAlongController = null!;
     private readonly AsyncTicker practiceTicker = new();
     private readonly AsyncTicker visualizationTicker = new();
     private readonly AsyncTicker sightReadingCountInTicker = new();
@@ -594,7 +580,55 @@
     private NoteReadingMode idleNoteReadingMode = NoteReadingMode.PitchAndOrder;
     private TimeSignature displayTimeSignature = new(4, new NoteValue(4));
     private Tempo displayTempo = new(120);
+    private (TimeSignature TimeSignature, Tempo Tempo)? timingBeforeSightReadingExercise;
     private TimeSpan onTimeTolerance = TimeSpan.FromMilliseconds(NormalToleranceMilliseconds);
+
+    private SightReadingExercisePresentation ExercisePresentation => new()
+    {
+        SelectedStaff = sightReadingExerciseCoordinator.Staff,
+        PresetId = sightReadingExerciseCoordinator.PresetId,
+        PromptCountOption = sightReadingExerciseCoordinator.PromptCountOption,
+        Motion = sightReadingExerciseCoordinator.EffectiveMotion,
+        IntervalSteps = sightReadingExerciseCoordinator.IntervalSteps,
+        IsMotionAvailable = sightReadingExerciseCoordinator.IsMotionAvailable,
+        IsGrandStaff = sightReadingExerciseCoordinator.IsGrandStaff,
+        IsHandsTogether = sightReadingExerciseCoordinator.EffectiveHandsTogether,
+        IsHandsTogetherAvailable = sightReadingExerciseCoordinator.IsHandsTogetherAvailable,
+        RhythmPreset = sightReadingExerciseCoordinator.EffectiveRhythmPreset,
+        Mode = sightReadingExerciseCoordinator.Mode,
+        RunMode = sightReadingExerciseCoordinator.RunMode,
+        TempoPulsesPerMinute = sightReadingExerciseCoordinator.TempoPulsesPerMinute,
+        IsRhythmPresetLocked = sightReadingExerciseCoordinator.IsRhythmPresetLocked,
+        Pacing = sightReadingExerciseCoordinator.EffectivePacing,
+        IsPacingAvailable = sightReadingExerciseCoordinator.UsesCountIn,
+        IsPitchSetupIgnored = sightReadingExerciseCoordinator.IsPitchSetupIgnored,
+        RevealNoteNamesWhileActive = sightReadingExerciseCoordinator.RevealNoteNamesWhileActive,
+        RevealFingeringWhileActive = sightReadingExerciseCoordinator.RevealFingeringWhileActive,
+        RevealKeysWhileActive = sightReadingExerciseCoordinator.RevealKeysWhileActive,
+        ClickWhilePlaying = sightReadingExerciseCoordinator.ClickWhilePlaying,
+        CoachHints = sightReadingExerciseCoordinator.CoachHints,
+        IsClickRunning = ExerciseClick.IsRunning,
+        ReviewMistakes = sightReadingExerciseCoordinator.ReviewMistakes,
+        PlayAlongVerdictCounts = sightReadingExerciseCoordinator.PlayAlongVerdictCounts,
+        TempoFeedback = tempoFeedbackTracker,
+        IsActive = sightReadingExerciseCoordinator.IsActive,
+        IsComplete = sightReadingExerciseCoordinator.Phase != SightReadingExercisePhase.Active,
+        HasMissedPrompts = sightReadingExerciseCoordinator.HasMissedPrompts,
+        RecommendedExerciseDescription = SightReadingLabels.DescribeLevelProgress(
+            sightReadingLadder.Levels[sightReadingLadder.Recommended.Level.Number - 1]),
+        CanDrillWeakNotes = sightReadingExerciseCoordinator.GetDrillAvailability(sightReadingWeakNotes).IsAvailable,
+        DrillUnavailableReason = sightReadingExerciseCoordinator.GetDrillAvailability(sightReadingWeakNotes).Reason,
+        IsMidiInputConnected = midiInputNames.Count > 0,
+        IsComputerPianoEnabled = computerPianoState.IsEnabled,
+        PromptCount = sightReadingExerciseCoordinator.PromptCount,
+        CompletedPromptCount = sightReadingExerciseCoordinator.CompletedPromptCount,
+        FirstTryCorrectCount = sightReadingExerciseCoordinator.FirstTryCorrectCount,
+        WrongAttemptCount = sightReadingExerciseCoordinator.WrongAttemptCount,
+        PitchFirstTryCorrectCount = sightReadingExerciseCoordinator.PitchFirstTryCorrectCount,
+        TimingMistakeCount = sightReadingExerciseCoordinator.TimingMistakeCount,
+        FirstTryAccuracyPercent = sightReadingExerciseCoordinator.FirstTryAccuracyPercent,
+        ElapsedTime = sightReadingExerciseCoordinator.ElapsedTime,
+    };
 
     private string TempoBeatsPerMinuteText =>
         displayTempo.BeatsPerMinute.ToString("F0", CultureInfo.InvariantCulture);
@@ -672,7 +706,7 @@
         IsSightReadingExerciseActive || idleNoteReadingMode != NoteReadingMode.Off;
 
     private NoteReadingMode ActiveNoteReadingMode => IsSightReadingExerciseActive
-        ? sightReadingExerciseCoordinator.Mode
+        ? sightReadingExerciseCoordinator.RunMode
         : idleNoteReadingMode;
 
     private int NotationMeasureNumberOffset => IsSightReadingExerciseActive ? 0 : selectedFirstMeasure;
@@ -865,6 +899,10 @@
     protected override void OnInitialized()
     {
         practiceCoordinator = new BrowserPracticeCoordinator(AudioSession, noteTimeline);
+        playAlongController = new ExercisePlayAlongController(
+            practiceCoordinator,
+            sightReadingExerciseCoordinator,
+            ExerciseClick);
         sightReadingHistoryStore = new BrowserSightReadingHistoryStore(JS);
     }
 
@@ -876,6 +914,7 @@
         }
 
         sightReadingHistory = await sightReadingHistoryStore.LoadAsync();
+        RefreshSightReadingInsights();
         StateHasChanged();
         await TryAutoConnectMidiAsync();
         StateHasChanged();
@@ -883,20 +922,47 @@
         StateHasChanged();
     }
 
+    /// <summary>
+    /// Recomputes what the history says (the insights and the weak notes a drill would use) once per change, not on
+    /// every render, since the page re-renders on every key press.
+    /// </summary>
+    private void RefreshSightReadingInsights()
+    {
+        sightReadingInsights = SightReadingInsights.Build(sightReadingHistory);
+        sightReadingWeakNotes = SightReadingInsights.GetWeakNotes(sightReadingHistory);
+        sightReadingLadder = LevelProgression.Evaluate(sightReadingHistory);
+    }
+
+    private async Task StopExerciseClickAsync()
+    {
+        if (ExerciseClick.IsRunning)
+        {
+            await ExerciseClick.StopAsync();
+            tempoFeedbackTracker.Reset();
+        }
+    }
+
     private async Task SaveSightReadingHistoryIfCompletedAsync()
     {
+        if (!sightReadingExerciseCoordinator.ShouldClickSound)
+        {
+            await StopExerciseClickAsync();
+        }
+
         if (sightReadingExerciseCoordinator.ConsumeCompletionSummary() is not { } summary)
         {
             return;
         }
 
         sightReadingHistory = sightReadingHistory.WithCompletedSession(summary);
+        RefreshSightReadingInsights();
         await sightReadingHistoryStore.SaveAsync(sightReadingHistory);
     }
 
     private async Task ClearSightReadingHistoryAsync()
     {
         sightReadingHistory = SightReadingHistory.Empty;
+        RefreshSightReadingInsights();
         await sightReadingHistoryStore.ClearAsync();
     }
 
@@ -1063,7 +1129,7 @@
     private async Task HandleScoreLoadedAsync(Score score)
     {
         ExitFingeringEditMode();
-        sightReadingExerciseCoordinator.End();
+        await DiscardSightReadingExerciseAsync();
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
         bool metronomeWasRunning = Metronome.IsRunning;
@@ -1121,7 +1187,7 @@
     private async Task HandleScoreUnloadedAsync()
     {
         ExitFingeringEditMode();
-        sightReadingExerciseCoordinator.End();
+        await DiscardSightReadingExerciseAsync();
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
         importedScore = null;
@@ -1180,7 +1246,7 @@
 
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
-        sightReadingExerciseCoordinator.End();
+        await DiscardSightReadingExerciseAsync();
         selectedFirstMeasure = firstMeasure;
         selectedLastMeasure = lastMeasure;
         selectedScoreNoteAddress = null;
@@ -1202,7 +1268,7 @@
         }
 
         ExitFingeringEditMode();
-        sightReadingExerciseCoordinator.End();
+        await DiscardSightReadingExerciseAsync();
         await AbortPracticeAsync(updateStatus: false);
         await visualizationTicker.StopAsync();
         await playbackTicker.StopAsync();
@@ -1225,7 +1291,7 @@
         }
 
         ExitFingeringEditMode();
-        sightReadingExerciseCoordinator.End();
+        await DiscardSightReadingExerciseAsync();
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
         var measure = RandomMeasureComposer.Compose(
@@ -1248,38 +1314,107 @@
         audioStatus = $"Playing a random measure at {TimingLabel}.";
     }
 
-    private void SetSightReadingStaff(Staff staff) => sightReadingExerciseCoordinator.SetStaff(staff);
-
-    private void SetSightReadingPresetId(SightReadingPresetId presetId) =>
-        sightReadingExerciseCoordinator.SetPresetId(presetId);
-
-    private void SetSightReadingPromptCount(int promptCount) =>
-        sightReadingExerciseCoordinator.SetPromptCountOption(promptCount);
-
-    private void SetSightReadingIsGrandStaff(bool isGrandStaff) =>
-        sightReadingExerciseCoordinator.SetIsGrandStaff(isGrandStaff);
-
-    private void SetSightReadingRhythmPreset(SightReadingRhythmPreset rhythmPreset) =>
-        sightReadingExerciseCoordinator.SetRhythmPreset(rhythmPreset);
-
-    private void SetSightReadingMode(NoteReadingMode mode) => sightReadingExerciseCoordinator.SetMode(mode);
-
-    private Task SetSightReadingRevealNoteNamesWhileActive(bool reveal)
+    private async Task HandleSightReadingExerciseActionAsync(SightReadingExerciseAction action)
     {
-        sightReadingExerciseCoordinator.SetRevealNoteNamesWhileActive(reveal);
-        return RefreshNotationVisibilityAsync();
+        ArgumentNullException.ThrowIfNull(action);
+        switch (action)
+        {
+            case SightReadingExerciseAction.SelectStaff selectStaff:
+                sightReadingExerciseCoordinator.SetStaff(selectStaff.Value);
+                break;
+            case SightReadingExerciseAction.SelectPreset selectPreset:
+                sightReadingExerciseCoordinator.SetPresetId(selectPreset.Value);
+                break;
+            case SightReadingExerciseAction.SelectPromptCount selectPromptCount:
+                sightReadingExerciseCoordinator.SetPromptCountOption(selectPromptCount.Value);
+                break;
+            case SightReadingExerciseAction.SelectMotion selectMotion:
+                sightReadingExerciseCoordinator.SetMotion(selectMotion.Value);
+                break;
+            case SightReadingExerciseAction.SelectIntervalSteps selectIntervalSteps:
+                sightReadingExerciseCoordinator.SetIntervalSteps(selectIntervalSteps.Value);
+                break;
+            case SightReadingExerciseAction.SelectGrandStaff selectGrandStaff:
+                sightReadingExerciseCoordinator.SetIsGrandStaff(selectGrandStaff.Value);
+                break;
+            case SightReadingExerciseAction.SetHandsTogether setHandsTogether:
+                sightReadingExerciseCoordinator.SetHandsTogether(setHandsTogether.Value);
+                break;
+            case SightReadingExerciseAction.SelectRhythmPreset selectRhythmPreset:
+                sightReadingExerciseCoordinator.SetRhythmPreset(selectRhythmPreset.Value);
+                break;
+            case SightReadingExerciseAction.SelectMode selectMode:
+                sightReadingExerciseCoordinator.SetMode(selectMode.Value);
+                break;
+            case SightReadingExerciseAction.SelectTempo selectTempo:
+                sightReadingExerciseCoordinator.SetTempoPulsesPerMinute(selectTempo.Value);
+                break;
+            case SightReadingExerciseAction.SelectPacing selectPacing:
+                sightReadingExerciseCoordinator.SetPacing(selectPacing.Value);
+                break;
+            case SightReadingExerciseAction.SetRevealNoteNames setRevealNoteNames:
+                sightReadingExerciseCoordinator.SetRevealNoteNamesWhileActive(setRevealNoteNames.Value);
+                await RefreshNotationVisibilityAsync();
+                break;
+            case SightReadingExerciseAction.SetRevealFingering setRevealFingering:
+                sightReadingExerciseCoordinator.SetRevealFingeringWhileActive(setRevealFingering.Value);
+                await RefreshNotationVisibilityAsync();
+                break;
+            case SightReadingExerciseAction.SetRevealKeys setRevealKeys:
+                sightReadingExerciseCoordinator.SetRevealKeysWhileActive(setRevealKeys.Value);
+                await RefreshNotationVisibilityAsync();
+                break;
+            case SightReadingExerciseAction.SetClickWhilePlaying setClickWhilePlaying:
+                sightReadingExerciseCoordinator.SetClickWhilePlaying(setClickWhilePlaying.Value);
+                break;
+            case SightReadingExerciseAction.SetCoachHints setCoachHints:
+                sightReadingExerciseCoordinator.SetCoachHints(setCoachHints.Value);
+                break;
+            case SightReadingExerciseAction.Generate:
+                await GenerateSightReadingExerciseAsync();
+                break;
+            case SightReadingExerciseAction.DrillWeakNotes:
+                await DrillWeakSightReadingNotesAsync();
+                break;
+            case SightReadingExerciseAction.StartRecommended:
+                await StartRecommendedSightReadingExerciseAsync();
+                break;
+            case SightReadingExerciseAction.Retry:
+                await RetrySightReadingExerciseAsync();
+                break;
+            case SightReadingExerciseAction.RetryMissed:
+                await RetryMissedSightReadingExerciseAsync();
+                break;
+            case SightReadingExerciseAction.End:
+                await EndSightReadingExerciseAsync();
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(action), action, "Unsupported exercise action.");
+        }
     }
 
-    private Task SetSightReadingRevealFingeringWhileActive(bool reveal)
+    /// <summary>
+    /// While an exercise is active the Timing card mirrors its time signature and tempo (as a loaded score does),
+    /// so the manual metronome and the exercise cannot disagree. The values shown before the exercise are kept and
+    /// put back when it ends.
+    /// </summary>
+    private void MirrorSightReadingExerciseTiming(Score score)
     {
-        sightReadingExerciseCoordinator.SetRevealFingeringWhileActive(reveal);
-        return RefreshNotationVisibilityAsync();
+        timingBeforeSightReadingExercise ??= (displayTimeSignature, displayTempo);
+        displayTimeSignature = score.TimeSignature;
+        displayTempo = score.Tempo;
     }
 
-    private Task SetSightReadingRevealKeysWhileActive(bool reveal)
+    private async Task DiscardSightReadingExerciseAsync()
     {
-        sightReadingExerciseCoordinator.SetRevealKeysWhileActive(reveal);
-        return RefreshNotationVisibilityAsync();
+        await StopExerciseClickAsync();
+        sightReadingExerciseCoordinator.End();
+        if (timingBeforeSightReadingExercise is { } previousTiming)
+        {
+            displayTimeSignature = previousTiming.TimeSignature;
+            displayTempo = previousTiming.Tempo;
+            timingBeforeSightReadingExercise = null;
+        }
     }
 
     /// <summary>
@@ -1291,6 +1426,7 @@
     private async Task<TimeSpan> PrepareSightReadingExerciseTransitionAsync()
     {
         ExitFingeringEditMode();
+        tempoFeedbackTracker.Reset();
         await sightReadingCountInTicker.StopAsync();
         sightReadingExerciseCoordinator.CancelCountIn();
         await AbortPracticeAsync(updateStatus: false);
@@ -1321,11 +1457,47 @@
         sightReadingExerciseCoordinator.Generate(
             Random.Shared,
             onTimeTolerance,
-            sightReadingHistory.ComputeMasteryWeakestFirst());
+            sightReadingHistory.ComputeNoteMasteryWeakestFirst());
         ResetScoreWindowPair();
         await FinishSightReadingTransitionAsync(
             currentTime,
             "Note reading exercise ready. Play the highlighted note.");
+    }
+
+    /// <summary>
+    /// Applies the ladder's recommendation to the exercise settings and generates it. The ladder only recommends: the
+    /// settings it sets are ordinary ones the learner can change right back.
+    /// </summary>
+    private async Task StartRecommendedSightReadingExerciseAsync()
+    {
+        TimeSpan currentTime = await PrepareSightReadingExerciseTransitionAsync();
+        showPianoRoll = false;
+        sightReadingExerciseCoordinator.GenerateRecommended(
+            Random.Shared,
+            onTimeTolerance,
+            sightReadingLadder.Recommended,
+            sightReadingHistory.ComputeNoteMasteryWeakestFirst());
+        ResetScoreWindowPair();
+        await FinishSightReadingTransitionAsync(
+            currentTime,
+            $"Recommended exercise ready: {sightReadingLadder.Recommended.Level.Name}. Play the highlighted note.");
+    }
+
+    /// <summary>An explicit drill on the weak notes of the current range; ordinary generation is untouched.</summary>
+    private async Task DrillWeakSightReadingNotesAsync()
+    {
+        if (!sightReadingExerciseCoordinator.GetDrillAvailability(sightReadingWeakNotes).IsAvailable)
+        {
+            return;
+        }
+
+        TimeSpan currentTime = await PrepareSightReadingExerciseTransitionAsync();
+        showPianoRoll = false;
+        sightReadingExerciseCoordinator.GenerateWeaknessDrill(Random.Shared, onTimeTolerance, sightReadingWeakNotes);
+        ResetScoreWindowPair();
+        await FinishSightReadingTransitionAsync(
+            currentTime,
+            "Weak-note drill ready. Play the highlighted note.");
     }
 
     private async Task RetrySightReadingExerciseAsync()
@@ -1366,8 +1538,20 @@
     /// </summary>
     private async Task FinishSightReadingTransitionAsync(TimeSpan currentTime, string readyStatus)
     {
-        if (sightReadingExerciseCoordinator.Mode != NoteReadingMode.PitchHoldAndRhythm)
+        MirrorSightReadingExerciseTiming(sightReadingExerciseCoordinator.Score!);
+        if (sightReadingExerciseCoordinator.RunPacing == ExercisePacing.PlayAlong)
         {
+            await StartSightReadingPlayAlongAsync(currentTime, readyStatus);
+            return;
+        }
+
+        if (!sightReadingExerciseCoordinator.UsesCountIn)
+        {
+            if (sightReadingExerciseCoordinator.ShouldClickSound && AudioSession.IsInitialized)
+            {
+                await ExerciseClick.StartAsync(sightReadingExerciseCoordinator.Score!);
+            }
+
             RefreshCanvasScene(currentTime);
             audioStatus = readyStatus;
             return;
@@ -1380,13 +1564,60 @@
             return;
         }
 
-        await Metronome.StartAsync(
-            sightReadingExerciseCoordinator.Score!.TimeSignature,
-            sightReadingExerciseCoordinator.Score!.Tempo);
+        await ExerciseClick.StartAsync(sightReadingExerciseCoordinator.Score!);
         sightReadingExerciseCoordinator.StartCountIn(Metronome.Grid!.Anchor);
         RefreshCanvasScene(currentTime);
         audioStatus = $"Count-in: {sightReadingExerciseCoordinator.CountInTicksDue}…";
         sightReadingCountInTicker.Start(TickSightReadingCountInAsync, CanvasRefreshInterval);
+    }
+
+    /// <summary>
+    /// Starts a play-along run for the generated exercise: the time-driven practice engine counts in, then a cursor
+    /// sweeps the exercise whether or not the learner plays. All of the run's logic lives in
+    /// <see cref="ExercisePlayAlongController"/>; the page only ticks it and redraws.
+    /// </summary>
+    private async Task StartSightReadingPlayAlongAsync(TimeSpan currentTime, string readyStatus)
+    {
+        if (!AudioSession.IsInitialized)
+        {
+            RefreshCanvasScene(currentTime);
+            audioStatus = "Play-along needs audio enabled for the count-in. Enable audio, then generate again.";
+            return;
+        }
+
+        await playAlongController.StartAsync(onTimeTolerance);
+        practiceTicker.Start(TickSightReadingPlayAlongAsync, CanvasRefreshInterval);
+        RefreshCanvasScene(currentTime);
+        audioStatus = "Play-along count-in started.";
+    }
+
+    private async Task<bool> TickSightReadingPlayAlongAsync(CancellationToken cancellationToken)
+    {
+        if (!sightReadingExerciseCoordinator.IsActive)
+        {
+            return false;
+        }
+
+        bool isStillRunning = await playAlongController.UpdateAsync(cancellationToken);
+        RefreshCanvasScene(
+            practiceCoordinator.CurrentTime,
+            playAlongController.VisibleCursorBeats,
+            practiceCoordinator.GetVisibleVerdicts());
+        audioStatus = playAlongController.State switch
+        {
+            PracticeSessionState.CountingIn => "Play-along count-in.",
+            PracticeSessionState.Running => "Play-along in progress. Play the notes as the cursor reaches them.",
+            PracticeSessionState.Finished => "Play-along complete.",
+            _ => audioStatus,
+        };
+        if (!isStillRunning)
+        {
+            await SaveSightReadingHistoryIfCompletedAsync();
+            EnsureVisualizationRefresh();
+        }
+
+        await InvokeAsync(StateHasChanged);
+        return isStillRunning;
     }
 
     private async Task<bool> TickSightReadingCountInAsync(CancellationToken cancellationToken)
@@ -1401,7 +1632,11 @@
         RefreshCanvasScene(currentTime);
         if (didComplete)
         {
-            await StopMetronomeAsync();
+            if (!sightReadingExerciseCoordinator.ShouldClickSound)
+            {
+                await StopExerciseClickAsync();
+            }
+
             audioStatus = "Rhythm exercise running. Play the highlighted note in time.";
         }
         else
@@ -1421,7 +1656,7 @@
         }
 
         TimeSpan currentTime = await PrepareSightReadingExerciseTransitionAsync();
-        sightReadingExerciseCoordinator.End();
+        await DiscardSightReadingExerciseAsync();
         ResetNoteReadingSession();
         ResetScoreWindowPair();
         RefreshCanvasScene(currentTime);
@@ -1438,7 +1673,7 @@
         }
 
         ExitFingeringEditMode();
-        sightReadingExerciseCoordinator.End();
+        await DiscardSightReadingExerciseAsync();
         if (Metronome.IsRunning)
         {
             await StopMetronomeAsync();
@@ -1638,7 +1873,7 @@
         int milliseconds = int.Parse((string)eventArgs.Value!, CultureInfo.InvariantCulture);
         onTimeTolerance = TimeSpan.FromMilliseconds(milliseconds);
         tempoFeedbackTracker.Reset();
-        if (IsIdleNoteCheckingActive && ActiveNoteReadingMode != NoteReadingMode.PitchAndOrder)
+        if (IsIdleNoteCheckingActive && SightReadingLabels.IsTimingGraded(ActiveNoteReadingMode))
         {
             ResetNoteReadingSession();
             TimeSpan currentTime = AudioSession.IsInitialized
@@ -2100,6 +2335,12 @@
             audioStatus = "Rhythm count-in cancelled (focus lost). Generate a new exercise to try again.";
             await InvokeAsync(StateHasChanged);
         }
+        else if (ExerciseClick.IsRunning)
+        {
+            await StopExerciseClickAsync();
+            audioStatus = "Click stopped (focus lost). Retry the exercise to play with the click again.";
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -2421,6 +2662,9 @@
             return;
         }
 
+        bool wasSightReadingPlayAlong = sightReadingExerciseCoordinator.IsActive &&
+            sightReadingExerciseCoordinator.RunPacing == ExercisePacing.PlayAlong;
+        await StopExerciseClickAsync();
         await practiceCoordinator.AbortAsync();
         ResetNoteReadingSession();
         if (AudioSession.IsInitialized)
@@ -2437,7 +2681,9 @@
 
         if (updateStatus)
         {
-            audioStatus = "Practice aborted.";
+            audioStatus = wasSightReadingPlayAlong
+                ? "Play-along stopped. Retry to try again."
+                : "Practice aborted.";
             await InvokeAsync(StateHasChanged);
         }
     }
@@ -2521,8 +2767,19 @@
             UpdateScoreWindowPairFromCursor(effectiveCursorBeats.Value);
         }
 
+        // A finished play-along run keeps showing the practice engine's verdicts in review; a pitch-gated run shows
+        // the session's.
+        bool isPlayAlongReview = sightReadingExerciseCoordinator.Phase == SightReadingExercisePhase.Review &&
+            sightReadingExerciseCoordinator.RunPacing == ExercisePacing.PlayAlong;
         IReadOnlyDictionary<ScoreNote, Verdict>? effectiveVerdicts = verdicts ??
-            (isIdleNoteCheckingActive ? noteReadingSession.Verdicts : null);
+            (isIdleNoteCheckingActive
+                ? noteReadingSession.Verdicts
+                : isPlayAlongReview ? practiceCoordinator.GetVisibleVerdicts() : null);
+        if (isPlayAlongReview && effectiveVerdicts is not null)
+        {
+            // A clean note is green here too, as in Wait for me (the engine's own verdicts also judge holds).
+            effectiveVerdicts = sightReadingExerciseCoordinator.BuildPlayAlongReviewVerdicts(effectiveVerdicts);
+        }
         IReadOnlySet<ScoreNote>? expectedNotes = isIdleNoteCheckingActive
             ? noteReadingSession.ExpectedNotes
             : null;
@@ -2533,6 +2790,13 @@
             performedNoteBeats = ScorePlaybackSession.GetCursorBeats(currentTime);
         }
 
+        // Rests and ties are drawn for generated exercise scores only; imported scores keep their long-standing
+        // rendering until drawing them is checked against real saved scores.
+        bool drawRests = sightReadingExerciseCoordinator.Score is not null;
+        bool drawTies = drawRests;
+        // Review marks are the exercise's own, drawn once it has finished (null while it is active or for an imported
+        // score), and never mixed into the live verdict colors above.
+        IReadOnlyDictionary<ScoreNote, ReviewMark>? reviewMarks = sightReadingExerciseCoordinator.BuildReviewMarks();
         var performedNotes = noteTimeline.Snapshot(currentTime);
         IReadOnlySet<PerformedNote>? performedNotesToInclude = isIdleNoteCheckingActive
             ? wrongScoreInputNotes
@@ -2557,7 +2821,10 @@
             EffectiveShowNoteLabels,
             EffectiveShowFingerings,
             expectedNotes,
-            visibleMeasureCount);
+            visibleMeasureCount,
+            drawRests,
+            drawTies,
+            reviewMarks);
         secondaryCanvasScene = scoreWindowPair?.LowerFirstMeasure is { } lowerFirstMeasure
             ? lowerGrandStaffSceneCache.BuildScore(
                 notationScore,
@@ -2573,7 +2840,10 @@
                 EffectiveShowNoteLabels,
                 EffectiveShowFingerings,
                 expectedNotes,
-                visibleMeasureCount)
+                visibleMeasureCount,
+                drawRests,
+                drawTies,
+                reviewMarks)
             : null;
     }
 
@@ -2612,9 +2882,15 @@
         {
             if (isSightReading)
             {
-                return result.IsComplete
-                    ? "Note reading exercise complete. Generate a new exercise or retry these notes."
-                    : $"{pitch} is not the highlighted exercise note. Try again.";
+                if (result.IsComplete)
+                {
+                    return "Note reading exercise complete. Generate a new exercise or retry these notes.";
+                }
+
+                string tryAgain = $"{pitch} is not the highlighted exercise note. Try again.";
+                return sightReadingExerciseCoordinator.GetCoachHint() is { } coachHint
+                    ? $"{tryAgain} {ExerciseCoachHintText.Describe(coachHint)}"
+                    : tryAgain;
             }
 
             return result.IsComplete
@@ -2626,13 +2902,13 @@
         // exercises were always PitchAndOrder mode. Task 16 lets a generated exercise use Hold/Rhythm mode too, so
         // these branches (already correct and shared by idle checking) now also apply to sight-reading exercises —
         // their wording is generic enough ("the highlighted notes"/"chord notes") to read correctly either way.
-        if (ActiveNoteReadingMode == NoteReadingMode.PitchHoldAndRhythm &&
+        if (ActiveNoteReadingMode.GetGradedAxes().HasFlag(GradedAxes.Onset) &&
             result.Verdict is Verdict.Early or Verdict.Late)
         {
             return $"Right pitch, but {result.Verdict.ToString()!.ToLowerInvariant()}. Continue with the highlighted notes.";
         }
 
-        if (ActiveNoteReadingMode != NoteReadingMode.PitchAndOrder)
+        if (ActiveNoteReadingMode.GetGradedAxes().HasFlag(GradedAxes.Duration))
         {
             if (result.IsComplete)
             {

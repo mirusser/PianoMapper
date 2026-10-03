@@ -16,13 +16,76 @@
                 {
                     <li>
                         @session.CompletedAt.ToLocalTime().ToString("g", CultureInfo.InvariantCulture) ·
-                        @session.PresetId (@session.Staff) ·
+                        @SightReadingLabels.DescribeSession(session) ·
                         @session.FirstTryCorrectCount of @session.PromptCount first-try correct ·
+                        @if (SightReadingLabels.DescribeTimingBreakdown(session) is { } timingBreakdown)
+                        {
+                            <text>@timingBreakdown · </text>
+                        }
                         @session.WrongAttemptCount mistake(s) ·
                         @session.ElapsedTime.ToString(@"m\:ss", CultureInfo.InvariantCulture) elapsed
                     </li>
                 }
             </ul>
+        }
+    </section>
+    <section aria-labelledby="ladder-heading">
+        <h3 id="ladder-heading">Guided path</h3>
+        <p class="control-note">A suggested order, not a lock: every exercise stays available.</p>
+        <ol class="history-ladder-list">
+            @foreach (LevelProgress progress in Ladder.Levels)
+            {
+                <li aria-current="@(progress.Status == LevelStatus.Recommended ? "step" : null)"
+                    data-status="@progress.Status"
+                    title="@SightReadingLabels.LevelStatus(progress.Status)">
+                    @SightReadingLabels.DescribeLevelProgress(progress)
+                </li>
+            }
+        </ol>
+    </section>
+    <section aria-labelledby="insights-heading">
+        <h3 id="insights-heading">Weak spots and habits</h3>
+        @if (!Insights.HasEnoughData)
+        {
+            <p class="control-note">Not enough attempts yet to rank individual pitches.</p>
+        }
+        else
+        {
+            @if (Insights.WeakSpots.Count > 0)
+            {
+                <ul class="history-mastery-list">
+                    @foreach (NoteMastery spot in Insights.WeakSpots)
+                    {
+                        <li>
+                            @spot.Pitch.ToString()@(spot.Staff is { } staff ? $" on {(staff == Staff.Bass ? "bass" : "treble")}" : string.Empty) —
+                            @spot.AccuracyPercent.ToString("F0", CultureInfo.InvariantCulture)% first-try
+                            (@spot.CorrectFirstTryCount of @spot.AttemptCount)
+                        </li>
+                    }
+                </ul>
+            }
+            @foreach (ConfusionHabit habit in Insights.Habits)
+            {
+                <p class="control-note">Habit: @SightReadingInsightText.DescribeHabit(habit) (@habit.Count times).</p>
+            }
+            @if (Insights.Speed is { } speed)
+            {
+                <p class="control-note">
+                    Self-paced speed: about @speed.MedianResponseTime.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture) s per
+                    note, @speed.NotesPerMinute.ToString("F0", CultureInfo.InvariantCulture) notes a minute.
+                </p>
+            }
+            @if (Insights.Trend.Count > 0)
+            {
+                <p class="control-note">
+                    Pitch accuracy, oldest to newest: @string.Join(" → ", Insights.Trend.Select(point => $"{point.PitchAccuracyPercent:F0}%"))
+                    (@SightReadingInsightText.DescribeTrend(Insights.PitchTrend)).
+                    @if (Insights.Trend.Any(point => point.TimingCleanPercent is not null))
+                    {
+                        <text>Timing clean: @string.Join(" → ", Insights.Trend.Where(point => point.TimingCleanPercent is not null).Select(point => $"{point.TimingCleanPercent:F0}%")).</text>
+                    }
+                </p>
+            }
         }
     </section>
     <section aria-labelledby="pitch-mastery-heading">
@@ -65,6 +128,12 @@
 
     [Parameter]
     public int InsufficientDataPitchCount { get; set; }
+
+    [Parameter]
+    public LevelProgressionReport Ladder { get; set; } = LevelProgression.Evaluate(SightReadingHistory.Empty);
+
+    [Parameter]
+    public SightReadingInsightReport Insights { get; set; } = SightReadingInsights.Build(SightReadingHistory.Empty);
 
     [Parameter]
     public EventCallback ClearHistory { get; set; }
