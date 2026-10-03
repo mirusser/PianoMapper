@@ -23,7 +23,7 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
 
     internal SightReadingPresetId PresetId { get; private set; } = SightReadingPresetId.FiveNote;
 
-    internal int PromptCountOption { get; private set; } = 8;
+    internal int PromptCountOption { get; private set; } = 64;
 
     internal bool IsGrandStaff { get; private set; }
 

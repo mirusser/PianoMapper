@@ -27,6 +27,14 @@ public sealed class SightReadingExerciseCoordinatorTests
     }
 
     [Fact]
+    public void PromptCountOption_Initially_IsSixtyFour()
+    {
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+
+        Assert.Equal(64, coordinator.PromptCountOption);
+    }
+
+    [Fact]
     public void RevealNoteNamesWhileActive_Initially_IsFalse()
     {
         var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());

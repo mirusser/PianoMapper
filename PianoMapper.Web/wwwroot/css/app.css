@@ -516,6 +516,26 @@ select option {
     gap: 1.5rem;
 }
 
+.exercise-layout {
+    max-width: none;
+}
+
+.exercise-settings {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+    align-items: start;
+}
+
+.exercise-settings-secondary {
+    display: grid;
+    gap: 1.5rem;
+    align-content: start;
+}
+
+.exercise-playing-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding-top: 1.35rem;
+}
+
 .controls-centered {
     justify-content: center;
 }
@@ -1265,6 +1285,10 @@ input[type="file"]::file-selector-button:hover {
 }
 
 @media (max-width: 32rem) {
+    .exercise-playing-options {
+        grid-template-columns: 1fr;
+    }
+
     .octave-controls {
         flex-wrap: wrap;
     }

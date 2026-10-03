@@ -1,7 +1,10 @@
 <section class="control-card" aria-labelledby="sight-reading-history-heading">
     <div class="control-card-heading">
         <h2 id="sight-reading-history-heading">Progress</h2>
-        <span>Local history and pitch mastery</span>
+        <div class="controls">
+            <span>Local history and pitch mastery</span>
+            <button class="button-quiet" type="button" @onclick="Hide">Hide</button>
+        </div>
     </div>
     <section aria-labelledby="recent-sessions-heading">
         <h3 id="recent-sessions-heading">Recent sessions</h3>
@@ -137,6 +140,9 @@
 
     [Parameter]
     public EventCallback ClearHistory { get; set; }
+
+    [Parameter, EditorRequired]
+    public EventCallback Hide { get; set; }
 
     [Inject]
     private IJSRuntime JS { get; set; } = null!;

@@ -4,7 +4,10 @@
 <section class="visualization-panel piano-keyboard-panel" aria-labelledby="full-piano-keyboard-heading">
     <div class="visualization-panel-header">
         <h2 id="full-piano-keyboard-heading">88-key piano</h2>
-        <span class="panel-context">A0–C8</span>
+        <div class="controls">
+            <span class="panel-context">A0–C8</span>
+            <button class="button-quiet" type="button" @onclick="Hide">Hide</button>
+        </div>
     </div>
     <p class="panel-description">
         Tap, click, or use your MIDI/computer keyboard to play. Keys light up while notes sound.
@@ -55,6 +58,9 @@
 
     [Parameter]
     public EventCallback<BrowserPointerNoteOffEvent> PointerNoteOff { get; set; }
+
+    [Parameter, EditorRequired]
+    public EventCallback Hide { get; set; }
 
     private string KeyboardAriaLabel
     {

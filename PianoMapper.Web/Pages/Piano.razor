@@ -478,7 +478,8 @@
                 {
                     <div id="sight-reading-exercise-panel">
                         <SightReadingExercisePanel Presentation="@ExercisePresentation"
-                                                   OnAction="HandleSightReadingExerciseActionAsync" />
+                                                   OnAction="HandleSightReadingExerciseActionAsync"
+                                                   Hide="ToggleSightReadingExercisePanel" />
                     </div>
                 }
 
@@ -490,7 +491,8 @@
                                                    InsufficientDataPitchCount="@InsufficientMasteryDataPitchCount"
                                                    Insights="@sightReadingInsights"
                                                    Ladder="@sightReadingLadder"
-                                                   ClearHistory="ClearSightReadingHistoryAsync" />
+                                                   ClearHistory="ClearSightReadingHistoryAsync"
+                                                   Hide="ToggleSightReadingProgressPanel" />
                     </div>
                 }
             </PracticeContent>

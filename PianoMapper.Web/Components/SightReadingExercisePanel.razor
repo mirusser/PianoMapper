@@ -1,10 +1,13 @@
 <section class="control-card" aria-labelledby="sight-reading-heading">
     <div class="control-card-heading">
         <h2 id="sight-reading-heading">Note reading exercise</h2>
-        <span>Pitch and rhythm practice</span>
+        <div class="controls">
+            <span>Pitch and rhythm practice</span>
+            <button class="button-quiet" type="button" @onclick="Hide">Hide</button>
+        </div>
     </div>
-    <div class="control-column">
-        <div class="control-sections">
+    <div class="control-column exercise-layout">
+        <div class="control-sections exercise-settings">
             <div role="group" aria-labelledby="sight-reading-setup-heading">
                 <span class="control-group-label" id="sight-reading-setup-heading">Setup</span>
                 <div class="control-grid">
@@ -139,54 +142,56 @@
                 }
             </p>
             </div>
-            <div role="group" aria-labelledby="sight-reading-reveal-heading">
-                <span class="control-group-label" id="sight-reading-reveal-heading">While playing</span>
-                <div class="control-grid control-grid-tiles">
-                    <label class="control-checkbox">
-                        <input type="checkbox"
-                               checked="@Presentation.RevealNoteNamesWhileActive"
-                               @onchange="SelectRevealNoteNamesWhileActiveAsync" />
-                        Show note names
-                    </label>
-                    <label class="control-checkbox">
-                        <input type="checkbox"
-                               checked="@Presentation.RevealFingeringWhileActive"
-                               @onchange="SelectRevealFingeringWhileActiveAsync" />
-                        Show fingering
-                    </label>
-                    <label class="control-checkbox">
-                        <input type="checkbox"
-                               checked="@Presentation.RevealKeysWhileActive"
-                               @onchange="SelectRevealKeysWhileActiveAsync" />
-                        Highlight next keys on the piano
-                    </label>
-                    <label class="control-checkbox">
-                        <input type="checkbox"
-                               checked="@Presentation.CoachHints"
-                               disabled="@(Presentation.Pacing == ExercisePacing.PlayAlong)"
-                               @onchange="SelectCoachHintsAsync" />
-                        Coach hints
-                    </label>
-                    @if (SightReadingLabels.IsTimingGraded(Presentation.Mode))
-                    {
+            <div class="exercise-settings-secondary">
+                <div role="group" aria-labelledby="sight-reading-reveal-heading">
+                    <span class="control-group-label" id="sight-reading-reveal-heading">While playing</span>
+                    <div class="control-grid control-grid-tiles exercise-playing-options">
                         <label class="control-checkbox">
                             <input type="checkbox"
-                                   checked="@Presentation.ClickWhilePlaying"
-                                   @onchange="SelectClickWhilePlayingAsync" />
-                            Keep the click going while playing
+                                   checked="@Presentation.RevealNoteNamesWhileActive"
+                                   @onchange="SelectRevealNoteNamesWhileActiveAsync" />
+                            Show note names
                         </label>
-                    }
+                        <label class="control-checkbox">
+                            <input type="checkbox"
+                                   checked="@Presentation.RevealFingeringWhileActive"
+                                   @onchange="SelectRevealFingeringWhileActiveAsync" />
+                            Show fingering
+                        </label>
+                        <label class="control-checkbox">
+                            <input type="checkbox"
+                                   checked="@Presentation.RevealKeysWhileActive"
+                                   @onchange="SelectRevealKeysWhileActiveAsync" />
+                            Highlight next keys on the piano
+                        </label>
+                        <label class="control-checkbox">
+                            <input type="checkbox"
+                                   checked="@Presentation.CoachHints"
+                                   disabled="@(Presentation.Pacing == ExercisePacing.PlayAlong)"
+                                   @onchange="SelectCoachHintsAsync" />
+                            Coach hints
+                        </label>
+                        @if (SightReadingLabels.IsTimingGraded(Presentation.Mode))
+                        {
+                            <label class="control-checkbox">
+                                <input type="checkbox"
+                                       checked="@Presentation.ClickWhilePlaying"
+                                       @onchange="SelectClickWhilePlayingAsync" />
+                                Keep the click going while playing
+                            </label>
+                        }
+                    </div>
                 </div>
-            </div>
-            <div role="group" aria-labelledby="sight-reading-finish-heading">
-                <span class="control-group-label" id="sight-reading-finish-heading">When finished</span>
-                <div class="control-grid control-grid-tiles">
-                    <label class="control-checkbox">
-                        <input type="checkbox"
-                               checked="@Presentation.AutoNext"
-                               @onchange="SelectAutoNextAsync" />
-                        Start the next exercise automatically after @AutoNextSeconds seconds
-                    </label>
+                <div role="group" aria-labelledby="sight-reading-finish-heading">
+                    <span class="control-group-label" id="sight-reading-finish-heading">When finished</span>
+                    <div class="control-grid control-grid-tiles">
+                        <label class="control-checkbox">
+                            <input type="checkbox"
+                                   checked="@Presentation.AutoNext"
+                                   @onchange="SelectAutoNextAsync" />
+                            Start the next exercise automatically after @AutoNextSeconds seconds
+                        </label>
+                    </div>
                 </div>
             </div>
         </div>
@@ -304,6 +309,9 @@
 
     [Parameter, EditorRequired]
     public EventCallback<SightReadingExerciseAction> OnAction { get; set; }
+
+    [Parameter, EditorRequired]
+    public EventCallback Hide { get; set; }
 
     private bool ShowsTimingBreakdown =>
         SightReadingLabels.IsTimingGraded(Presentation.RunMode) && Presentation.CompletedPromptCount > 0;

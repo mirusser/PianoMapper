@@ -106,7 +106,10 @@
                     <p class="panel-kicker">Sound shape</p>
                     <h2>Waveform</h2>
                 </div>
-                <span class="legend-line legend-line-waveform">Signal</span>
+                <div class="controls">
+                    <span class="legend-line legend-line-waveform">Signal</span>
+                    <button class="button-quiet" type="button" @onclick="ToggleWaveform">Hide</button>
+                </div>
             </div>
             <p class="panel-description">
                 Time runs left to right across the latest audio window. Distance from the center line shows signal
@@ -131,7 +134,10 @@
                     <p class="panel-kicker">Sound ingredients</p>
                     <h2>Frequency spectrum</h2>
                 </div>
-                <span class="legend-line legend-line-spectrum">Relative strength</span>
+                <div class="controls">
+                    <span class="legend-line legend-line-spectrum">Relative strength</span>
+                    <button class="button-quiet" type="button" @onclick="ToggleFrequencySpectrum">Hide</button>
+                </div>
             </div>
             <p class="panel-description">
                 Bars run from lower to higher frequencies. The fundamental sets the note's pitch; the pattern of
@@ -156,7 +162,8 @@
         <FullPianoKeyboard ActiveMidiNumbers="@ActiveKeyboardMidiNumbers"
                            NextMidiNumbers="@NextKeyboardMidiNumbers"
                            PointerNoteOn="PointerNoteOn"
-                           PointerNoteOff="PointerNoteOff" />
+                           PointerNoteOff="PointerNoteOff"
+                           Hide="ToggleKeyboard" />
     }
 
     <details class="learning-disclosure visualization-help">
