@@ -16,4 +16,6 @@ internal readonly record struct GrandStaffStaticScoreParts(
     double? BassAnnotationLabelY,
     IReadOnlyList<GrandStaffSlur> Slurs,
     IReadOnlyList<GrandStaffArpeggioMark> ArpeggioMarks,
-    IReadOnlyList<GrandStaffTie> Ties);
+    IReadOnlyList<GrandStaffTie> Ties,
+    ScoreTimingIndex Timing,
+    IReadOnlyDictionary<int, ScoreNotationMeasureLayout> NotationMeasureLayouts);

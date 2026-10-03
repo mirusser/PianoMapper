@@ -14,4 +14,5 @@ public sealed record ScoreCursorPlaybackState(
     double CompletionSeconds,
     double CursorY0,
     double CursorY1,
-    int VisibleMeasureCount);
+    int VisibleMeasureCount,
+    IReadOnlyList<ScoreCursorMeasureLayout> MeasureLayouts);

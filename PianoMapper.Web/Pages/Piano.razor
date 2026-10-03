@@ -445,6 +445,8 @@
                      CanSelectScoreNotes="@isFingeringEditing"
                      SelectedScoreNote="@selectedScoreNoteAddress"
                      ScoreNoteSelected="HandleScoreNoteSelected"
+                     ScoreOverlay="@scoreOverlay"
+                     SecondaryScoreOverlay="@secondaryScoreOverlay"
                      ScoreCursor="@scoreCursorState"
                      SecondaryScoreCursor="@secondaryScoreCursorState"
                      PrimaryScoreRangeLabel="@PrimaryScoreRangeLabel"
@@ -544,6 +546,8 @@
     private DotNetObjectReference<Piano>? inputReference;
     private IPianoCanvasScene canvasScene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero, selectedOctave: 4);
     private IPianoCanvasScene? secondaryCanvasScene;
+    private GrandStaffScoreOverlay? scoreOverlay;
+    private GrandStaffScoreOverlay? secondaryScoreOverlay;
     private ScoreCursorPlaybackState? scoreCursorState;
     private ScoreCursorPlaybackState? secondaryScoreCursorState;
     private IReadOnlySet<int> activeKeyboardMidiNumbers = new HashSet<int>();
@@ -1325,7 +1329,6 @@
         displayTimeSignature = score.TimeSignature;
         displayTempo = score.Tempo;
         RefreshCanvasScene(await AudioSession.GetCurrentTimeAsync());
-        UpdateScoreCursorStates();
         playbackTicker.Start(TickScorePlaybackAsync, CanvasRefreshInterval);
         audioStatus = $"Playing {score.Title}, {SelectedMeasureRangeLabel}.";
     }
@@ -1806,49 +1809,99 @@
         }
     }
 
-    // The small set of numbers JS needs to animate the score-playback cursor itself, every
-    // animation frame, from audioContext.currentTime — see canvas.js's drawScoreCursor(). Null
-    // while nothing should be drawn (no active score playback, or the piano-roll view is showing,
-    // which never displayed a grand-staff cursor either).
-    private ScoreCursorPlaybackState? BuildScoreCursorState(int firstVisibleMeasure)
+    // The small set of numbers JS needs to animate the score cursor itself, every animation
+    // frame from audioContext.currentTime. Imported-score playback and timed practice share this
+    // path; C# continues to update only the practice verdict and held-note overlay.
+    private ScoreCursorPlaybackState? BuildScoreCursorState(
+        Score score,
+        ScoreCursorAnchor anchor,
+        int firstVisibleMeasure,
+        GrandStaffStaticScoreParts staticParts)
     {
-        if (showPianoRoll || selectedScore is null || ScorePlaybackSession.GetCursorAnchor() is not { } anchor)
+        if (showPianoRoll)
         {
             return null;
         }
 
         var (cursorY0, cursorY1) = GrandStaffSceneBuilder.GetCursorLineYBounds();
-        var measureStartBeats = new double[selectedScore.Measures.Count + 1];
-        for (int measureIndex = 0; measureIndex < selectedScore.Measures.Count; measureIndex++)
+        var measureStartBeats = new double[score.Measures.Count + 1];
+        for (int measureIndex = 0; measureIndex < score.Measures.Count; measureIndex++)
         {
             measureStartBeats[measureIndex + 1] = measureStartBeats[measureIndex] +
-                (selectedScore.Measures[measureIndex].LengthInBeats ?? selectedScore.TimeSignature.Numerator);
+                (score.Measures[measureIndex].LengthInBeats ?? score.TimeSignature.Numerator);
         }
 
         return new ScoreCursorPlaybackState(
             anchor.AnchorSeconds,
             anchor.BeatsPerMinute,
-            selectedScore.TimeSignature.Numerator,
+            score.TimeSignature.Numerator,
             measureStartBeats,
             firstVisibleMeasure,
             anchor.CompletionSeconds,
             cursorY0,
             cursorY1,
-            visibleMeasureCount);
+            visibleMeasureCount,
+            GrandStaffSceneBuilder.CreateScoreCursorMeasureLayouts(
+                staticParts,
+                firstVisibleMeasure,
+                visibleMeasureCount));
     }
 
     private void UpdateScoreCursorStates()
     {
-        if (scoreWindowPair is not { } pair)
+        scoreCursorState = null;
+        secondaryScoreCursorState = null;
+    }
+
+    private void UpdateScoreCursorStates(
+        Score score,
+        GrandStaffStaticScoreParts upperStaticParts,
+        GrandStaffStaticScoreParts? lowerStaticParts)
+    {
+        if (scoreWindowPair is not { } pair || GetScoreCursorAnchor(score) is not { } anchor)
         {
-            scoreCursorState = null;
-            secondaryScoreCursorState = null;
+            UpdateScoreCursorStates();
             return;
         }
 
-        scoreCursorState = BuildScoreCursorState(pair.UpperFirstMeasure);
-        secondaryScoreCursorState = pair.LowerFirstMeasure is { } lowerFirstMeasure
-            ? BuildScoreCursorState(lowerFirstMeasure)
+        scoreCursorState = GetUpdatedScoreCursorState(
+            scoreCursorState,
+            score,
+            anchor,
+            pair.UpperFirstMeasure,
+            upperStaticParts);
+        secondaryScoreCursorState = pair.LowerFirstMeasure is { } lowerFirstMeasure && lowerStaticParts is { } staticParts
+            ? GetUpdatedScoreCursorState(secondaryScoreCursorState, score, anchor, lowerFirstMeasure, staticParts)
+            : null;
+    }
+
+    private ScoreCursorPlaybackState GetUpdatedScoreCursorState(
+        ScoreCursorPlaybackState? current,
+        Score score,
+        ScoreCursorAnchor anchor,
+        int firstVisibleMeasure,
+        GrandStaffStaticScoreParts staticParts) =>
+        current is not null &&
+        current.AnchorSeconds == anchor.AnchorSeconds &&
+        current.BeatsPerMinute == anchor.BeatsPerMinute &&
+        current.CompletionSeconds == anchor.CompletionSeconds &&
+        current.FirstVisibleMeasure == firstVisibleMeasure &&
+        current.VisibleMeasureCount == visibleMeasureCount
+            ? current
+            : BuildScoreCursorState(score, anchor, firstVisibleMeasure, staticParts)!;
+
+    private ScoreCursorAnchor? GetScoreCursorAnchor(Score score)
+    {
+        if (ScorePlaybackSession.IsActive && ScorePlaybackSession.GetCursorAnchor() is { } playbackAnchor)
+        {
+            return playbackAnchor;
+        }
+
+        return practiceCoordinator.State == PracticeSessionState.Running
+            ? new ScoreCursorAnchor(
+                practiceCoordinator.PracticeAnchor.TotalSeconds,
+                score.Tempo.BeatsPerMinute,
+                practiceCoordinator.PerformanceCompletionTime.TotalSeconds)
             : null;
     }
 
@@ -1877,7 +1930,6 @@
         }
 
         scoreWindowPair = updatedPair;
-        UpdateScoreCursorStates();
         return true;
     }
 
@@ -2766,7 +2818,6 @@
         }
 
         RefreshCanvasScene(currentTime);
-        UpdateScoreCursorStates();
         if (ShouldContinueVisualizationRefresh(
             showPianoRoll,
             NotationScore is not null,
@@ -2796,6 +2847,9 @@
                 .ToArray();
             canvasScene = PianoRollSceneBuilder.Build(notes, currentTime);
             secondaryCanvasScene = null;
+            scoreOverlay = null;
+            secondaryScoreOverlay = null;
+            UpdateScoreCursorStates();
             return;
         }
 
@@ -2810,6 +2864,9 @@
                 keyboardState.CurrentOctave,
                 showNoteLabels);
             secondaryCanvasScene = null;
+            scoreOverlay = null;
+            secondaryScoreOverlay = null;
+            UpdateScoreCursorStates();
             return;
         }
 
@@ -2875,10 +2932,13 @@
             : performedNotesToInclude is null
                 ? performedNotes
                 : performedNotes.Where(performedNotesToInclude.Contains).ToArray();
-        canvasScene = upperGrandStaffSceneCache.BuildScore(
+        double? overlayCursorBeats = practiceCoordinator.State == PracticeSessionState.Running
+            ? null
+            : effectiveCursorBeats;
+        GrandStaffScoreRenderState upperRenderState = upperGrandStaffSceneCache.BuildScoreRenderState(
             notationScore,
             upperFirstMeasure,
-            effectiveCursorBeats,
+            overlayCursorBeats,
             effectiveVerdicts,
             upperPerformedNotes,
             performedNoteBeats,
@@ -2889,11 +2949,15 @@
             drawRests,
             drawTies,
             reviewMarks);
-        secondaryCanvasScene = scoreWindowPair?.LowerFirstMeasure is { } lowerFirstMeasure
-            ? lowerGrandStaffSceneCache.BuildScore(
+        canvasScene = upperRenderState.Scene;
+        scoreOverlay = upperRenderState.Overlay;
+        GrandStaffStaticScoreParts? lowerStaticParts = null;
+        if (scoreWindowPair?.LowerFirstMeasure is { } lowerFirstMeasure)
+        {
+            GrandStaffScoreRenderState lowerRenderState = lowerGrandStaffSceneCache.BuildScoreRenderState(
                 notationScore,
                 lowerFirstMeasure,
-                effectiveCursorBeats,
+                overlayCursorBeats,
                 effectiveVerdicts,
                 GetPerformedNotesForScoreRow(
                     performedNotes,
@@ -2907,8 +2971,18 @@
                 visibleMeasureCount,
                 drawRests,
                 drawTies,
-                reviewMarks)
-            : null;
+                reviewMarks);
+            secondaryCanvasScene = lowerRenderState.Scene;
+            secondaryScoreOverlay = lowerRenderState.Overlay;
+            lowerStaticParts = lowerRenderState.StaticParts;
+        }
+        else
+        {
+            secondaryCanvasScene = null;
+            secondaryScoreOverlay = null;
+        }
+
+        UpdateScoreCursorStates(notationScore, upperRenderState.StaticParts, lowerStaticParts);
     }
 
     internal static IReadOnlyList<PerformedNote> GetPerformedNotesForScoreRow(

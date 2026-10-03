@@ -21,6 +21,50 @@ public sealed class GrandStaffSceneCacheTests
     }
 
     [Fact]
+    public void BuildScoreRenderState_CursorMoves_ReusesStaticSceneAndCreatesOverlay()
+    {
+        var cache = new GrandStaffSceneCache();
+        var score = CreateScore(measureCount: 6);
+
+        var first = cache.BuildScoreRenderState(score, firstVisibleMeasure: 0, cursorBeats: 1);
+        var second = cache.BuildScoreRenderState(score, firstVisibleMeasure: 0, cursorBeats: 2);
+
+        Assert.Same(first.Scene, second.Scene);
+        Assert.NotSame(first.Overlay, second.Overlay);
+        Assert.True(second.Overlay.Cursor!.X0 > first.Overlay.Cursor!.X0);
+    }
+
+    [Fact]
+    public void CreateScoreCursorMeasureLayouts_AdjustedOnset_AlignsWithCachedNotation()
+    {
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.C, 1, 4), new NoteValue(4), 0, 2, Staff.Treble, Accidental: ScoreAccidental.Sharp),
+            new(new Pitch(NoteLetter.D, 0, 4), new NoteValue(4), 0, 2, Staff.Treble, IsChordContinuation: true),
+            new(new Pitch(NoteLetter.E, 0, 4), new NoteValue(4), 0, 2.25, Staff.Treble),
+        ];
+        var score = new Score(
+            "cursor layout",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure(notes, [])]);
+        var renderState = new GrandStaffSceneCache().BuildScoreRenderState(score, firstVisibleMeasure: 0);
+
+        ScoreCursorMeasureLayout layout = Assert.Single(
+            GrandStaffSceneBuilder.CreateScoreCursorMeasureLayouts(
+                renderState.StaticParts,
+                firstVisibleMeasure: 0,
+                visibleMeasureCount: 5));
+        int onsetIndex = Array.IndexOf(layout.SpacingAnchorBeats.ToArray(), 2);
+        double cursorX = layout.NoteAreaStartX +
+            (layout.SpacingAnchorFractions[onsetIndex] * (layout.NoteAreaEndX - layout.NoteAreaStartX));
+        double noteX = renderState.Scene.Notes.Single(note => note.HasStem && note.ScoreOnsetBeats == 2).X;
+
+        Assert.Equal(noteX, cursorX, precision: 6);
+    }
+
+    [Fact]
     public void BuildScore_CursorBeatsChange_MovesCursorLineWithoutChangingItsCount()
     {
         var cache = new GrandStaffSceneCache();

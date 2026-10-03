@@ -21,6 +21,8 @@ internal sealed class BrowserPracticeCoordinator(IBrowserScoreAudio audio, NoteT
 
     internal TimeSpan PracticeAnchor => session?.PracticeAnchor ?? TimeSpan.Zero;
 
+    internal TimeSpan PerformanceCompletionTime => session?.PerformanceCompletionTime ?? TimeSpan.Zero;
+
     internal GradingResult? Result { get; private set; }
 
     internal bool IsActive => State is PracticeSessionState.CountingIn or PracticeSessionState.Running;

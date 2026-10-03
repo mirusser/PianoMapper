@@ -32,8 +32,41 @@ internal sealed class GrandStaffSceneCache
     private bool cachedDrawTies;
     private IReadOnlyDictionary<ScoreNote, ReviewMark>? cachedReviewMarks;
     private GrandStaffStaticScoreParts? cachedStaticParts;
+    private GrandStaffScene? cachedStaticScene;
 
     internal GrandStaffScene BuildScore(
+        Score score,
+        int firstVisibleMeasure,
+        double? cursorBeats = null,
+        IReadOnlyDictionary<ScoreNote, Verdict>? verdicts = null,
+        IReadOnlyList<PerformedNote>? performedNotes = null,
+        double? performedNoteBeats = null,
+        bool showNoteLabels = true,
+        bool showFingerings = true,
+        IReadOnlySet<ScoreNote>? expectedNotes = null,
+        int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount,
+        bool drawRests = false,
+        bool drawTies = false,
+        IReadOnlyDictionary<ScoreNote, ReviewMark>? reviewMarks = null)
+    {
+        GrandStaffScoreRenderState renderState = BuildScoreRenderState(
+            score,
+            firstVisibleMeasure,
+            cursorBeats,
+            verdicts,
+            performedNotes,
+            performedNoteBeats,
+            showNoteLabels,
+            showFingerings,
+            expectedNotes,
+            visibleMeasureCount,
+            drawRests,
+            drawTies,
+            reviewMarks);
+        return GrandStaffSceneBuilder.ComposeScore(renderState.StaticParts, renderState.Overlay);
+    }
+
+    internal GrandStaffScoreRenderState BuildScoreRenderState(
         Score score,
         int firstVisibleMeasure,
         double? cursorBeats = null,
@@ -74,6 +107,7 @@ internal sealed class GrandStaffSceneCache
                 drawTies,
                 reviewMarks);
             cachedStaticParts = staticParts;
+            cachedStaticScene = GrandStaffSceneBuilder.CreateStaticScoreScene(staticParts);
             cachedScore = score;
             cachedFirstVisibleMeasure = firstVisibleMeasure;
             cachedVerdicts = verdicts;
@@ -86,16 +120,19 @@ internal sealed class GrandStaffSceneCache
             cachedReviewMarks = reviewMarks;
         }
 
-        return GrandStaffSceneBuilder.ComposeScore(
-            staticParts,
-            score,
-            firstVisibleMeasure,
-            cursorBeats,
-            performedNotes,
-            performedNoteBeats,
-            showNoteLabels,
-            visibleMeasureCount,
-            drawTies);
+        return new GrandStaffScoreRenderState(
+            cachedStaticScene!,
+            GrandStaffSceneBuilder.BuildScoreOverlay(
+                staticParts,
+                score,
+                firstVisibleMeasure,
+                cursorBeats,
+                performedNotes,
+                performedNoteBeats,
+                showNoteLabels,
+                visibleMeasureCount,
+                drawTies),
+            staticParts);
     }
 
     private static bool MapsEqual<TValue>(

@@ -283,6 +283,12 @@
     public EventCallback<ScoreNoteAddress> ScoreNoteSelected { get; set; }
 
     [Parameter]
+    public GrandStaffScoreOverlay? ScoreOverlay { get; set; }
+
+    [Parameter]
+    public GrandStaffScoreOverlay? SecondaryScoreOverlay { get; set; }
+
+    [Parameter]
     public ScoreCursorPlaybackState? ScoreCursor { get; set; }
 
     [Parameter]
@@ -322,6 +328,8 @@
     private ScoreCursorPlaybackState? lastPushedSecondaryScoreCursor;
     private IPianoCanvasScene? lastPushedScene;
     private IPianoCanvasScene? lastPushedSecondaryScene;
+    private GrandStaffScoreOverlay? lastPushedScoreOverlay;
+    private GrandStaffScoreOverlay? lastPushedSecondaryScoreOverlay;
     private ScoreNoteAddress? lastPushedSelectedScoreNote;
     private ScoreNoteAddress? lastPushedSecondarySelectedScoreNote;
     private bool lastPushedIsWaveformVisible;
@@ -392,16 +400,10 @@
 
         ScoreNoteAddress? effectiveSelectedScoreNote = CanSelectScoreNotes ? SelectedScoreNote : null;
 
-        // BuildScore/ComposeScore return a fresh instance only when the visible measure window,
-        // score content, or verdicts actually changed (see GrandStaffSceneCache); most refresh
-        // ticks during playback leave Scene pointing at the same instance. Reference equality is
-        // therefore enough to detect a no-op tick and skip the interop round trip that would
-        // otherwise re-marshal the whole scene and force prepareScoreLayer() to redraw the entire
-        // offscreen staff layer every ~16ms even when nothing on screen changed.
-        if (!ReferenceEquals(Scene, lastPushedScene)
-            || effectiveSelectedScoreNote != lastPushedSelectedScoreNote
-            || isWaveformVisible != lastPushedIsWaveformVisible
-            || isFrequencySpectrumVisible != lastPushedIsFrequencySpectrumVisible)
+        // GrandStaffSceneCache keeps the static score scene reference-stable until visible notation
+        // changes. Reference equality therefore skips whole-scene interop while the separate
+        // score overlay carries only the moving cursor and held notes on practice ticks.
+        if (!ReferenceEquals(Scene, lastPushedScene))
         {
             await module!.InvokeVoidAsync(
                 "render",
@@ -416,6 +418,36 @@
             lastPushedIsFrequencySpectrumVisible = isFrequencySpectrumVisible;
         }
 
+        if (Scene.Kind == PianoCanvasSceneKind.GrandStaff &&
+            effectiveSelectedScoreNote != lastPushedSelectedScoreNote)
+        {
+            await module!.InvokeVoidAsync("updateScoreSelection", canvas, effectiveSelectedScoreNote);
+            lastPushedSelectedScoreNote = effectiveSelectedScoreNote;
+        }
+
+        if (isWaveformVisible != lastPushedIsWaveformVisible ||
+            isFrequencySpectrumVisible != lastPushedIsFrequencySpectrumVisible)
+        {
+            await module!.InvokeVoidAsync(
+                "updateAnalysisVisibility",
+                canvas,
+                isWaveformVisible,
+                isFrequencySpectrumVisible);
+            lastPushedIsWaveformVisible = isWaveformVisible;
+            lastPushedIsFrequencySpectrumVisible = isFrequencySpectrumVisible;
+        }
+
+        if (Scene.Kind == PianoCanvasSceneKind.GrandStaff &&
+            !ReferenceEquals(ScoreOverlay, lastPushedScoreOverlay))
+        {
+            await module!.InvokeVoidAsync("updateScoreOverlay", canvas, ScoreOverlay);
+            lastPushedScoreOverlay = ScoreOverlay;
+        }
+        else if (Scene.Kind != PianoCanvasSceneKind.GrandStaff)
+        {
+            lastPushedScoreOverlay = null;
+        }
+
         if (!HasSecondaryScoreRow)
         {
             if (lastPushedSecondaryScoreCursor is not null)
@@ -425,6 +457,7 @@
             }
 
             lastPushedSecondaryScene = null;
+            lastPushedSecondaryScoreOverlay = null;
             return;
         }
 
@@ -441,8 +474,7 @@
             }
         }
 
-        if (!ReferenceEquals(SecondaryScene, lastPushedSecondaryScene)
-            || effectiveSelectedScoreNote != lastPushedSecondarySelectedScoreNote)
+        if (!ReferenceEquals(SecondaryScene, lastPushedSecondaryScene))
         {
             await module!.InvokeVoidAsync(
                 "render",
@@ -453,6 +485,18 @@
                 effectiveSelectedScoreNote);
             lastPushedSecondaryScene = SecondaryScene;
             lastPushedSecondarySelectedScoreNote = effectiveSelectedScoreNote;
+        }
+
+        if (effectiveSelectedScoreNote != lastPushedSecondarySelectedScoreNote)
+        {
+            await module!.InvokeVoidAsync("updateScoreSelection", secondaryCanvas, effectiveSelectedScoreNote);
+            lastPushedSecondarySelectedScoreNote = effectiveSelectedScoreNote;
+        }
+
+        if (!ReferenceEquals(SecondaryScoreOverlay, lastPushedSecondaryScoreOverlay))
+        {
+            await module!.InvokeVoidAsync("updateScoreOverlay", secondaryCanvas, SecondaryScoreOverlay);
+            lastPushedSecondaryScoreOverlay = SecondaryScoreOverlay;
         }
     }
 

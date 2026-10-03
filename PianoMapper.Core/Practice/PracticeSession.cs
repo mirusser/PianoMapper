@@ -33,6 +33,9 @@ public sealed class PracticeSession
 
     public TimeSpan PracticeAnchor { get; private set; }
 
+    /// <summary>The audio-clock instant at which the score's last expected note finishes.</summary>
+    public TimeSpan PerformanceCompletionTime => PracticeAnchor + performanceDuration;
+
     public int CountInTicksDue
     {
         get

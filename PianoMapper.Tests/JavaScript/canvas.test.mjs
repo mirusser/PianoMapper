@@ -13,6 +13,8 @@ import {
     render,
     startScoreCursor,
     stopScoreCursor,
+    updateScoreOverlay,
+    updateScoreSelection,
     verdictColors,
 } from "../../PianoMapper.Web/wwwroot/js/canvas.js";
 import {
@@ -466,6 +468,38 @@ test("score cursor X reflects a non-default visibleMeasureCount", async () => {
     }
 });
 
+test("score cursor follows cached notation spacing anchors", async () => {
+    const harness = await createScoreCursorHarness(1);
+    const canvas = harness.createCanvas();
+    const cursor = {
+        anchorSeconds: 0,
+        beatsPerMinute: 60,
+        beatsPerMeasure: 4,
+        firstVisibleMeasure: 0,
+        completionSeconds: 4,
+        cursorY0: -0.5,
+        cursorY1: 0.5,
+        visibleMeasureCount: 1,
+        measureLayouts: [{
+            measureIndex: 0,
+            startBeat: 0,
+            endBeat: 4,
+            noteAreaStartX: -0.8,
+            noteAreaEndX: 0.8,
+            spacingAnchorBeats: [0, 1, 4],
+            spacingAnchorFractions: [0, 0.5, 1],
+        }],
+    };
+
+    try {
+        startScoreCursor(canvas, cursor);
+
+        assert.equal(canvas.context.lineSegments.at(-1).x, mapXForTest(0));
+    } finally {
+        await harness.dispose();
+    }
+});
+
 test("score cursor animates without analysis panels and stops at completion or removal", async () => {
     const harness = await createScoreCursorHarness(1);
     const canvas = harness.createCanvas();
@@ -668,6 +702,40 @@ test("grand staff drawing caches its static layer until the scene or size change
             });
 
             assert.equal(scoreLayer.context.strokeCalls, scoreLayerStrokesAfterSceneRender + 3);
+        } finally {
+            dispose(canvas);
+        }
+    }, { onCreateElement: tagName => assert.equal(tagName, "canvas") });
+});
+
+test("score overlay updates do not rebuild the static score layer", () => {
+    withCanvasMocks(({ createdCanvases }) => {
+        const canvas = new FakeCanvas();
+        const waveformCanvas = new FakeCanvas();
+        const spectrumCanvas = new FakeCanvas();
+
+        try {
+            initialize(canvas, waveformCanvas, spectrumCanvas, { spectrumVisibleBinCount: 32 });
+            render(canvas, {
+                kind: 0,
+                lines: [{ x0: -0.8, y0: 0.5, x1: 0.8, y1: 0.5, kind: 0 }],
+                glyphs: [],
+                notes: [],
+                shouldClipNotesAtClefs: false,
+            });
+            const scoreLayer = createdCanvases[0];
+            const staticStrokes = scoreLayer.context.strokeCalls;
+
+            updateScoreOverlay(canvas, {
+                cursor: { x0: 0, y0: -0.5, x1: 0, y1: 0.5, kind: 3 },
+                notes: [],
+                ledgerLines: [],
+            });
+
+            updateScoreSelection(canvas, null);
+
+            assert.equal(scoreLayer.context.strokeCalls, staticStrokes);
+            assert.ok(canvas.context.lineSegments.some(segment => segment.x === 320));
         } finally {
             dispose(canvas);
         }
