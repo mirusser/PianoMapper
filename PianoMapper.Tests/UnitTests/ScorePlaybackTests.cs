@@ -148,4 +148,27 @@ public sealed class ScorePlaybackTests
         Assert.Equal(TimeSpan.FromSeconds(6.5), tied.DueTime);
         Assert.Equal(TimeSpan.FromSeconds(1), tied.Duration);
     }
+
+    [Fact]
+    public void CreateSchedule_ImplicitPickup_UsesItsActualLengthBeforeTheNextMeasure()
+    {
+        var secondPitch = new Pitch(NoteLetter.D, 0, 4);
+        var score = new Score(
+            "Pickup",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [
+                new ScoreMeasure(
+                    [new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble)],
+                    [],
+                    LengthInBeats: 1),
+                new ScoreMeasure([new ScoreNote(secondPitch, new NoteValue(4), 1, 0, Staff.Treble)], []),
+            ]);
+
+        var schedule = ScorePlayback.CreateSchedule(score, TimeSpan.Zero);
+
+        ScheduledScoreEvent second = Assert.Single(schedule, item => item.Event.Pitch == secondPitch);
+        Assert.Equal(TimeSpan.FromSeconds(0.5), second.DueTime);
+    }
 }

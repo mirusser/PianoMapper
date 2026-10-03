@@ -14,6 +14,12 @@ internal static class GrandStaffSceneBuilder
     private const double KeySignatureX0 = -0.78;
     private const double KeySignatureXSpacing = 0.025;
     private const double TimeSignatureGapAfterKeySignature = 0.08;
+    // A key change inside the system: its first glyph sits this far right of the barline, and the notes start this much
+    // after its last one. A change is capped at this fraction of a measure's width (glyph spacing shrinks to fit), so a
+    // seven-accidental change with naturals cannot leave a measure no room for its notes.
+    private const double KeyChangeLeftMargin = 0.012;
+    private const double KeyChangeRightGap = 0.02;
+    private const double KeyChangeMaxMeasureFraction = 0.45;
     private const double TimeSignatureX = -0.59;
     private const double MeasureEdgeNoteClearance = 0.02;
     // Extra room after the barline for a measure whose first onset prints an accidental: the glyph sits about
@@ -67,6 +73,8 @@ internal static class GrandStaffSceneBuilder
     // Smaller than a printed accidental: articulation/ornament marks (a dot, dash, wedge, "tr")
     // read clearly at a more modest size than an accidental glyph needs to stay legible.
     private const double NotationMarkHeightInStaffSpaces = 1.2;
+    // How far apart (in staff spaces) several marks over one note stack: a mark's height plus a little air.
+    private const double MarkStackStepInStaffSpaces = 1.4;
 
     /// <summary>A quarter rest is about three staff spaces tall, centered on the middle line.</summary>
     private const double RestHeightInStaffSpaces = 3.0;
@@ -201,6 +209,7 @@ internal static class GrandStaffSceneBuilder
             score.Measures.Count,
             clampedMeasure + visibleMeasureCount);
         bool reserveArrivingTieRoom = drawTies && HasArrivingTie(score, clampedMeasure);
+        int[] keyFifthsByMeasure = ScoreKeys.GetKeyFifthsByMeasure(score);
         for (int measureIndex = clampedMeasure; measureIndex < lastMeasureIndexExclusive; measureIndex++)
         {
             ScoreMeasure measure = score.Measures[measureIndex];
@@ -221,8 +230,8 @@ internal static class GrandStaffSceneBuilder
                         : GrandStaffLayout.GetLivePosition(GrandStaffLayout.GetNotatedPitch(note)).Staff;
                 ScoreNote notationNote = note with { Staff = notationStaff };
                 if (GrandStaffLayout.GetScoreNoteLayout(
+                        score,
                         notationNote,
-                        score.TimeSignature,
                         clampedMeasure,
                         visibleMeasureCount) is not { } layout)
                 {
@@ -230,11 +239,13 @@ internal static class GrandStaffSceneBuilder
                 }
 
                 float renderedX = MapScoreNotationBeatToX(
+                    score,
                     measure,
                     note.MeasureIndex,
                     note.BeatOffset,
                     score.TimeSignature,
-                    score.KeyFifths,
+                    keyFifthsByMeasure[measureIndex],
+                    GetKeyChangeWidth(score, measureIndex, clampedMeasure, visibleMeasureCount),
                     clampedMeasure,
                     reserveArrivingTieRoom,
                     visibleMeasureCount);
@@ -244,10 +255,18 @@ internal static class GrandStaffSceneBuilder
         }
 
         var glyphs = CreateClefGlyphs();
-        AddScoreSignatures(glyphs, score);
+        AddScoreSignatures(glyphs, score, keyFifthsByMeasure, clampedMeasure);
+        AddKeyChangeGlyphs(glyphs, score, keyFifthsByMeasure, clampedMeasure, lastMeasureIndexExclusive, visibleMeasureCount);
         if (drawRests)
         {
-            AddRestGlyphs(glyphs, score, clampedMeasure, lastMeasureIndexExclusive, visibleMeasureCount, reserveArrivingTieRoom);
+            AddRestGlyphs(
+                glyphs,
+                score,
+                keyFifthsByMeasure,
+                clampedMeasure,
+                lastMeasureIndexExclusive,
+                visibleMeasureCount,
+                reserveArrivingTieRoom);
         }
 
         // Score pitch determines notation placement for unanchored bass-hand notes. A bass-register
@@ -306,7 +325,7 @@ internal static class GrandStaffSceneBuilder
         var reviewMarkGroups = new Dictionary<(Staff Staff, double OnsetBeats), int>();
 
         var (barlineY0, barlineY1) = GetCursorLineYBounds();
-        lines.AddRange(GrandStaffLayout.GetScoreBarlineXs(clampedMeasure, score.Measures.Count, visibleMeasureCount)
+        lines.AddRange(GrandStaffLayout.GetScoreBarlineXs(score, clampedMeasure, visibleMeasureCount)
             .Where(x => x < GrandStaffLayout.ScoreX1)
             .Select((x, boundary) =>
             {
@@ -341,7 +360,7 @@ internal static class GrandStaffSceneBuilder
                 : bassAnnotationRows;
             double noteY = GrandStaffLayout.SeparateStaffY(layout.Position.Y, layout.Position.Staff);
             bool isBeamed = beamOverrides.TryGetValue(note, out var beamOverride);
-            double scoreOnsetBeats = ScoreDerivation.GetOnsetBeats(note, score.TimeSignature);
+            double scoreOnsetBeats = ScoreDerivation.GetOnsetBeats(score, note);
             double scoreEndBeats = scoreOnsetBeats + MusicalTime.GetBeats(note.NoteValue, score.TimeSignature);
             ReviewMark? reviewMark = reviewMarks is not null && reviewMarks.TryGetValue(note, out var visibleMark)
                 ? visibleMark
@@ -408,7 +427,7 @@ internal static class GrandStaffSceneBuilder
                     layout.X + LedgerLineHalfWidth,
                     GrandStaffLayout.SeparateStaffY(y, layout.Position.Staff),
                     GrandStaffLineKind.Ledger)));
-            string? accidentalGlyph = GetNoteAccidentalGlyph(note, score.KeyFifths);
+            string? accidentalGlyph = GetNoteAccidentalGlyph(note, keyFifthsByMeasure[note.MeasureIndex]);
             if (accidentalGlyph is not null)
             {
                 glyphs.Add(new GrandStaffGlyph(
@@ -434,25 +453,31 @@ internal static class GrandStaffSceneBuilder
                         * GrandStaffLayout.GetRenderedStaffSpace(layout.Position.Staff)));
             }
 
+            // Articulations, ornaments and the accidental mark all sit above the note; a note with several stacks them
+            // upward, in that order, rather than drawing them on top of each other.
             double? beamStemEndY = isBeamed ? beamOverride.StemEndY : null;
-            if (note.Articulation is { } articulation)
+            double pointGlyphY = GrandStaffLayout.GetPointGlyphY(noteY, layout, beamStemEndY);
+            double renderedStaffSpace = GrandStaffLayout.GetRenderedStaffSpace(layout.Position.Staff);
+            int stackedMarkCount = 0;
+            double NextPointGlyphY() => pointGlyphY + (stackedMarkCount++ * MarkStackStepInStaffSpaces * renderedStaffSpace);
+            foreach (var articulation in GetSetFlags(note.Articulation))
             {
                 glyphs.Add(new GrandStaffGlyph(
                     GetArticulationGlyph(articulation),
                     layout.X,
-                    GrandStaffLayout.GetPointGlyphY(noteY, layout, beamStemEndY),
+                    NextPointGlyphY(),
                     GrandStaffGlyphKind.Articulation,
-                    NotationMarkHeightInStaffSpaces * GrandStaffLayout.GetRenderedStaffSpace(layout.Position.Staff)));
+                    NotationMarkHeightInStaffSpaces * renderedStaffSpace));
             }
 
-            if (note.Ornament is { } ornament)
+            foreach (var ornament in GetSetFlags(note.Ornament))
             {
                 glyphs.Add(new GrandStaffGlyph(
                     GetOrnamentGlyph(ornament),
                     layout.X,
-                    GrandStaffLayout.GetPointGlyphY(noteY, layout, beamStemEndY),
+                    NextPointGlyphY(),
                     GrandStaffGlyphKind.Ornament,
-                    NotationMarkHeightInStaffSpaces * GrandStaffLayout.GetRenderedStaffSpace(layout.Position.Staff)));
+                    NotationMarkHeightInStaffSpaces * renderedStaffSpace));
             }
 
             if (note.AccidentalMark is { } accidentalMark)
@@ -460,9 +485,9 @@ internal static class GrandStaffSceneBuilder
                 glyphs.Add(new GrandStaffGlyph(
                     GetAccidentalGlyph(accidentalMark),
                     layout.X,
-                    GrandStaffLayout.GetPointGlyphY(noteY, layout, beamStemEndY),
+                    NextPointGlyphY(),
                     GrandStaffGlyphKind.AccidentalMark,
-                    AccidentalHeightInStaffSpaces * GrandStaffLayout.GetRenderedStaffSpace(layout.Position.Staff)));
+                    AccidentalHeightInStaffSpaces * renderedStaffSpace));
             }
         }
 
@@ -585,6 +610,7 @@ internal static class GrandStaffSceneBuilder
     private static void AddRestGlyphs(
         List<GrandStaffGlyph> glyphs,
         Score score,
+        int[] keyFifthsByMeasure,
         int firstMeasureIndex,
         int lastMeasureIndexExclusive,
         int visibleMeasureCount,
@@ -605,11 +631,13 @@ internal static class GrandStaffSceneBuilder
                     : RestHeightInStaffSpaces;
 
                 float x = MapScoreNotationBeatToX(
+                    score,
                     measure,
                     rest.MeasureIndex,
                     rest.BeatOffset,
                     score.TimeSignature,
-                    score.KeyFifths,
+                    keyFifthsByMeasure[measureIndex],
+                    GetKeyChangeWidth(score, measureIndex, firstMeasureIndex, visibleMeasureCount),
                     firstMeasureIndex,
                     reserveArrivingTieRoom,
                     visibleMeasureCount);
@@ -698,28 +726,26 @@ internal static class GrandStaffSceneBuilder
         var slurs = new List<GrandStaffSlur>();
         for (int startIndex = 0; startIndex < notes.Count; startIndex++)
         {
-            if (notes[startIndex].Note.Slur is not { IsStart: true } start)
-            {
-                continue;
-            }
-
             Staff staff = notes[startIndex].Layout.Position.Staff;
-            for (int stopIndex = startIndex + 1; stopIndex < notes.Count; stopIndex++)
+            foreach (ScoreSlur start in (notes[startIndex].Note.Slur?.Chain() ?? []).Where(slur => slur.IsStart))
             {
-                if (notes[stopIndex].Layout.Position.Staff != staff ||
-                    notes[stopIndex].Note.Slur is not { IsStart: false, Number: var stopNumber } ||
-                    stopNumber != start.Number)
+                for (int stopIndex = startIndex + 1; stopIndex < notes.Count; stopIndex++)
                 {
-                    continue;
-                }
+                    if (notes[stopIndex].Layout.Position.Staff != staff ||
+                        !(notes[stopIndex].Note.Slur?.Chain() ?? [])
+                            .Any(slur => !slur.IsStart && slur.Number == start.Number))
+                    {
+                        continue;
+                    }
 
-                slurs.Add(new GrandStaffSlur(
-                    renderedNotes[startIndex].X,
-                    renderedNotes[startIndex].Y,
-                    renderedNotes[stopIndex].X,
-                    renderedNotes[stopIndex].Y,
-                    GetSlurCurveDirection(notes, startIndex, stopIndex, staff)));
-                break;
+                    slurs.Add(new GrandStaffSlur(
+                        renderedNotes[startIndex].X,
+                        renderedNotes[startIndex].Y,
+                        renderedNotes[stopIndex].X,
+                        renderedNotes[stopIndex].Y,
+                        GetSlurCurveDirection(notes, startIndex, stopIndex, staff)));
+                    break;
+                }
             }
         }
 
@@ -1026,23 +1052,25 @@ internal static class GrandStaffSceneBuilder
         }
 
         TimeSignature timeSignature = score.TimeSignature;
-        double windowStartBeat = firstVisibleMeasure * timeSignature.Numerator;
-        double windowEndBeat = (firstVisibleMeasure + visibleMeasureCount)
-            * timeSignature.Numerator;
+        double windowStartBeat = ScoreDerivation.GetMeasureStartBeats(score, firstVisibleMeasure);
+        int windowEndMeasure = Math.Min(score.Measures.Count, firstVisibleMeasure + visibleMeasureCount);
+        double windowEndBeat = ScoreDerivation.GetMeasureStartBeats(score, windowEndMeasure);
         if (beats.Value < windowStartBeat || beats.Value >= windowEndBeat)
         {
             return null;
         }
 
-        int measureIndex = (int)Math.Floor(beats.Value / timeSignature.Numerator);
-        double beatOffset = beats.Value - (measureIndex * timeSignature.Numerator);
-        ScoreMeasure? measure = measureIndex < score.Measures.Count ? score.Measures[measureIndex] : null;
+        int measureIndex = FindMeasureIndex(score, beats.Value);
+        double beatOffset = beats.Value - ScoreDerivation.GetMeasureStartBeats(score, measureIndex);
+        ScoreMeasure measure = score.Measures[measureIndex];
         return MapScoreNotationBeatToX(
+            score,
             measure,
             measureIndex,
             beatOffset,
             timeSignature,
-            score.KeyFifths,
+            GetKeyFifthsAt(score, measureIndex),
+            GetKeyChangeWidth(score, measureIndex, firstVisibleMeasure, visibleMeasureCount),
             firstVisibleMeasure,
             reserveArrivingTieRoom,
             visibleMeasureCount);
@@ -1058,26 +1086,28 @@ internal static class GrandStaffSceneBuilder
     /// widening would otherwise overflow the measure.
     /// </summary>
     private static float MapScoreNotationBeatToX(
+        Score score,
         ScoreMeasure? measure,
         int measureIndex,
         double beatOffset,
         TimeSignature timeSignature,
         int keyFifths,
+        double keyChangeWidth,
         int firstVisibleMeasure,
         bool reserveArrivingTieRoom,
         int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount)
     {
         double measureStartX = GrandStaffLayout.MapScoreOnsetToX(
-            measureIndex, 0, timeSignature, firstVisibleMeasure, visibleMeasureCount);
+            score, measureIndex, 0, firstVisibleMeasure, visibleMeasureCount);
         double measureEndX = GrandStaffLayout.MapScoreOnsetToX(
-            measureIndex + 1, 0, timeSignature, firstVisibleMeasure, visibleMeasureCount);
+            score, measureIndex + 1, 0, firstVisibleMeasure, visibleMeasureCount);
         double leadingClearance = (measure is not null && HasLeadingAccidental(measure, keyFifths)
                 ? LeadingAccidentalClearance
                 : 0)
             + (reserveArrivingTieRoom && measureIndex == firstVisibleMeasure ? ArrivingTieClearance : 0);
         double noteAreaStartX = (measureIndex == firstVisibleMeasure
             ? measureStartX
-            : measureStartX + MeasureEdgeNoteClearance) + leadingClearance;
+            : measureStartX + MeasureEdgeNoteClearance + keyChangeWidth) + leadingClearance;
         double noteAreaEndX = measureEndX - MeasureEdgeNoteClearance;
         double noteAreaWidth = noteAreaEndX - noteAreaStartX;
         double fraction = measure is null
@@ -1087,6 +1117,20 @@ internal static class GrandStaffSceneBuilder
             noteAreaStartX + (fraction * noteAreaWidth),
             noteAreaStartX,
             noteAreaEndX);
+    }
+
+    private static int FindMeasureIndex(Score score, double absoluteBeats)
+    {
+        for (int measureIndex = 0; measureIndex < score.Measures.Count; measureIndex++)
+        {
+            double measureEndBeats = ScoreDerivation.GetMeasureStartBeats(score, measureIndex + 1);
+            if (absoluteBeats < measureEndBeats)
+            {
+                return measureIndex;
+            }
+        }
+
+        throw new ArgumentOutOfRangeException(nameof(absoluteBeats));
     }
 
     /// <summary>
@@ -1995,10 +2039,19 @@ internal static class GrandStaffSceneBuilder
             : automaticDirection;
     }
 
-    private static void AddScoreSignatures(ICollection<GrandStaffGlyph> glyphs, Score score)
+    // The signatures the window opens with: the key in effect at its first measure (a change in that very measure
+    // included), so scrolling to a later part of the piece never shows a stale key.
+    private static void AddScoreSignatures(
+        ICollection<GrandStaffGlyph> glyphs,
+        Score score,
+        int[] keyFifthsByMeasure,
+        int firstVisibleMeasure)
     {
-        AddKeySignatureGlyphs(glyphs, score.KeyFifths);
-        int accidentalCount = Math.Abs(score.KeyFifths);
+        int keyFifths = firstVisibleMeasure < keyFifthsByMeasure.Length
+            ? keyFifthsByMeasure[firstVisibleMeasure]
+            : score.KeyFifths;
+        AddKeySignatureGlyphs(glyphs, keyFifths);
+        int accidentalCount = Math.Abs(keyFifths);
         double timeSignatureX = accidentalCount == 0
             ? TimeSignatureX - OpeningBarlineLead
             : KeySignatureX0
@@ -2007,15 +2060,117 @@ internal static class GrandStaffSceneBuilder
         AddTimeSignatureGlyphs(glyphs, score.TimeSignature, timeSignatureX);
     }
 
-    private static void AddKeySignatureGlyphs(ICollection<GrandStaffGlyph> glyphs, int keyFifths)
+    private static int GetKeyFifthsAt(Score score, int measureIndex)
     {
-        if (keyFifths == 0)
+        for (int index = Math.Min(measureIndex, score.Measures.Count - 1); index >= 0; index--)
         {
-            return;
+            if (score.Measures[index].KeyFifths is { } keyFifths)
+            {
+                return keyFifths;
+            }
         }
 
-        int accidentalCount = Math.Abs(keyFifths);
+        return score.KeyFifths;
+    }
+
+    /// <summary>
+    /// How much room (scene-X) the key change that starts <paramref name="measureIndex"/> takes at that measure's left
+    /// edge, or 0 when it has none, or when it is the window's first measure (that key is in the opening signature).
+    /// </summary>
+    private static double GetKeyChangeWidth(Score score, int measureIndex, int firstVisibleMeasure, int visibleMeasureCount)
+    {
+        if (measureIndex <= firstVisibleMeasure ||
+            measureIndex >= score.Measures.Count ||
+            score.Measures[measureIndex].KeyFifths is not { } newFifths)
+        {
+            return 0;
+        }
+
+        int glyphCount = GetKeyChangeGlyphs(GetKeyFifthsAt(score, measureIndex - 1), newFifths).Count;
+        return KeyChangeLeftMargin + (glyphCount * GetKeyChangeSpacing(glyphCount, visibleMeasureCount)) + KeyChangeRightGap;
+    }
+
+    private static double GetKeyChangeSpacing(int glyphCount, int visibleMeasureCount)
+    {
+        double measureWidth = (GrandStaffLayout.ScoreX1 - GrandStaffLayout.ScoreX0) / visibleMeasureCount;
+        double availableWidth = (measureWidth * KeyChangeMaxMeasureFraction) - KeyChangeLeftMargin - KeyChangeRightGap;
+        return glyphCount == 0 ? KeySignatureXSpacing : Math.Min(KeySignatureXSpacing, availableWidth / glyphCount);
+    }
+
+    /// <summary>
+    /// The new signature's glyphs at each visible measure that changes the key (never the window's first measure, whose
+    /// key opens the system): naturals cancelling what the old key no longer carries, then the new accidentals.
+    /// </summary>
+    private static void AddKeyChangeGlyphs(
+        ICollection<GrandStaffGlyph> glyphs,
+        Score score,
+        int[] keyFifthsByMeasure,
+        int firstVisibleMeasure,
+        int lastMeasureIndexExclusive,
+        int visibleMeasureCount)
+    {
+        for (int measureIndex = firstVisibleMeasure + 1; measureIndex < lastMeasureIndexExclusive; measureIndex++)
+        {
+            if (score.Measures[measureIndex].KeyFifths is not { } newFifths)
+            {
+                continue;
+            }
+
+            var changeGlyphs = GetKeyChangeGlyphs(keyFifthsByMeasure[measureIndex - 1], newFifths);
+            double spacing = GetKeyChangeSpacing(changeGlyphs.Count, visibleMeasureCount);
+            double measureStartX = GrandStaffLayout.MapScoreOnsetToX(
+                score, measureIndex, 0, firstVisibleMeasure, visibleMeasureCount);
+            for (int glyphIndex = 0; glyphIndex < changeGlyphs.Count; glyphIndex++)
+            {
+                var (text, isSharp, orderIndex) = changeGlyphs[glyphIndex];
+                AddKeySignatureAccidental(
+                    glyphs,
+                    text,
+                    isSharp,
+                    orderIndex,
+                    measureStartX + KeyChangeLeftMargin + (glyphIndex * spacing));
+            }
+        }
+    }
+
+    // (glyph text, whether its position follows the sharps or the flats order, its index in that order)
+    private static List<(string Text, bool IsSharp, int OrderIndex)> GetKeyChangeGlyphs(int oldFifths, int newFifths)
+    {
+        var glyphs = new List<(string, bool, int)>();
+        // Moving to more accidentals of the same kind cancels nothing, to fewer cancels the dropped ones, and moving to
+        // the other kind (or to C major) cancels them all.
+        int firstCancelled = Math.Sign(oldFifths) == Math.Sign(newFifths)
+            ? Math.Min(Math.Abs(oldFifths), Math.Abs(newFifths))
+            : 0;
+        for (int index = firstCancelled; index < Math.Abs(oldFifths); index++)
+        {
+            glyphs.Add(("♮", oldFifths > 0, index));
+        }
+
+        for (int index = 0; index < Math.Abs(newFifths); index++)
+        {
+            glyphs.Add((newFifths > 0 ? "♯" : "♭", newFifths > 0, index));
+        }
+
+        return glyphs;
+    }
+
+    private static void AddKeySignatureGlyphs(ICollection<GrandStaffGlyph> glyphs, int keyFifths)
+    {
         bool isSharp = keyFifths > 0;
+        for (int index = 0; index < Math.Abs(keyFifths); index++)
+        {
+            AddKeySignatureAccidental(glyphs, isSharp ? "♯" : "♭", isSharp, index, KeySignatureX0 + (index * KeySignatureXSpacing));
+        }
+    }
+
+    private static void AddKeySignatureAccidental(
+        ICollection<GrandStaffGlyph> glyphs,
+        string text,
+        bool isSharp,
+        int orderIndex,
+        double x)
+    {
         foreach (Staff staff in signatureStaves)
         {
             var offsets = (staff, isSharp) switch
@@ -2028,19 +2183,16 @@ internal static class GrandStaffSceneBuilder
             double bottomLineY = staff == Staff.Treble
                 ? GrandStaffLayout.TrebleLineYs[0]
                 : GrandStaffLayout.BassLineYs[0];
-            for (int index = 0; index < accidentalCount; index++)
-            {
-                glyphs.Add(new GrandStaffGlyph(
-                    isSharp ? "♯" : "♭",
-                    KeySignatureX0 + (index * KeySignatureXSpacing),
-                    GrandStaffLayout.SeparateStaffY(
-                        bottomLineY + (offsets[index] * GrandStaffLayout.DiatonicStep),
-                        staff),
-                    GrandStaffGlyphKind.KeySignature,
-                    KeySignatureHeightInStaffSpaces
-                        * GrandStaffLayout.GrandStaffVerticalScale
-                        * (GrandStaffLayout.TrebleLineYs[1] - GrandStaffLayout.TrebleLineYs[0])));
-            }
+            glyphs.Add(new GrandStaffGlyph(
+                text,
+                x,
+                GrandStaffLayout.SeparateStaffY(
+                    bottomLineY + (offsets[orderIndex] * GrandStaffLayout.DiatonicStep),
+                    staff),
+                GrandStaffGlyphKind.KeySignature,
+                KeySignatureHeightInStaffSpaces
+                    * GrandStaffLayout.GrandStaffVerticalScale
+                    * (GrandStaffLayout.TrebleLineYs[1] - GrandStaffLayout.TrebleLineYs[0])));
         }
     }
 
@@ -2168,14 +2320,29 @@ internal static class GrandStaffSceneBuilder
         ScoreArticulation.Tenuto => "–",
         ScoreArticulation.Accent => ">",
         ScoreArticulation.Staccatissimo => "▾",
+        ScoreArticulation.StrongAccent => "^",
+        ScoreArticulation.BreathMark => "𝄒",
+        ScoreArticulation.Caesura => "𝄓",
         _ => throw new ArgumentOutOfRangeException(nameof(articulation), articulation, message: null),
     };
 
     private static string GetOrnamentGlyph(ScoreOrnament ornament) => ornament switch
     {
         ScoreOrnament.TrillMark => "tr",
+        ScoreOrnament.Turn => "𝆗",
+        ScoreOrnament.InvertedTurn => "𝆘",
+        ScoreOrnament.Mordent => "𝆜",
+        ScoreOrnament.InvertedMordent => "𝆝",
+        ScoreOrnament.Shake => "𝆖",
         _ => throw new ArgumentOutOfRangeException(nameof(ornament), ornament, message: null),
     };
+
+    /// <summary>The individual values set in a flags enum, lowest first; none when it is null.</summary>
+    private static IEnumerable<TFlags> GetSetFlags<TFlags>(TFlags? flags)
+        where TFlags : struct, Enum =>
+        flags is { } value
+            ? Enum.GetValues<TFlags>().Where(flag => value.HasFlag(flag))
+            : [];
 
     private static string GetAccidentalGlyph(ScoreAccidental accidental) => accidental switch
     {

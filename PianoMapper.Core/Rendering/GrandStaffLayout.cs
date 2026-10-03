@@ -80,6 +80,24 @@ public static class GrandStaffLayout
         return ScoreX0 + (float)(relativeMeasure / visibleMeasureCount * (ScoreX1 - ScoreX0));
     }
 
+    /// <summary>
+    /// Maps an imported score onset into a displayed window. An implicit pickup consumes only its actual fraction of a
+    /// normal measure, leaving the rest of the system width available to the following full measures.
+    /// </summary>
+    public static float MapScoreOnsetToX(
+        Score score,
+        int measureIndex,
+        double beatOffset,
+        int firstVisibleMeasure,
+        int visibleMeasureCount = DefaultVisibleMeasureCount)
+    {
+        ArgumentNullException.ThrowIfNull(score);
+
+        double relativeBeats = ScoreDerivation.GetMeasureStartBeats(score, measureIndex) -
+            ScoreDerivation.GetMeasureStartBeats(score, firstVisibleMeasure) + beatOffset;
+        return ScoreX0 + (float)(relativeBeats / score.TimeSignature.Numerator / visibleMeasureCount * (ScoreX1 - ScoreX0));
+    }
+
     public static int GetLiveFirstVisibleMeasure(
         TimeSpan currentTime,
         TimeSignature timeSignature,
@@ -218,6 +236,40 @@ public static class GrandStaffLayout
             {
                 8 => 1,
                 16 => 2,
+                32 => 3,
+                64 => 4,
+                _ => 0,
+            });
+    }
+
+    public static ScoreNoteLayout? GetScoreNoteLayout(
+        Score score,
+        ScoreNote note,
+        int firstVisibleMeasure,
+        int visibleMeasureCount = DefaultVisibleMeasureCount)
+    {
+        ArgumentNullException.ThrowIfNull(score);
+        ArgumentNullException.ThrowIfNull(note);
+        if (note.MeasureIndex < firstVisibleMeasure || note.MeasureIndex >= firstVisibleMeasure + visibleMeasureCount)
+        {
+            return null;
+        }
+
+        var position = GetPosition(GetNotatedPitch(note), note.Staff);
+        var stemDirection = ResolveStemDirection(note.StemDirection, position);
+        return new ScoreNoteLayout(
+            MapScoreOnsetToX(score, note.MeasureIndex, note.BeatOffset, firstVisibleMeasure, visibleMeasureCount),
+            position,
+            note.NoteValue.Denominator <= 2 ? NoteHeadStyle.Hollow : NoteHeadStyle.Filled,
+            stemDirection,
+            HasStem: note.NoteValue.Denominator != 1,
+            HasDot: note.NoteValue.Dots > 0,
+            FlagCount: note.NoteValue.Denominator switch
+            {
+                8 => 1,
+                16 => 2,
+                32 => 3,
+                64 => 4,
                 _ => 0,
             });
     }
@@ -232,6 +284,24 @@ public static class GrandStaffLayout
             .Select(boundary => boundary == visibleMeasureCount
                 ? ScoreX1
                 : ScoreX0 + (boundary * (ScoreX1 - ScoreX0) / visibleMeasureCount))
+            .ToArray();
+    }
+
+    public static IReadOnlyList<float> GetScoreBarlineXs(
+        Score score,
+        int firstVisibleMeasure,
+        int visibleMeasureCount = DefaultVisibleMeasureCount)
+    {
+        ArgumentNullException.ThrowIfNull(score);
+
+        int visibleMeasures = Math.Min(visibleMeasureCount, Math.Max(0, score.Measures.Count - firstVisibleMeasure));
+        return Enumerable.Range(0, visibleMeasures + 1)
+            .Select(boundary => MapScoreOnsetToX(
+                score,
+                firstVisibleMeasure + boundary,
+                beatOffset: 0,
+                firstVisibleMeasure,
+                visibleMeasureCount))
             .ToArray();
     }
 

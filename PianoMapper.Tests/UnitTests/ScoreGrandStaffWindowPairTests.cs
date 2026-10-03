@@ -1,3 +1,4 @@
+using PianoMapper.Music;
 using PianoMapper.Rendering;
 using PianoMapper.Web.Rendering;
 
@@ -5,6 +6,27 @@ namespace PianoMapper.Tests.UnitTests;
 
 public sealed class ScoreGrandStaffWindowPairTests
 {
+    [Fact]
+    public void FromCursorBeats_ImplicitPickup_SelectsTheFollowingPageAtItsActualStart()
+    {
+        var score = new Score(
+            "Pickup",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            Enumerable.Range(0, 10)
+                .Select(index => new ScoreMeasure([], [], LengthInBeats: index == 0 ? 1 : null))
+                .ToArray());
+
+        var state = ScoreGrandStaffWindowPair.FromCursorBeats(
+            score,
+            cursorBeats: 17,
+            visibleMeasureCount: GrandStaffLayout.DefaultVisibleMeasureCount);
+
+        Assert.Equal(1, state.ActivePageIndex);
+        Assert.Equal(GrandStaffLayout.DefaultVisibleMeasureCount, state.LowerFirstMeasure);
+    }
+
     [Fact]
     public void FromCursorBeats_ExactPageBoundary_SelectsIncomingLowerPage()
     {

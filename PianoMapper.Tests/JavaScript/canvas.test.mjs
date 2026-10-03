@@ -416,6 +416,30 @@ test("score cursor exact boundary belongs only to incoming canvas", async () => 
     }
 });
 
+test("score cursor follows an implicit pickup into its following page", async () => {
+    const harness = await createScoreCursorHarness(17);
+    const canvas = harness.createCanvas();
+    const cursor = {
+        anchorSeconds: 0,
+        beatsPerMinute: 60,
+        beatsPerMeasure: 4,
+        firstVisibleMeasure: 5,
+        completionSeconds: 40,
+        cursorY0: -0.5,
+        cursorY1: 0.5,
+        visibleMeasureCount: 5,
+        measureStartBeats: [0, 1, 5, 9, 13, 17, 21, 25, 29, 33, 37],
+    };
+
+    try {
+        startScoreCursor(canvas, cursor);
+
+        assert.equal(canvas.context.lineSegments.length, 1);
+    } finally {
+        await harness.dispose();
+    }
+});
+
 test("score cursor X reflects a non-default visibleMeasureCount", async () => {
     const harness = await createScoreCursorHarness(2);
     const defaultCanvas = harness.createCanvas();

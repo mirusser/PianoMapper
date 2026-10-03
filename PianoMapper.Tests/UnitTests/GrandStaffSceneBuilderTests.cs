@@ -5,7 +5,7 @@ using PianoMapper.Practice;
 
 namespace PianoMapper.Tests.UnitTests;
 
-public sealed class GrandStaffSceneBuilderTests
+public sealed partial class GrandStaffSceneBuilderTests
 {
     [Fact]
     public void BuildScore_ChordEarlyInMeasureFollowedByMoreNotes_DoesNotCrowdUnrelatedNotes()

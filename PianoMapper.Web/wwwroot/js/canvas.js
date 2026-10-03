@@ -874,14 +874,25 @@ function drawScoreCursor(context, state, width, height, scorePlaybackBeats) {
 
     const visibleMeasureCount = cursor.visibleMeasureCount ?? defaultScoreCursorVisibleMeasureCount;
     const beats = Math.max(0, scorePlaybackBeats);
-    const windowStartBeat = cursor.firstVisibleMeasure * cursor.beatsPerMeasure;
-    const windowEndBeat = (cursor.firstVisibleMeasure + visibleMeasureCount)
-        * cursor.beatsPerMeasure;
+    const measureStartBeats = cursor.measureStartBeats;
+    const windowStartBeat = getMeasureStartBeat(
+        measureStartBeats,
+        cursor.beatsPerMeasure,
+        cursor.firstVisibleMeasure);
+    const lastMeasureIndex = Array.isArray(measureStartBeats)
+        ? Math.min(cursor.firstVisibleMeasure + visibleMeasureCount, measureStartBeats.length - 1)
+        : cursor.firstVisibleMeasure + visibleMeasureCount;
+    const windowEndBeat = getMeasureStartBeat(measureStartBeats, cursor.beatsPerMeasure, lastMeasureIndex);
     if (beats < windowStartBeat || beats >= windowEndBeat) {
         return;
     }
 
-    const x = mapScoreNotationBeatToX(beats, cursor.beatsPerMeasure, cursor.firstVisibleMeasure, visibleMeasureCount);
+    const x = mapScoreNotationBeatToX(
+        beats,
+        cursor.beatsPerMeasure,
+        cursor.firstVisibleMeasure,
+        visibleMeasureCount,
+        measureStartBeats);
     drawLine(
         context,
         { x0: x, y0: cursor.cursorY0, x1: x, y1: cursor.cursorY1, kind: cursorLineKind },
@@ -894,11 +905,11 @@ export function mapAbsoluteBeatToScoreX(
     absoluteBeat,
     beatsPerMeasure,
     firstVisibleMeasure,
-    visibleMeasureCount = defaultScoreCursorVisibleMeasureCount) {
-    const measureIndex = Math.floor(absoluteBeat / beatsPerMeasure);
-    const beatOffset = absoluteBeat - (measureIndex * beatsPerMeasure);
-    const relativeMeasure = measureIndex - firstVisibleMeasure + (beatOffset / beatsPerMeasure);
-    return scoreCursorX0 + (relativeMeasure / visibleMeasureCount) * (scoreCursorX1 - scoreCursorX0);
+    visibleMeasureCount = defaultScoreCursorVisibleMeasureCount,
+    measureStartBeats = undefined) {
+    const firstMeasureStartBeat = getMeasureStartBeat(measureStartBeats, beatsPerMeasure, firstVisibleMeasure);
+    return scoreCursorX0 + ((absoluteBeat - firstMeasureStartBeat) / beatsPerMeasure / visibleMeasureCount)
+        * (scoreCursorX1 - scoreCursorX0);
 }
 
 // Mirrors GrandStaffSceneBuilder.MapScoreNotationBeatToX for note and cursor alignment.
@@ -906,19 +917,50 @@ export function mapScoreNotationBeatToX(
     absoluteBeat,
     beatsPerMeasure,
     firstVisibleMeasure,
-    visibleMeasureCount = defaultScoreCursorVisibleMeasureCount) {
-    const measureIndex = Math.floor(absoluteBeat / beatsPerMeasure);
-    const beatOffset = absoluteBeat - (measureIndex * beatsPerMeasure);
+    visibleMeasureCount = defaultScoreCursorVisibleMeasureCount,
+    measureStartBeats = undefined) {
+    const measureIndex = findMeasureIndex(absoluteBeat, beatsPerMeasure, measureStartBeats);
+    const measureStartBeat = getMeasureStartBeat(measureStartBeats, beatsPerMeasure, measureIndex);
+    const beatOffset = absoluteBeat - measureStartBeat;
     const measureStartX = mapAbsoluteBeatToScoreX(
-        measureIndex * beatsPerMeasure, beatsPerMeasure, firstVisibleMeasure, visibleMeasureCount);
+        measureStartBeat, beatsPerMeasure, firstVisibleMeasure, visibleMeasureCount, measureStartBeats);
     const measureEndX = mapAbsoluteBeatToScoreX(
-        (measureIndex + 1) * beatsPerMeasure, beatsPerMeasure, firstVisibleMeasure, visibleMeasureCount);
+        getMeasureStartBeat(measureStartBeats, beatsPerMeasure, measureIndex + 1),
+        beatsPerMeasure,
+        firstVisibleMeasure,
+        visibleMeasureCount,
+        measureStartBeats);
     const noteAreaStartX = measureIndex === firstVisibleMeasure
         ? measureStartX
         : measureStartX + scoreNoteEdgeClearance;
     const noteAreaEndX = measureEndX - scoreNoteEdgeClearance;
     const x = noteAreaStartX + (beatOffset / beatsPerMeasure) * (noteAreaEndX - noteAreaStartX);
     return Math.min(Math.max(x, noteAreaStartX), noteAreaEndX);
+}
+
+function getMeasureStartBeat(measureStartBeats, beatsPerMeasure, measureIndex) {
+    if (Array.isArray(measureStartBeats)
+        && measureIndex >= 0
+        && measureIndex < measureStartBeats.length
+        && Number.isFinite(measureStartBeats[measureIndex])) {
+        return measureStartBeats[measureIndex];
+    }
+
+    return measureIndex * beatsPerMeasure;
+}
+
+function findMeasureIndex(absoluteBeat, beatsPerMeasure, measureStartBeats) {
+    if (Array.isArray(measureStartBeats) && measureStartBeats.length >= 2) {
+        for (let measureIndex = 0; measureIndex < measureStartBeats.length - 1; measureIndex += 1) {
+            if (absoluteBeat < measureStartBeats[measureIndex + 1]) {
+                return measureIndex;
+            }
+        }
+
+        return measureStartBeats.length - 2;
+    }
+
+    return Math.floor(absoluteBeat / beatsPerMeasure);
 }
 
 // A fit is a pure function of the notes and the canvas width, and playback highlights redraw labels every frame, so the

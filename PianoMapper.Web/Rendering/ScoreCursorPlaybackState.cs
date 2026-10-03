@@ -9,6 +9,7 @@ public sealed record ScoreCursorPlaybackState(
     double AnchorSeconds,
     double BeatsPerMinute,
     int BeatsPerMeasure,
+    IReadOnlyList<double> MeasureStartBeats,
     int FirstVisibleMeasure,
     double CompletionSeconds,
     double CursorY0,

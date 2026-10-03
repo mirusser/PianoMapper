@@ -8,7 +8,7 @@ public static class ScoreDerivation
     {
         var notes = score.Measures
             .SelectMany(measure => measure.Notes)
-            .OrderBy(note => GetOnsetBeats(note, score.TimeSignature))
+            .OrderBy(note => GetOnsetBeats(score, note))
             .ThenBy(note => note.Pitch.MidiNumber)
             .ToArray();
         var consumed = new bool[notes.Length];
@@ -22,14 +22,14 @@ public static class ScoreDerivation
             }
 
             var note = notes[index];
-            double onsetBeats = GetOnsetBeats(note, score.TimeSignature);
+            double onsetBeats = GetOnsetBeats(score, note);
             double durationBeats = MusicalTime.GetBeats(note.NoteValue, score.TimeSignature);
             var tiedNote = note;
             var sourceNotes = new List<ScoreNote> { note };
 
             while (tiedNote.TiesToNext)
             {
-                int continuationIndex = FindTieContinuation(notes, consumed, tiedNote, onsetBeats + durationBeats, score.TimeSignature);
+                int continuationIndex = FindTieContinuation(notes, consumed, score, tiedNote, onsetBeats + durationBeats);
                 if (continuationIndex < 0)
                 {
                     break;
@@ -81,26 +81,20 @@ public static class ScoreDerivation
     {
         ArgumentNullException.ThrowIfNull(score);
         ArgumentNullException.ThrowIfNull(tiedNote);
-        double endBeats = GetOnsetBeats(tiedNote, score.TimeSignature) +
+        double endBeats = GetOnsetBeats(score, tiedNote) +
             MusicalTime.GetBeats(tiedNote.NoteValue, score.TimeSignature);
-        int measureIndex = (int)Math.Floor((endBeats + BeatComparisonTolerance) / score.TimeSignature.Numerator);
-        if (measureIndex < 0 || measureIndex >= score.Measures.Count)
-        {
-            return null;
-        }
-
-        return score.Measures[measureIndex].Notes.FirstOrDefault(candidate =>
+        return score.Measures.SelectMany(measure => measure.Notes).FirstOrDefault(candidate =>
             candidate.Pitch == tiedNote.Pitch &&
             candidate.Staff == tiedNote.Staff &&
-            Math.Abs(GetOnsetBeats(candidate, score.TimeSignature) - endBeats) <= BeatComparisonTolerance);
+            Math.Abs(GetOnsetBeats(score, candidate) - endBeats) <= BeatComparisonTolerance);
     }
 
     private static int FindTieContinuation(
         IReadOnlyList<ScoreNote> notes,
         IReadOnlyList<bool> consumed,
+        Score score,
         ScoreNote tiedNote,
-        double expectedOnset,
-        TimeSignature timeSignature)
+        double expectedOnset)
     {
         for (int index = 0; index < notes.Count; index++)
         {
@@ -108,7 +102,7 @@ public static class ScoreDerivation
             if (!consumed[index] &&
                 candidate.Pitch == tiedNote.Pitch &&
                 candidate.Staff == tiedNote.Staff &&
-                Math.Abs(GetOnsetBeats(candidate, timeSignature) - expectedOnset) <= BeatComparisonTolerance)
+                Math.Abs(GetOnsetBeats(score, candidate) - expectedOnset) <= BeatComparisonTolerance)
             {
                 return index;
             }
@@ -119,4 +113,26 @@ public static class ScoreDerivation
 
     public static double GetOnsetBeats(ScoreNote note, TimeSignature timeSignature) =>
         (note.MeasureIndex * timeSignature.Numerator) + note.BeatOffset;
+
+    /// <summary>The elapsed score beats before a measure, accounting for an initial implicit pickup.</summary>
+    public static double GetMeasureStartBeats(Score score, int measureIndex)
+    {
+        ArgumentNullException.ThrowIfNull(score);
+        if (measureIndex < 0 || measureIndex > score.Measures.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(measureIndex));
+        }
+
+        return score.Measures.Take(measureIndex).Sum(measure =>
+            measure.LengthInBeats ?? score.TimeSignature.Numerator);
+    }
+
+    /// <summary>The elapsed score beats at a note's onset, accounting for an initial implicit pickup.</summary>
+    public static double GetOnsetBeats(Score score, ScoreNote note)
+    {
+        ArgumentNullException.ThrowIfNull(score);
+        ArgumentNullException.ThrowIfNull(note);
+
+        return GetMeasureStartBeats(score, note.MeasureIndex) + note.BeatOffset;
+    }
 }

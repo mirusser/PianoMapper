@@ -190,6 +190,30 @@ public sealed class GrandStaffLayoutTests
         Assert.True(narrowedNextMeasure > defaultNextMeasure);
     }
 
+    [Fact]
+    public void MapScoreOnsetToX_ImplicitPickup_UsesOnlyItsActualWidth()
+    {
+        var score = new Score(
+            "Pickup",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [
+                new ScoreMeasure([], [], LengthInBeats: 1),
+                new ScoreMeasure([], []),
+            ]);
+
+        float secondMeasureStart = GrandStaffLayout.MapScoreOnsetToX(
+            score,
+            measureIndex: 1,
+            beatOffset: 0,
+            firstVisibleMeasure: 0,
+            visibleMeasureCount: 2);
+
+        float normalMeasureWidth = (GrandStaffLayout.ScoreX1 - GrandStaffLayout.ScoreX0) / 2;
+        Assert.Equal(GrandStaffLayout.ScoreX0 + (normalMeasureWidth / 4), secondMeasureStart, 6);
+    }
+
     [Theory]
     [InlineData(1, 0, (int)NoteHeadStyle.Hollow, false, false, 0)]
     [InlineData(2, 0, (int)NoteHeadStyle.Hollow, true, false, 0)]

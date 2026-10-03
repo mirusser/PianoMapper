@@ -18,18 +18,23 @@ internal static class ScoreMeasureRange
             throw new ArgumentOutOfRangeException(nameof(lastMeasureIndex));
         }
 
+        int[] keyFifthsByMeasure = ScoreKeys.GetKeyFifthsByMeasure(score);
         var measures = score.Measures
             .Skip(firstMeasureIndex)
             .Take(lastMeasureIndex - firstMeasureIndex + 1)
-            .Select((measure, index) => new ScoreMeasure(
-                measure.Notes
+            .Select((measure, index) => measure with
+            {
+                Notes = measure.Notes
                     .Select(note => note with { MeasureIndex = index })
                     .ToArray(),
-                measure.Rests
+                Rests = measure.Rests
                     .Select(rest => rest with { MeasureIndex = index })
-                    .ToArray()))
+                    .ToArray(),
+                // The range opens in whatever key was in effect there, so its first measure states no change.
+                KeyFifths = index == 0 ? null : measure.KeyFifths,
+            })
             .ToArray();
 
-        return score with { Measures = measures };
+        return score with { KeyFifths = keyFifthsByMeasure[firstMeasureIndex], Measures = measures };
     }
 }

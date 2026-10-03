@@ -67,9 +67,9 @@
             await source.CopyToAsync(buffer);
             buffer.Position = 0;
 
-            var score = await Importer.ReadAsync(buffer, file.Name);
-            await ScoreLoaded.InvokeAsync(score);
-            status = $"Loaded {score.Title}: {score.Measures.Count} measure(s).";
+            var result = await Importer.ReadAsync(buffer, file.Name);
+            await ScoreLoaded.InvokeAsync(result.Score);
+            status = ScoreImportStatus.Describe(result);
         }
         catch (Exception exception) when (
             exception is IOException or InvalidDataException or NotSupportedException or ArgumentException or HttpRequestException)

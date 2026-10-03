@@ -7,10 +7,20 @@ public sealed class MusicalValueTypesTests
     [Theory]
     [InlineData(0)]
     [InlineData(3)]
-    [InlineData(32)]
+    [InlineData(128)]
     public void NoteValueConstructor_UnsupportedDenominator_Throws(int denominator)
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new NoteValue(denominator));
+    }
+
+    [Theory]
+    [InlineData(32, 0.125)]
+    [InlineData(64, 0.0625)]
+    public void NoteValue_ThirtySecondAndSixtyFourth_LastTheirFractionOfABeat(int denominator, double expectedBeats)
+    {
+        var noteValue = new NoteValue(denominator);
+
+        Assert.Equal(expectedBeats, MusicalTime.GetBeats(noteValue, new TimeSignature(4, new NoteValue(4))), 12);
     }
 
     [Fact]

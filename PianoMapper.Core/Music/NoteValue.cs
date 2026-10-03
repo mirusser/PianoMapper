@@ -7,7 +7,7 @@ public readonly record struct NoteValue
     [JsonConstructor]
     public NoteValue(int denominator, int dots = 0, int tupletActualNotes = 1, int tupletNormalNotes = 1)
     {
-        if (denominator is not (1 or 2 or 4 or 8 or 16))
+        if (denominator is not (1 or 2 or 4 or 8 or 16 or 32 or 64))
         {
             throw new ArgumentOutOfRangeException(nameof(denominator));
         }

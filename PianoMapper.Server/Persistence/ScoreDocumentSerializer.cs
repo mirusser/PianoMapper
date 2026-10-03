@@ -57,7 +57,12 @@ internal static class ScoreDocumentSerializer
     private static ScoreMeasureDocument ToDocument(ScoreMeasure measure) =>
         new(
             measure.Notes.Select(ToDocument).ToArray(),
-            measure.Rests.Select(ToDocument).ToArray());
+            measure.Rests.Select(ToDocument).ToArray(),
+            measure.KeyFifths,
+            ToDocument(measure.LeftBarline),
+            ToDocument(measure.RightBarline),
+            measure.Directions?.Select(ToDocument).ToArray(),
+            measure.LengthInBeats);
 
     private static ScoreNoteDocument ToDocument(ScoreNote note) =>
         new(
@@ -78,24 +83,66 @@ internal static class ScoreDocumentSerializer
             note.Articulation,
             note.Ornament,
             note.AccidentalMark,
-            note.Slur is null ? null : new ScoreSlurDocument(note.Slur.IsStart, note.Slur.Number),
+            note.Slur is null ? null : ToDocument(note.Slur),
             note.Arpeggio,
             note.Glissando is null
                 ? null
                 : new ScoreGlissandoDocument(note.Glissando.IsStart, note.Glissando.Number, note.Glissando.Kind),
             note.SoundingOctavesAboveNotated);
 
+    private static ScoreDirectionDocument ToDocument(ScoreDirection direction) =>
+        new(direction.Kind, direction.BeatOffset, direction.Staff, direction.Text, direction.IsBelow, direction.Number);
+
+    private static ScoreDirection FromDocument(ScoreDirectionDocument direction) =>
+        new(direction.Kind, direction.BeatOffset, direction.Staff, direction.Text, direction.IsBelow, direction.Number);
+
+    private static ScoreBarlineDocument? ToDocument(ScoreBarline? barline) =>
+        barline is null
+            ? null
+            : new ScoreBarlineDocument(
+                barline.Style,
+                barline.Repeat,
+                barline.RepeatTimes,
+                barline.Ending is null ? null : new ScoreEndingDocument(barline.Ending.Numbers, barline.Ending.Type),
+                barline.Fermata,
+                barline.Mark,
+                barline.MarkCount);
+
+    private static ScoreBarline? FromDocument(ScoreBarlineDocument? barline) =>
+        barline is null
+            ? null
+            : new ScoreBarline(
+                barline.Style,
+                barline.Repeat,
+                barline.RepeatTimes,
+                barline.Ending is null ? null : new ScoreEnding(barline.Ending.Numbers, barline.Ending.Type),
+                barline.Fermata,
+                barline.Mark,
+                barline.MarkCount);
+
+    private static ScoreSlurDocument ToDocument(ScoreSlur slur) =>
+        new(slur.IsStart, slur.Number, slur.Next is null ? null : ToDocument(slur.Next));
+
+    private static ScoreSlur FromDocument(ScoreSlurDocument slur) =>
+        new(slur.IsStart, slur.Number, slur.Next is null ? null : FromDocument(slur.Next));
+
     private static ScoreRestDocument ToDocument(ScoreRest rest) =>
         new(
             ToDocument(rest.NoteValue),
             rest.MeasureIndex,
             rest.BeatOffset,
-            rest.Staff);
+            rest.Staff,
+            rest.IsMeasureRest);
 
     private static ScoreMeasure FromDocument(ScoreMeasureDocument measure) =>
         new(
             measure.Notes.Select(FromDocument).ToArray(),
-            measure.Rests.Select(FromDocument).ToArray());
+            measure.Rests.Select(FromDocument).ToArray(),
+            measure.KeyFifths,
+            FromDocument(measure.LeftBarline),
+            FromDocument(measure.RightBarline),
+            measure.Directions?.Select(FromDocument).ToArray(),
+            measure.LengthInBeats);
 
     private static ScoreNote FromDocument(ScoreNoteDocument note) =>
         new(
@@ -116,7 +163,7 @@ internal static class ScoreDocumentSerializer
             note.Articulation,
             note.Ornament,
             note.AccidentalMark,
-            note.Slur is null ? null : new ScoreSlur(note.Slur.IsStart, note.Slur.Number),
+            note.Slur is null ? null : FromDocument(note.Slur),
             note.Arpeggio,
             note.Glissando is null
                 ? null
@@ -128,7 +175,8 @@ internal static class ScoreDocumentSerializer
             FromDocument(rest.NoteValue),
             rest.MeasureIndex,
             rest.BeatOffset,
-            rest.Staff);
+            rest.Staff,
+            rest.IsMeasureRest);
 
     private static NoteValue FromDocument(NoteValueDocument noteValue) =>
         new(noteValue.Denominator, noteValue.Dots, noteValue.TupletActualNotes, noteValue.TupletNormalNotes);
@@ -145,7 +193,12 @@ internal static class ScoreDocumentSerializer
 
     private sealed record ScoreMeasureDocument(
         IReadOnlyList<ScoreNoteDocument> Notes,
-        IReadOnlyList<ScoreRestDocument> Rests);
+        IReadOnlyList<ScoreRestDocument> Rests,
+        int? KeyFifths = null,
+        ScoreBarlineDocument? LeftBarline = null,
+        ScoreBarlineDocument? RightBarline = null,
+        IReadOnlyList<ScoreDirectionDocument>? Directions = null,
+        double? LengthInBeats = null);
 
     private sealed record ScoreNoteDocument(
         PitchDocument Pitch,
@@ -172,7 +225,8 @@ internal static class ScoreDocumentSerializer
         NoteValueDocument NoteValue,
         int MeasureIndex,
         double BeatOffset,
-        Staff Staff);
+        Staff Staff,
+        bool IsMeasureRest = false);
 
     private sealed record PitchDocument(NoteLetter Letter, int Alter, int Octave);
 
@@ -186,7 +240,26 @@ internal static class ScoreDocumentSerializer
         int Number,
         ScoreFingeringPlacement? Placement);
 
-    private sealed record ScoreSlurDocument(bool IsStart, int Number);
+    private sealed record ScoreBarlineDocument(
+        ScoreBarlineStyle Style = ScoreBarlineStyle.Regular,
+        ScoreRepeatDirection? Repeat = null,
+        int RepeatTimes = 2,
+        ScoreEndingDocument? Ending = null,
+        ScoreFermata? Fermata = null,
+        ScoreBarlineMark? Mark = null,
+        int MarkCount = 1);
+
+    private sealed record ScoreDirectionDocument(
+        ScoreDirectionKind Kind,
+        double BeatOffset,
+        Staff Staff,
+        string Text = "",
+        bool IsBelow = false,
+        int Number = 1);
+
+    private sealed record ScoreEndingDocument(string Numbers, ScoreEndingType Type);
+
+    private sealed record ScoreSlurDocument(bool IsStart, int Number, ScoreSlurDocument? Next = null);
 
     private sealed record ScoreGlissandoDocument(bool IsStart, int Number, ScoreGlissandoKind Kind);
 }

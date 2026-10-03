@@ -141,7 +141,7 @@ public static class ScoreFingeringGenerator
                     continue;
                 }
 
-                double onsetBeats = (note.MeasureIndex * score.TimeSignature.Numerator) + note.BeatOffset;
+                double onsetBeats = ScoreDerivation.GetOnsetBeats(score, note);
                 double durationBeats = MusicalTime.GetBeats(note.NoteValue, score.TimeSignature);
                 notes.Add(new NoteLocation(measureIndex, noteIndex, note, onsetBeats, onsetBeats + durationBeats));
             }

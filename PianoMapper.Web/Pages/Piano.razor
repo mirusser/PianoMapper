@@ -1816,10 +1816,18 @@
         }
 
         var (cursorY0, cursorY1) = GrandStaffSceneBuilder.GetCursorLineYBounds();
+        var measureStartBeats = new double[selectedScore.Measures.Count + 1];
+        for (int measureIndex = 0; measureIndex < selectedScore.Measures.Count; measureIndex++)
+        {
+            measureStartBeats[measureIndex + 1] = measureStartBeats[measureIndex] +
+                (selectedScore.Measures[measureIndex].LengthInBeats ?? selectedScore.TimeSignature.Numerator);
+        }
+
         return new ScoreCursorPlaybackState(
             anchor.AnchorSeconds,
             anchor.BeatsPerMinute,
             selectedScore.TimeSignature.Numerator,
+            measureStartBeats,
             firstVisibleMeasure,
             anchor.CompletionSeconds,
             cursorY0,
@@ -1858,9 +1866,8 @@
         }
 
         var updatedPair = ScoreGrandStaffWindowPair.FromCursorBeats(
-            score.Measures.Count,
+            score,
             cursorBeats,
-            score.TimeSignature.Numerator,
             visibleMeasureCount);
         if (updatedPair == scoreWindowPair)
         {

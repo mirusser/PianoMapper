@@ -5,7 +5,7 @@ using PianoMapper.Practice;
 
 namespace PianoMapper.Tests.UnitTests;
 
-public sealed class MusicXmlScoreReaderTests
+public sealed partial class MusicXmlScoreReaderTests
 {
     private static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
@@ -136,20 +136,6 @@ public sealed class MusicXmlScoreReaderTests
     }
 
     [Fact]
-    public void Read_UnsupportedArticulation_ThrowsMessageNamingElement()
-    {
-        var exception = Assert.Throws<NotSupportedException>(() => ReadNotes("""
-            <note>
-              <pitch><step>C</step><octave>4</octave></pitch>
-              <duration>1</duration><type>eighth</type>
-              <notations><articulations><strong-accent /></articulations></notations>
-            </note>
-            """));
-
-        Assert.Contains("<strong-accent>", exception.Message);
-    }
-
-    [Fact]
     public void Read_TrillMarkOrnament_ImportsTrillMark()
     {
         var score = ReadNotes("""
@@ -163,20 +149,6 @@ public sealed class MusicXmlScoreReaderTests
         var note = Assert.Single(Assert.Single(score.Measures).Notes);
 
         Assert.Equal(ScoreOrnament.TrillMark, note.Ornament);
-    }
-
-    [Fact]
-    public void Read_UnsupportedOrnament_ThrowsMessageNamingElement()
-    {
-        var exception = Assert.Throws<NotSupportedException>(() => ReadNotes("""
-            <note>
-              <pitch><step>C</step><octave>4</octave></pitch>
-              <duration>1</duration><type>eighth</type>
-              <notations><ornaments><mordent /></ornaments></notations>
-            </note>
-            """));
-
-        Assert.Contains("<mordent>", exception.Message);
     }
 
     [Fact]
@@ -289,7 +261,7 @@ public sealed class MusicXmlScoreReaderTests
             <note>
               <pitch><step>C</step><octave>4</octave></pitch>
               <duration>1</duration><type>eighth</type>
-              <notations><slur type="continue" number="1" /></notations>
+              <notations><slur type="sideways" number="1" /></notations>
             </note>
             """));
 
@@ -386,8 +358,6 @@ public sealed class MusicXmlScoreReaderTests
     [InlineData("unsupported-timewise.musicxml", "<score-timewise>")]
     [InlineData("unsupported-tempo-change.musicxml", "<sound>")]
     [InlineData("unsupported-time-change.musicxml", "<time>")]
-    [InlineData("unsupported-direction-offset.musicxml", "<offset>")]
-    [InlineData("unsupported-sound-navigation.musicxml", "<sound@dacapo>")]
     public void Read_UnsupportedScoreSemantics_ThrowsMessageNamingElement(string fixture, string expectedElement)
     {
         var reader = new MusicXmlScoreReader();

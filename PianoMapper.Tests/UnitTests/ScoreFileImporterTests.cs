@@ -18,11 +18,33 @@ public sealed class ScoreFileImporterTests
         });
         await using var source = new MemoryStream(Encoding.UTF8.GetBytes(CreateScoreXml()));
 
-        var score = await importer.ReadAsync(source, "lesson.musicxml");
+        var result = await importer.ReadAsync(source, "lesson.musicxml");
 
-        Assert.Equal("lesson", score.Title);
-        Assert.Single(Assert.Single(score.Measures).Notes);
+        Assert.Equal("lesson", result.Score.Title);
+        Assert.Single(Assert.Single(result.Score.Measures).Notes);
+        Assert.Empty(result.Warnings);
         Assert.Null(handler.Request);
+    }
+
+    [Fact]
+    public async Task ReadAsync_MusicXmlWithIgnoredContent_ReturnsTheWarningsWithTheScore()
+    {
+        var importer = new ScoreFileImporter(new HttpClient(new RecordingHttpMessageHandler(_ =>
+            throw new InvalidOperationException("The OMR endpoint should not be called for MusicXML.")))
+        {
+            BaseAddress = new Uri("https://localhost/"),
+        });
+        string scoreXml = CreateScoreXml().Replace(
+            "<duration>1</duration>",
+            "<duration>1</duration><lyric><text>la</text></lyric>",
+            StringComparison.Ordinal);
+        await using var source = new MemoryStream(Encoding.UTF8.GetBytes(scoreXml));
+
+        var result = await importer.ReadAsync(source, "lesson.musicxml");
+
+        Assert.Single(Assert.Single(result.Score.Measures).Notes);
+        Assert.Equal(1, Assert.Single(result.Warnings).Count);
+        Assert.Equal("lyric", Assert.Single(result.Warnings).Construct);
     }
 
     [Fact]
@@ -39,9 +61,9 @@ public sealed class ScoreFileImporterTests
         byte[] imageBytes = [0xff, 0xd8, 0xff, 0xd9];
         await using var source = new MemoryStream(imageBytes);
 
-        var score = await importer.ReadAsync(source, "piano-example.jpg");
+        var result = await importer.ReadAsync(source, "piano-example.jpg");
 
-        Assert.Equal("piano-example", score.Title);
+        Assert.Equal("piano-example", result.Score.Title);
         Assert.Equal(HttpMethod.Post, handler.Request?.Method);
         Assert.Equal("https://localhost/api/score-images/convert", handler.Request?.RequestUri?.ToString());
         Assert.Equal("image/jpeg", handler.ContentType);

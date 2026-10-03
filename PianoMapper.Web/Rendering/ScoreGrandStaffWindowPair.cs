@@ -1,3 +1,4 @@
+using PianoMapper.Music;
 using PianoMapper.Rendering;
 
 namespace PianoMapper.Web.Rendering;
@@ -56,6 +57,35 @@ internal static class ScoreGrandStaffWindowPair
         int measureIndex = (int)Math.Floor(nonNegativeBeats / beatsPerMeasure);
         int pageIndex = measureIndex / visibleMeasureCount;
         return FromPageIndex(measureCount, pageIndex, visibleMeasureCount);
+    }
+
+    internal static State FromCursorBeats(
+        Score score,
+        double cursorBeats,
+        int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount)
+    {
+        ArgumentNullException.ThrowIfNull(score);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(visibleMeasureCount);
+        if (score.Measures.Count == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(score), "A score must contain at least one measure.");
+        }
+
+        double nonNegativeBeats = Math.Max(0, cursorBeats);
+        double measureEndBeats = 0;
+        for (int measureIndex = 0; measureIndex < score.Measures.Count; measureIndex++)
+        {
+            measureEndBeats += score.Measures[measureIndex].LengthInBeats ?? score.TimeSignature.Numerator;
+            if (nonNegativeBeats < measureEndBeats)
+            {
+                return FromPageIndex(score.Measures.Count, measureIndex / visibleMeasureCount, visibleMeasureCount);
+            }
+        }
+
+        return FromPageIndex(
+            score.Measures.Count,
+            (score.Measures.Count - 1) / visibleMeasureCount,
+            visibleMeasureCount);
     }
 
     internal enum PhysicalRow

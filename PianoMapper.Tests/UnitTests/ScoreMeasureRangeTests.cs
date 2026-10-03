@@ -46,6 +46,42 @@ public sealed class ScoreMeasureRangeTests
             ScoreMeasureRange.Create(score, firstMeasureIndex, lastMeasureIndex));
     }
 
+    [Fact]
+    public void Create_RangeStartingAfterAKeyChange_OpensInTheKeyThatWasInEffect()
+    {
+        var score = CreateScore(measureCount: 5) with
+        {
+            Measures = CreateScore(measureCount: 5).Measures
+                .Select((measure, index) => index switch
+                {
+                    1 => measure with { KeyFifths = -1 },
+                    3 => measure with { KeyFifths = 4 },
+                    _ => measure,
+                })
+                .ToArray(),
+        };
+
+        var selected = ScoreMeasureRange.Create(score, firstMeasureIndex: 2, lastMeasureIndex: 4);
+
+        Assert.Equal(-1, selected.KeyFifths);
+        Assert.Equal([null, 4, null], selected.Measures.Select(measure => measure.KeyFifths));
+    }
+
+    [Fact]
+    public void Create_RangeStartingOnAKeyChange_OpensInThatKeyWithoutRepeatingTheChange()
+    {
+        var score = CreateScore(measureCount: 3);
+        score = score with
+        {
+            Measures = [score.Measures[0], score.Measures[1] with { KeyFifths = -4 }, score.Measures[2]],
+        };
+
+        var selected = ScoreMeasureRange.Create(score, firstMeasureIndex: 1, lastMeasureIndex: 2);
+
+        Assert.Equal(-4, selected.KeyFifths);
+        Assert.All(selected.Measures, measure => Assert.Null(measure.KeyFifths));
+    }
+
     private static Score CreateScore(int measureCount) =>
         new(
             "range",

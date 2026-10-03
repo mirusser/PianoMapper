@@ -24,7 +24,7 @@ internal sealed class ScoreFileImporter(HttpClient httpClient)
             [".png"] = "image/png",
         }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
-    internal async Task<Score> ReadAsync(
+    internal async Task<MusicXmlReadResult> ReadAsync(
         Stream source,
         string sourceName,
         CancellationToken cancellationToken = default)
@@ -35,7 +35,7 @@ internal sealed class ScoreFileImporter(HttpClient httpClient)
         string extension = Path.GetExtension(sourceName);
         if (MusicXmlExtensions.Contains(extension))
         {
-            return new MusicXmlScoreReader().Read(source, sourceName);
+            return new MusicXmlScoreReader().ReadWithWarnings(source, sourceName);
         }
 
         if (!ImageMediaTypes.TryGetValue(extension, out string? mediaType))
@@ -65,6 +65,6 @@ internal sealed class ScoreFileImporter(HttpClient httpClient)
         byte[] musicXmlBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
         using var musicXml = new MemoryStream(musicXmlBytes, writable: false);
         string convertedName = Path.ChangeExtension(sourceName, ".mxl");
-        return new MusicXmlScoreReader().Read(musicXml, convertedName);
+        return new MusicXmlScoreReader().ReadWithWarnings(musicXml, convertedName);
     }
 }
