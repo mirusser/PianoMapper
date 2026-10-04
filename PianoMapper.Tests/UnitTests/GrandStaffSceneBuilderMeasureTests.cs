@@ -175,4 +175,36 @@ public sealed partial class GrandStaffSceneBuilderTests
         Assert.Contains(scene.Lines, line =>
             line.Kind == GrandStaffLineKind.Barline && Math.Abs(line.X0 - pickupEndX) < 1e-6);
     }
+
+    [Fact]
+    public void BuildScore_ExtendedMeasure_FitsItsOneMeasureWindow()
+    {
+        var score = new Score(
+            "extended",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [
+                new ScoreMeasure(
+                    [
+                        new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(8), 0, 0, Staff.Treble),
+                        new ScoreNote(new Pitch(NoteLetter.D, 0, 4), new NoteValue(8), 0, 13.5, Staff.Treble),
+                    ],
+                    [],
+                    LengthInBeats: 14),
+            ]);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(
+            score,
+            firstVisibleMeasure: 0,
+            cursorBeats: 13.5,
+            visibleMeasureCount: 1);
+
+        GrandStaffNote finalNote = scene.Notes.MaxBy(note => note.X)!;
+        GrandStaffLine cursor = Assert.Single(scene.Lines, line => line.Kind == GrandStaffLineKind.Cursor);
+
+        Assert.InRange(finalNote.X, GrandStaffLayout.ScoreX0, GrandStaffLayout.ScoreX1);
+        Assert.Equal(finalNote.X, cursor.X0, 6);
+        Assert.Equal(GrandStaffLayout.ScoreX1, GrandStaffLayout.GetScoreBarlineXs(score, 0, visibleMeasureCount: 1)[^1], 6);
+    }
 }

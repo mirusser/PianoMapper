@@ -9,13 +9,11 @@ namespace PianoMapper.Web.Rendering;
 internal sealed class ScoreTimingIndex
 {
     private readonly double[] measureStartBeats;
-    private readonly int beatsPerMeasure;
 
-    private ScoreTimingIndex(double[] measureStartBeats, int[] keyFifthsByMeasure, int beatsPerMeasure)
+    private ScoreTimingIndex(double[] measureStartBeats, int[] keyFifthsByMeasure)
     {
         this.measureStartBeats = measureStartBeats;
         KeyFifthsByMeasure = keyFifthsByMeasure;
-        this.beatsPerMeasure = beatsPerMeasure;
     }
 
     internal IReadOnlyList<int> KeyFifthsByMeasure { get; }
@@ -31,7 +29,7 @@ internal sealed class ScoreTimingIndex
                 (score.Measures[measureIndex].LengthInBeats ?? score.TimeSignature.Numerator);
         }
 
-        return new ScoreTimingIndex(measureStarts, ScoreKeys.GetKeyFifthsByMeasure(score), score.TimeSignature.Numerator);
+        return new ScoreTimingIndex(measureStarts, ScoreKeys.GetKeyFifthsByMeasure(score));
     }
 
     internal double GetMeasureStartBeats(int measureIndex) => measureStartBeats[measureIndex];
@@ -45,17 +43,5 @@ internal sealed class ScoreTimingIndex
         }
 
         return (~index) - 1;
-    }
-
-    internal float MapScoreOnsetToX(
-        int measureIndex,
-        double beatOffset,
-        int firstVisibleMeasure,
-        int visibleMeasureCount)
-    {
-        double relativeBeats = measureStartBeats[measureIndex] - measureStartBeats[firstVisibleMeasure] + beatOffset;
-        return GrandStaffLayout.ScoreX0 + (float)(relativeBeats /
-            (visibleMeasureCount * beatsPerMeasure) *
-            (GrandStaffLayout.ScoreX1 - GrandStaffLayout.ScoreX0));
     }
 }

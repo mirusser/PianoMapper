@@ -82,7 +82,9 @@ public static class GrandStaffLayout
 
     /// <summary>
     /// Maps an imported score onset into a displayed window. An implicit pickup consumes only its actual fraction of a
-    /// normal measure, leaving the rest of the system width available to the following full measures.
+    /// normal measure, leaving the rest of the system width available to the following full measures. A stored measure
+    /// longer than the score's notated measure is compressed into one normal measure width, so every selected measure
+    /// still fits the configured score window.
     /// </summary>
     public static float MapScoreOnsetToX(
         Score score,
@@ -92,10 +94,52 @@ public static class GrandStaffLayout
         int visibleMeasureCount = DefaultVisibleMeasureCount)
     {
         ArgumentNullException.ThrowIfNull(score);
+        ArgumentOutOfRangeException.ThrowIfNegative(measureIndex);
+        ArgumentOutOfRangeException.ThrowIfNegative(firstVisibleMeasure);
+        if (measureIndex > score.Measures.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(measureIndex));
+        }
 
-        double relativeBeats = ScoreDerivation.GetMeasureStartBeats(score, measureIndex) -
-            ScoreDerivation.GetMeasureStartBeats(score, firstVisibleMeasure) + beatOffset;
+        if (firstVisibleMeasure > score.Measures.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(firstVisibleMeasure));
+        }
+
+        int beatsPerMeasure = score.TimeSignature.Numerator;
+        double relativeBeats = GetDisplayedMeasureStartBeats(score, measureIndex, beatsPerMeasure) -
+            GetDisplayedMeasureStartBeats(score, firstVisibleMeasure, beatsPerMeasure);
+
+        if (measureIndex < score.Measures.Count)
+        {
+            ScoreMeasure measure = score.Measures[measureIndex];
+            relativeBeats += GetDisplayedBeatOffset(measure, beatOffset, beatsPerMeasure);
+        }
+
         return ScoreX0 + (float)(relativeBeats / score.TimeSignature.Numerator / visibleMeasureCount * (ScoreX1 - ScoreX0));
+    }
+
+    private static double GetDisplayedMeasureLengthInBeats(ScoreMeasure measure, int beatsPerMeasure) =>
+        Math.Min(measure.LengthInBeats ?? beatsPerMeasure, beatsPerMeasure);
+
+    private static double GetDisplayedMeasureStartBeats(Score score, int measureIndex, int beatsPerMeasure)
+    {
+        double startBeats = 0;
+        for (int index = 0; index < measureIndex; index++)
+        {
+            startBeats += GetDisplayedMeasureLengthInBeats(score.Measures[index], beatsPerMeasure);
+        }
+
+        return startBeats;
+    }
+
+    private static double GetDisplayedBeatOffset(ScoreMeasure measure, double beatOffset, int beatsPerMeasure)
+    {
+        double actualLength = measure.LengthInBeats ?? beatsPerMeasure;
+        double displayedLength = GetDisplayedMeasureLengthInBeats(measure, beatsPerMeasure);
+        return actualLength > beatsPerMeasure
+            ? Math.Clamp(beatOffset, 0, actualLength) * displayedLength / actualLength
+            : beatOffset;
     }
 
     public static int GetLiveFirstVisibleMeasure(

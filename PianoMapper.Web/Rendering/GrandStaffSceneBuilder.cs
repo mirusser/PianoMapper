@@ -218,7 +218,7 @@ internal static class GrandStaffSceneBuilder
             notationMeasureLayouts.Add(
                 measureIndex,
                 CreateNotationMeasureLayout(
-                    timing,
+                    score,
                     measure,
                     measureIndex,
                     score.TimeSignature,
@@ -1160,7 +1160,7 @@ internal static class GrandStaffSceneBuilder
     /// within this measure share it so dense-score spacing is calculated only once per window.
     /// </summary>
     private static ScoreNotationMeasureLayout CreateNotationMeasureLayout(
-        ScoreTimingIndex timing,
+        Score score,
         ScoreMeasure measure,
         int measureIndex,
         TimeSignature timeSignature,
@@ -1170,8 +1170,18 @@ internal static class GrandStaffSceneBuilder
         bool reserveArrivingTieRoom,
         int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount)
     {
-        double measureStartX = timing.MapScoreOnsetToX(measureIndex, 0, firstVisibleMeasure, visibleMeasureCount);
-        double measureEndX = timing.MapScoreOnsetToX(measureIndex + 1, 0, firstVisibleMeasure, visibleMeasureCount);
+        double measureStartX = GrandStaffLayout.MapScoreOnsetToX(
+            score,
+            measureIndex,
+            beatOffset: 0,
+            firstVisibleMeasure: firstVisibleMeasure,
+            visibleMeasureCount: visibleMeasureCount);
+        double measureEndX = GrandStaffLayout.MapScoreOnsetToX(
+            score,
+            measureIndex + 1,
+            beatOffset: 0,
+            firstVisibleMeasure: firstVisibleMeasure,
+            visibleMeasureCount: visibleMeasureCount);
         double leadingClearance = (HasLeadingAccidental(measure, keyFifths)
                 ? LeadingAccidentalClearance
                 : 0)
