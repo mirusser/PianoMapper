@@ -28,14 +28,32 @@
         {
             <p class="panel-description">@SceneDescription</p>
         }
-        <div class="legend" aria-label="Note color legend">
-            <span><span class="legend-mark legend-mark-active"></span>Pressed by you</span>
-            <span><span class="legend-mark legend-mark-finished"></span>Released or expected</span>
-            @if (IsScoreView)
-            {
+        @if (IsScoreView)
+        {
+            <div class="legend" aria-label="Grand staff note color legend">
+                <span><span class="legend-mark legend-mark-expected"></span>Next note</span>
+                <span><span class="legend-mark legend-mark-score"></span>Other score note</span>
                 <span><span class="legend-mark legend-mark-playing"></span>Playing now</span>
-            }
-        </div>
+                <span><span class="legend-mark legend-mark-correct"></span>Correct</span>
+                <span><span class="legend-mark legend-mark-wrong-pitch"></span>Wrong pitch</span>
+                <span><span class="legend-mark legend-mark-timing"></span>Early / late</span>
+                <span><span class="legend-mark legend-mark-duration"></span>Too short / long</span>
+                <span><span class="legend-mark legend-mark-missed"></span>Missed</span>
+                <span><span class="legend-mark legend-mark-extra"></span>Extra</span>
+            </div>
+            <div class="legend" aria-label="Grand staff review mark legend">
+                <span><span class="legend-mark legend-mark-review-timing"></span>Review ring: timing</span>
+                <span><span class="legend-mark legend-mark-review-pitch"></span>Review ring: pitch</span>
+                <span><span class="legend-mark legend-mark-review-missed"></span>Review ring: missed</span>
+            </div>
+        }
+        else
+        {
+            <div class="legend" aria-label="Note color legend">
+                <span><span class="legend-mark legend-mark-active"></span>Pressed by you</span>
+                <span><span class="legend-mark legend-mark-finished"></span>Released</span>
+            </div>
+        }
         <div class="piano-canvas-stack @(IsScoreView ? "piano-canvas-stack-score" : null)">
             @if (IsScoreView && PrimaryScoreRangeLabel is not null)
             {
@@ -54,6 +72,13 @@
                     @onclick="SelectPrimaryScoreNoteAsync">
                 Piano visualization.
             </canvas>
+            @if (ShowsAutoNextCountdown)
+            {
+                <div class="score-auto-next-countdown" role="status" aria-live="polite">
+                    <span class="score-auto-next-timer" aria-hidden="true">@AutoNextSecondsRemaining</span>
+                    <span>Next exercise in @AutoNextSecondsRemaining s</span>
+                </div>
+            }
             <div class="score-row" hidden="@(!HasSecondaryScoreRow)">
                 <div class="score-row-label">
                     <span>@SecondaryScoreRangeLabel</span>
@@ -72,6 +97,15 @@
             </div>
         </div>
     </section>
+
+    @if (isKeyboardVisible)
+    {
+        <FullPianoKeyboard ActiveMidiNumbers="@ActiveKeyboardMidiNumbers"
+                           NextMidiNumbers="@NextKeyboardMidiNumbers"
+                           PointerNoteOn="PointerNoteOn"
+                           PointerNoteOff="PointerNoteOff"
+                           Hide="ToggleKeyboard" />
+    }
 
     @PracticeContent
 
@@ -156,15 +190,6 @@
             </div>
         </figure>
     </div>
-
-    @if (isKeyboardVisible)
-    {
-        <FullPianoKeyboard ActiveMidiNumbers="@ActiveKeyboardMidiNumbers"
-                           NextMidiNumbers="@NextKeyboardMidiNumbers"
-                           PointerNoteOn="PointerNoteOn"
-                           PointerNoteOff="PointerNoteOff"
-                           Hide="ToggleKeyboard" />
-    }
 
     <details class="learning-disclosure visualization-help">
         <summary>Read the notation and sound views</summary>
@@ -298,6 +323,9 @@
     public ScoreCursorPlaybackState? SecondaryScoreCursor { get; set; }
 
     [Parameter]
+    public int? AutoNextSecondsRemaining { get; set; }
+
+    [Parameter]
     public string? PrimaryScoreRangeLabel { get; set; }
 
     [Parameter]
@@ -336,6 +364,9 @@
     private bool lastPushedIsFrequencySpectrumVisible;
 
     private bool HasSecondaryScoreRow => IsScoreView && SecondaryScene is not null;
+
+    private bool ShowsAutoNextCountdown =>
+        IsScoreView && Scene.Kind == PianoCanvasSceneKind.GrandStaff && AutoNextSecondsRemaining is not null;
 
     private string SceneTitle => Scene.Kind == PianoCanvasSceneKind.PianoRoll
         ? "Piano roll"

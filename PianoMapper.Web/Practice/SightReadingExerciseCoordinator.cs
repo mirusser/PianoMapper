@@ -85,7 +85,7 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     internal NoteReadingMode RunMode => Score is null ? Mode : runMode;
 
     /// <summary>How the next exercise's notes follow each other: the learner's choice, a durable setting.</summary>
-    internal SightReadingMotion Motion { get; private set; } = SightReadingMotion.Random;
+    internal SightReadingMotion Motion { get; private set; } = SightReadingMotion.Melodic;
 
     /// <summary>The interval, in diatonic steps, that intervallic motion uses. A durable setting.</summary>
     internal int IntervalSteps { get; private set; } = SightReadingExerciseOptions.DefaultIntervalSteps;

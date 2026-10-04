@@ -887,11 +887,64 @@ input[type="file"]::file-selector-button:hover {
 }
 
 .legend-mark-finished {
-    background: #fbc86d;
+    background: #60a5fa;
+}
+
+.legend-mark-expected {
+    background: #22d3ee;
+}
+
+.legend-mark-score {
+    background: #60a5fa;
 }
 
 .legend-mark-playing {
-    background: #c29bff;
+    background: #a78bfa;
+}
+
+.legend-mark-correct {
+    background: #4ade80;
+}
+
+.legend-mark-wrong-pitch {
+    background: #f87171;
+}
+
+.legend-mark-timing {
+    background: #fb923c;
+}
+
+.legend-mark-duration {
+    background: #facc15;
+}
+
+.legend-mark-missed {
+    background: #94a3b8;
+}
+
+.legend-mark-extra {
+    background: #f472b6;
+}
+
+.legend-mark-review-timing,
+.legend-mark-review-pitch,
+.legend-mark-review-missed {
+    background: transparent;
+    border: 0.14rem solid currentcolor;
+}
+
+.legend-mark-review-timing {
+    color: #14b8a6;
+}
+
+.legend-mark-review-pitch {
+    color: #e879f9;
+    border-width: 0.2rem;
+}
+
+.legend-mark-review-missed {
+    color: #d1d5db;
+    border-style: dashed;
 }
 
 .piano-canvas,
@@ -915,6 +968,50 @@ input[type="file"]::file-selector-button:hover {
 .piano-canvas-stack {
     display: grid;
     gap: 0.8rem;
+    position: relative;
+}
+
+.score-auto-next-countdown {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.45rem 0.7rem 0.45rem 0.45rem;
+    border: 1px solid #ff7bd5;
+    border-radius: 999px;
+    background: rgb(13 10 28 / 92%);
+    color: #fff8ff;
+    font-size: 0.86rem;
+    box-shadow: 0 0.3rem 0.8rem rgb(0 0 0 / 35%);
+}
+
+.score-auto-next-timer {
+    position: relative;
+    display: grid;
+    width: 2.1rem;
+    height: 2.1rem;
+    place-items: center;
+    color: #fff8ff;
+    font-weight: 700;
+}
+
+.score-auto-next-timer::before {
+    position: absolute;
+    inset: 0;
+    border: 0.18rem solid #ff7bd5;
+    border-right-color: #43326b;
+    border-radius: 50%;
+    content: "";
+    animation: score-auto-next-spin 1s linear infinite;
+}
+
+@keyframes score-auto-next-spin {
+    to {
+        transform: rotate(1turn);
+    }
 }
 
 .score-row {

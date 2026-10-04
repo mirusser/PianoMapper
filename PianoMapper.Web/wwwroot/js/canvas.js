@@ -35,7 +35,7 @@ export const verdictColors = [
     "#facc15", // TooShort
     "#facc15", // TooLong
     "#94a3b8", // Missed
-    "#c084fc", // Extra
+    "#f472b6", // Extra
 ];
 // Mirrors PianoMapper.Core/Rendering/GrandStaffLayout.cs's ScoreX0/ScoreX1 constants, so the
 // score-playback cursor can be positioned here every animation frame from the Web Audio clock,
@@ -76,9 +76,9 @@ const reviewMarkStripHardGapPixels = 0.25;
 // Own colors and line styles, not verdictColors (D3): shape carries the meaning as well as color, so the marks still
 // read without telling orange from red. Clean notes have no entry on purpose, so no ring is drawn for them.
 const reviewMarkStyles = new Map([
-    [reviewMarkTiming, { color: "#fb923c", lineWidth: 2, dash: [] }],
-    [reviewMarkPitch, { color: "#f87171", lineWidth: 3, dash: [] }],
-    [reviewMarkMissed, { color: "#94a3b8", lineWidth: 2, dash: [6, 4] }],
+    [reviewMarkTiming, { color: "#14b8a6", lineWidth: 2, dash: [] }],
+    [reviewMarkPitch, { color: "#e879f9", lineWidth: 3, dash: [] }],
+    [reviewMarkMissed, { color: "#d1d5db", lineWidth: 2, dash: [6, 4] }],
 ]);
 // Note-name labels are 16 px text centred under their note. Two labels in one row that would touch are drawn smaller (see
 // getNoteLabelFitScales), never below this fraction of their size and keeping this much air between neighbours.
@@ -910,7 +910,7 @@ function drawPianoRoll(context, scene, width, height) {
         const x1 = mapX(bar.rect.x1, width);
         const y0 = mapY(bar.rect.y0, height);
         const y1 = mapY(bar.rect.y1, height);
-        context.fillStyle = bar.isActive ? "#22d3ee" : "#fbbf24";
+        context.fillStyle = bar.isActive ? "#22d3ee" : "#60a5fa";
         context.fillRect(
             Math.min(x0, x1),
             Math.min(y0, y1),
@@ -1224,7 +1224,7 @@ function drawGlyph(context, glyph, width, height) {
     if (glyph.kind === accidentalGlyphKind) {
         context.fillStyle = Number.isInteger(glyph.verdict)
             ? verdictColors[glyph.verdict]
-            : glyph.isActive ? "#22d3ee" : "#fbbf24";
+            : glyph.isActive ? "#22d3ee" : "#60a5fa";
     } else {
         context.fillStyle = glyph.kind === clefGlyphKind ? "#e2e8f0" : "#f8fafc";
     }
@@ -1270,7 +1270,7 @@ function drawNote(context, note, width, height, staffSpace, colorOverride, label
     const noteHeadRadiusY = staffSpace * noteHeadHeightInStaffSpaces / 2;
     const noteColor = colorOverride ?? (Number.isInteger(note.verdict)
         ? verdictColors[note.verdict]
-        : note.isActive ? "#22d3ee" : "#fbbf24");
+        : note.isActive ? "#22d3ee" : "#60a5fa");
     context.strokeStyle = noteColor;
     context.fillStyle = context.strokeStyle;
     context.lineWidth = 2;
@@ -1360,7 +1360,7 @@ function drawBeam(context, beam, width, height, staffSpace) {
     const x1 = mapX(beam.x1, width) + stemXOffset;
     const y0 = mapY(beam.y0, height);
     const y1 = mapY(beam.y1, height);
-    context.strokeStyle = "#fbbf24";
+    context.strokeStyle = "#60a5fa";
     context.lineWidth = Math.max(3, staffSpace * 0.45);
     context.lineCap = "butt";
     for (let beamIndex = 0; beamIndex < beam.count; beamIndex++) {
@@ -1409,7 +1409,7 @@ function drawTie(context, tie, width, height, staffSpace) {
     const thicknessControlOffset = curveDirection
         * Math.max(staffSpace * tieCenterThicknessInStaffSpaces, tieMinimumCenterThicknessPixels)
         * 2 / 3;
-    context.fillStyle = tie.isActive ? "#22d3ee" : "#fbbf24";
+    context.fillStyle = tie.isActive ? "#22d3ee" : "#60a5fa";
     context.beginPath();
     context.moveTo(x0, y0);
     context.bezierCurveTo(

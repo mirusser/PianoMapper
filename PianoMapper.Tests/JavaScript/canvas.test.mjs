@@ -865,9 +865,23 @@ test("grand staff colors an accidental glyph to match its note, not clef white",
     });
 
     assert.equal(scoreContext.fillTextCalls[0].fillStyle, "#e2e8f0"); // clef stays off-white
-    assert.equal(scoreContext.fillTextCalls[1].fillStyle, "#fbbf24"); // default note amber
+    assert.equal(scoreContext.fillTextCalls[1].fillStyle, "#60a5fa"); // default note blue
     assert.equal(scoreContext.fillTextCalls[2].fillStyle, "#22d3ee"); // active note cyan
     assert.equal(scoreContext.fillTextCalls[3].fillStyle, "#4ade80"); // Verdict.Correct
+});
+
+test("grand staff verdict feedback colors keep each category distinct", () => {
+    const feedbackColors = [
+        verdictColors[0], // Correct
+        verdictColors[1], // Wrong pitch
+        verdictColors[2], // Early / late
+        verdictColors[4], // Too short / long
+        verdictColors[6], // Missed
+        verdictColors[7], // Extra
+    ];
+
+    assert.equal(new Set(feedbackColors).size, feedbackColors.length);
+    assert.equal(verdictColors[7], "#f472b6");
 });
 
 test("grand staff draws score beams", () => {
@@ -1172,7 +1186,7 @@ test("grand staff draws clipped full ties and edge stubs behind noteheads", () =
     assert.ok(incomingStub.bezierCurves[0].controlY1 < incomingStub.start.y);
     assert.ok(incomingStub.bezierCurves[0].x1 > incomingStub.start.x);
     assert.ok(incomingStub.bezierCurves[0].x1 < 18 + ((-0.535 + 1) / 2) * 604);
-    assert.equal(fullTie.fillStyle, "#fbbf24");
+    assert.equal(fullTie.fillStyle, "#60a5fa");
     assert.equal(incomingStub.fillStyle, "#22d3ee");
     assert.ok(context.filledPathCalls.every(path => path.clipCalls > 0));
     assert.ok(Math.abs(context.rectCalls[0][0] - (18 + (0.44 / 2) * 604)) < 1e-9);
@@ -1666,6 +1680,6 @@ test("review marks never use the verdict channel", () => {
     ]));
 
     assert.equal(ringsOf(context).length, 1);
-    assert.equal(ringsOf(context)[0].strokeStyle, "#f87171");
+    assert.equal(ringsOf(context)[0].strokeStyle, "#e879f9");
     assert.notEqual(ringsOf(context)[0].strokeStyle, verdictColors[3]);
 });

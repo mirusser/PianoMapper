@@ -262,10 +262,10 @@
                 }
             </p>
         }
-        @if (Presentation.AutoNextSecondsRemaining is { } autoNextSeconds)
+        @if (Presentation.AutoNextSecondsRemaining is not null)
         {
             <p class="exercise-inline-actions">
-                <span>Next exercise in @autoNextSeconds s.</span>
+                <span>The countdown is shown on the grand staff.</span>
                 <button class="button-quiet" type="button" @onclick="CancelAutoNextAsync">Stay here</button>
             </p>
         }

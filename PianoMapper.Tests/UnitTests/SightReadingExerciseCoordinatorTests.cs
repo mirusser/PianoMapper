@@ -157,6 +157,8 @@ public sealed class SightReadingExerciseCoordinatorTests
     {
         var neutralCoordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
         var weightedCoordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+        neutralCoordinator.SetMotion(SightReadingMotion.Random);
+        weightedCoordinator.SetMotion(SightReadingMotion.Random);
         neutralCoordinator.SetPromptCountOption(40);
         weightedCoordinator.SetPromptCountOption(40);
         var weakPitch = new Pitch(NoteLetter.G, 0, 4);
@@ -193,6 +195,7 @@ public sealed class SightReadingExerciseCoordinatorTests
     public void Generate_CalledAgainWithDifferentMastery_ReflectsTheLatestMasteryRatherThanCachingIt()
     {
         var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+        coordinator.SetMotion(SightReadingMotion.Random);
         coordinator.SetPromptCountOption(40);
         var weakPitch = new Pitch(NoteLetter.G, 0, 4);
         var mastery = new[] { WeakNote(weakPitch, Staff.Treble) };
@@ -220,6 +223,7 @@ public sealed class SightReadingExerciseCoordinatorTests
         foreach (SightReadingExerciseCoordinator coordinator in new[] { neutral, weighted })
         {
             coordinator.SetStaff(Staff.Bass);
+            coordinator.SetMotion(SightReadingMotion.Random);
             coordinator.SetPromptCountOption(40);
         }
 
@@ -259,6 +263,8 @@ public sealed class SightReadingExerciseCoordinatorTests
         {
             var ordinary = new SightReadingExerciseCoordinator(new NoteReadingSession());
             var drill = new SightReadingExerciseCoordinator(new NoteReadingSession());
+            ordinary.SetMotion(SightReadingMotion.Random);
+            drill.SetMotion(SightReadingMotion.Random);
             ordinary.SetPromptCountOption(8);
             drill.SetPromptCountOption(8);
             ordinary.Generate(new Random(seed), Tolerance, mastery);
@@ -274,6 +280,7 @@ public sealed class SightReadingExerciseCoordinatorTests
     public void GetDrillAvailability_WeakNoteInTheCurrentRange_IsAvailable()
     {
         var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+        coordinator.SetMotion(SightReadingMotion.Random);
 
         DrillAvailability availability = coordinator.GetDrillAvailability(
             [WeakNote(new Pitch(NoteLetter.G, 0, 4), Staff.Treble)]);
@@ -304,6 +311,7 @@ public sealed class SightReadingExerciseCoordinatorTests
     {
         var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
         coordinator.SetStaff(Staff.Bass);
+        coordinator.SetMotion(SightReadingMotion.Random);
 
         Assert.True(coordinator.GetDrillAvailability([WeakNote(new Pitch(NoteLetter.E, 0, 3), staff: null)]).IsAvailable);
     }
@@ -313,6 +321,7 @@ public sealed class SightReadingExerciseCoordinatorTests
     {
         var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
         coordinator.SetIsGrandStaff(true);
+        coordinator.SetMotion(SightReadingMotion.Random);
 
         Assert.True(coordinator.GetDrillAvailability([WeakNote(new Pitch(NoteLetter.E, 0, 3), Staff.Bass)]).IsAvailable);
         Assert.True(coordinator.GetDrillAvailability([WeakNote(new Pitch(NoteLetter.E, 0, 4), Staff.Treble)]).IsAvailable);
@@ -2159,12 +2168,12 @@ public sealed class SightReadingExerciseCoordinatorTests
     }
 
     [Fact]
-    public void Motion_Initially_IsRandomWithAThirdAsTheIntervalSize()
+    public void Motion_Initially_IsMelodicWithAThirdAsTheIntervalSize()
     {
         var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
 
-        Assert.Equal(SightReadingMotion.Random, coordinator.Motion);
-        Assert.Equal(SightReadingMotion.Random, coordinator.EffectiveMotion);
+        Assert.Equal(SightReadingMotion.Melodic, coordinator.Motion);
+        Assert.Equal(SightReadingMotion.Melodic, coordinator.EffectiveMotion);
         Assert.Equal(SightReadingExerciseOptions.DefaultIntervalSteps, coordinator.IntervalSteps);
     }
 
@@ -2194,13 +2203,11 @@ public sealed class SightReadingExerciseCoordinatorTests
     }
 
     [Fact]
-    public void Generate_MelodicMotion_ComposesAStepwiseLine()
+    public void Generate_DefaultMotion_ComposesAStepwiseLine()
     {
         var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
         coordinator.SetPresetId(SightReadingPresetId.OneOctave);
         coordinator.SetPromptCountOption(16);
-        coordinator.SetMotion(SightReadingMotion.Melodic);
-
         coordinator.Generate(new Random(5), Tolerance);
 
         int[] indexes = coordinator.Score!.Measures
