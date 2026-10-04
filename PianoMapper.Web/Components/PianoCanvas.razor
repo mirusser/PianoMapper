@@ -65,13 +65,16 @@
                     }
                 </div>
             }
-            <canvas @ref="canvas"
-                    class="piano-canvas @(IsScoreView ? "score-row-canvas" : null) @(CanSelectScoreNotes ? "score-note-editable" : null)"
-                    role="img"
-                    aria-label="@PrimarySceneLabel"
-                    @onclick="SelectPrimaryScoreNoteAsync">
-                Piano visualization.
-            </canvas>
+            <div class="score-canvas-layer">
+                <canvas @ref="canvas"
+                        class="piano-canvas @(IsScoreView ? "score-row-canvas" : null) @(CanSelectScoreNotes ? "score-note-editable" : null)"
+                        role="img"
+                        aria-label="@PrimarySceneLabel"
+                        @onclick="SelectPrimaryScoreNoteAsync">
+                    Piano visualization.
+                </canvas>
+                <div @ref="scoreCursorElement" class="score-playback-cursor" aria-hidden="true"></div>
+            </div>
             @if (ShowsAutoNextCountdown)
             {
                 <div class="score-auto-next-countdown" role="status" aria-live="polite">
@@ -87,13 +90,16 @@
                         <span class="score-row-status">@SecondaryScoreRowStatus</span>
                     }
                 </div>
-                <canvas @ref="secondaryCanvas"
-                        class="piano-canvas score-row-canvas @(CanSelectScoreNotes ? "score-note-editable" : null)"
-                        role="img"
-                        aria-label="@SecondarySceneLabel"
-                        @onclick="SelectSecondaryScoreNoteAsync">
-                    Secondary imported-score grand staff.
-                </canvas>
+                <div class="score-canvas-layer">
+                    <canvas @ref="secondaryCanvas"
+                            class="piano-canvas score-row-canvas @(CanSelectScoreNotes ? "score-note-editable" : null)"
+                            role="img"
+                            aria-label="@SecondarySceneLabel"
+                            @onclick="SelectSecondaryScoreNoteAsync">
+                        Secondary imported-score grand staff.
+                    </canvas>
+                    <div @ref="secondaryScoreCursorElement" class="score-playback-cursor" aria-hidden="true"></div>
+                </div>
             </div>
         </div>
     </section>
@@ -276,6 +282,8 @@
 
     private ElementReference canvas;
     private ElementReference secondaryCanvas;
+    private ElementReference scoreCursorElement;
+    private ElementReference secondaryScoreCursorElement;
     private ElementReference waveformCanvas;
     private ElementReference spectrumCanvas;
     private IJSObjectReference? module;
@@ -317,6 +325,9 @@
     public ScoreCursorPlaybackState? ScoreCursor { get; set; }
 
     [Parameter]
+    public LiveGrandStaffCursorState? LiveGrandStaffCursor { get; set; }
+
+    [Parameter]
     public IPianoCanvasScene? SecondaryScene { get; set; }
 
     [Parameter]
@@ -353,6 +364,7 @@
     public RenderFragment? PracticeContent { get; set; }
 
     private ScoreCursorPlaybackState? lastPushedScoreCursor;
+    private LiveGrandStaffCursorState? lastPushedLiveGrandStaffCursor;
     private ScoreCursorPlaybackState? lastPushedSecondaryScoreCursor;
     private IPianoCanvasScene? lastPushedScene;
     private IPianoCanvasScene? lastPushedSecondaryScene;
@@ -410,8 +422,9 @@
                 canvas,
                 waveformCanvas,
                 spectrumCanvas,
-                AnalysisLayout);
-            await module.InvokeVoidAsync("initializeScoreCanvas", secondaryCanvas);
+                AnalysisLayout,
+                scoreCursorElement);
+            await module.InvokeVoidAsync("initializeScoreCanvas", secondaryCanvas, secondaryScoreCursorElement);
         }
 
         // Update the JS-side cursor state before render() so its draw() call already reflects
@@ -426,6 +439,19 @@
             else
             {
                 await module!.InvokeVoidAsync("startScoreCursor", canvas, ScoreCursor);
+            }
+        }
+
+        if (LiveGrandStaffCursor != lastPushedLiveGrandStaffCursor)
+        {
+            lastPushedLiveGrandStaffCursor = LiveGrandStaffCursor;
+            if (LiveGrandStaffCursor is null)
+            {
+                await module!.InvokeVoidAsync("stopLiveGrandStaffCursor", canvas);
+            }
+            else
+            {
+                await module!.InvokeVoidAsync("startLiveGrandStaffCursor", canvas, LiveGrandStaffCursor);
             }
         }
 

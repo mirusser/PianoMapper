@@ -448,6 +448,7 @@
                      ScoreOverlay="@scoreOverlay"
                      SecondaryScoreOverlay="@secondaryScoreOverlay"
                      ScoreCursor="@scoreCursorState"
+                     LiveGrandStaffCursor="@liveGrandStaffCursorState"
                      SecondaryScoreCursor="@secondaryScoreCursorState"
                      AutoNextSecondsRemaining="@ExercisePresentation.AutoNextSecondsRemaining"
                      PrimaryScoreRangeLabel="@PrimaryScoreRangeLabel"
@@ -550,6 +551,7 @@
     private GrandStaffScoreOverlay? scoreOverlay;
     private GrandStaffScoreOverlay? secondaryScoreOverlay;
     private ScoreCursorPlaybackState? scoreCursorState;
+    private LiveGrandStaffCursorState? liveGrandStaffCursorState;
     private ScoreCursorPlaybackState? secondaryScoreCursorState;
     private IReadOnlySet<int> activeKeyboardMidiNumbers = new HashSet<int>();
     private IReadOnlySet<int> nextKeyboardMidiNumbers = new HashSet<int>();
@@ -1662,8 +1664,10 @@
             return false;
         }
 
+        PracticeSessionState stateBeforeUpdate = playAlongController.State;
+        int countInTicksBeforeUpdate = practiceCoordinator.CountInTicksDue;
         bool isStillRunning = await playAlongController.UpdateAsync(cancellationToken);
-        RefreshCanvasScene(
+        bool shouldRender = RefreshCanvasScene(
             practiceCoordinator.CurrentTime,
             playAlongController.VisibleCursorBeats,
             practiceCoordinator.GetVisibleVerdicts());
@@ -1680,7 +1684,13 @@
             EnsureVisualizationRefresh();
         }
 
-        await InvokeAsync(StateHasChanged);
+        if (shouldRender ||
+            playAlongController.State != stateBeforeUpdate ||
+            practiceCoordinator.CountInTicksDue != countInTicksBeforeUpdate)
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+
         return isStillRunning;
     }
 
@@ -2712,16 +2722,22 @@
         bool scoreWindowChanged = !showPianoRoll && cursorBeats.HasValue
             && UpdateScoreWindowPairFromCursor(cursorBeats.Value);
 
-        if (showPianoRoll || scoreWindowChanged)
+        bool shouldRender = showPianoRoll || scoreWindowChanged;
+        // The score cursor advances in canvas.js from the Web Audio clock. Avoid re-rendering Blazor
+        // on every 16 ms tick when neither the visible score page nor the keyboard state changed.
+        if (shouldRender)
         {
-            RefreshCanvasScene(currentTime);
+            shouldRender = RefreshCanvasScene(currentTime);
         }
         else
         {
-            RefreshKeyboardState(currentTime);
+            shouldRender = RefreshKeyboardState(currentTime);
         }
 
-        await InvokeAsync(StateHasChanged);
+        if (shouldRender)
+        {
+            await InvokeAsync(StateHasChanged);
+        }
 
         if (!ScorePlaybackSession.IsActive)
         {
@@ -2744,12 +2760,14 @@
             return false;
         }
 
+        PracticeSessionState stateBeforeUpdate = practiceCoordinator.State;
+        int countInTicksBeforeUpdate = practiceCoordinator.CountInTicksDue;
         await practiceCoordinator.UpdateAsync(cancellationToken);
         double? cursorBeats = practiceCoordinator.State is
             PracticeSessionState.Running or PracticeSessionState.Finished
                 ? practiceCoordinator.CursorBeats
                 : null;
-        RefreshCanvasScene(
+        bool shouldRender = RefreshCanvasScene(
             practiceCoordinator.CurrentTime,
             cursorBeats,
             practiceCoordinator.GetVisibleVerdicts());
@@ -2760,7 +2778,12 @@
             PracticeSessionState.Finished => "Practice finished.",
             _ => audioStatus,
         };
-        await InvokeAsync(StateHasChanged);
+        if (shouldRender ||
+            practiceCoordinator.State != stateBeforeUpdate ||
+            practiceCoordinator.CountInTicksDue != countInTicksBeforeUpdate)
+        {
+            await InvokeAsync(StateHasChanged);
+        }
 
         if (practiceCoordinator.State == PracticeSessionState.Finished)
         {
@@ -2834,12 +2857,29 @@
         }
     }
 
-    private void RefreshCanvasScene(
+    private bool RefreshCanvasScene(
         TimeSpan currentTime,
         double? cursorBeats = null,
         IReadOnlyDictionary<ScoreNote, Verdict>? verdicts = null)
     {
-        RefreshKeyboardState(currentTime);
+        IPianoCanvasScene previousCanvasScene = canvasScene;
+        IPianoCanvasScene? previousSecondaryCanvasScene = secondaryCanvasScene;
+        GrandStaffScoreOverlay? previousScoreOverlay = scoreOverlay;
+        GrandStaffScoreOverlay? previousSecondaryScoreOverlay = secondaryScoreOverlay;
+        ScoreCursorPlaybackState? previousScoreCursorState = scoreCursorState;
+        LiveGrandStaffCursorState? previousLiveGrandStaffCursorState = liveGrandStaffCursorState;
+        ScoreCursorPlaybackState? previousSecondaryScoreCursorState = secondaryScoreCursorState;
+        bool keyboardStateChanged = RefreshKeyboardState(currentTime);
+
+        bool HasCanvasRenderStateChanged() =>
+            keyboardStateChanged ||
+            !ReferenceEquals(canvasScene, previousCanvasScene) ||
+            !ReferenceEquals(secondaryCanvasScene, previousSecondaryCanvasScene) ||
+            !ReferenceEquals(scoreOverlay, previousScoreOverlay) ||
+            !ReferenceEquals(secondaryScoreOverlay, previousSecondaryScoreOverlay) ||
+            !ReferenceEquals(scoreCursorState, previousScoreCursorState) ||
+            !Equals(liveGrandStaffCursorState, previousLiveGrandStaffCursorState) ||
+            !ReferenceEquals(secondaryScoreCursorState, previousSecondaryScoreCursorState);
 
         if (showPianoRoll)
         {
@@ -2850,27 +2890,45 @@
             secondaryCanvasScene = null;
             scoreOverlay = null;
             secondaryScoreOverlay = null;
+            liveGrandStaffCursorState = null;
             UpdateScoreCursorStates();
-            return;
+            return HasCanvasRenderStateChanged();
         }
 
         Score? notationScore = NotationScore;
         if (notationScore is null)
         {
-            canvasScene = GrandStaffSceneBuilder.Build(
+            GrandStaffScene liveScene = GrandStaffSceneBuilder.Build(
                 noteTimeline.Snapshot(currentTime),
                 currentTime,
                 displayTimeSignature,
                 displayTempo,
                 keyboardState.CurrentOctave,
                 showNoteLabels);
+            if (AudioSession.IsInitialized)
+            {
+                var liveRenderState = SeparateLiveGrandStaffCursor(
+                    liveScene,
+                    currentTime,
+                    displayTimeSignature,
+                    displayTempo);
+                canvasScene = PreserveLiveGrandStaffSceneReference(canvasScene, liveRenderState.Scene);
+                liveGrandStaffCursorState = liveRenderState.Cursor;
+            }
+            else
+            {
+                canvasScene = liveScene;
+                liveGrandStaffCursorState = null;
+            }
+
             secondaryCanvasScene = null;
             scoreOverlay = null;
             secondaryScoreOverlay = null;
             UpdateScoreCursorStates();
-            return;
+            return HasCanvasRenderStateChanged();
         }
 
+        liveGrandStaffCursorState = null;
         if (cursorBeats.HasValue)
         {
             UpdateScoreWindowPairFromCursor(cursorBeats.Value);
@@ -2951,7 +3009,7 @@
             drawTies,
             reviewMarks);
         canvasScene = upperRenderState.Scene;
-        scoreOverlay = upperRenderState.Overlay;
+        scoreOverlay = PreserveScoreOverlayReference(scoreOverlay, upperRenderState.Overlay);
         GrandStaffStaticScoreParts? lowerStaticParts = null;
         if (scoreWindowPair?.LowerFirstMeasure is { } lowerFirstMeasure)
         {
@@ -2974,7 +3032,7 @@
                 drawTies,
                 reviewMarks);
             secondaryCanvasScene = lowerRenderState.Scene;
-            secondaryScoreOverlay = lowerRenderState.Overlay;
+            secondaryScoreOverlay = PreserveScoreOverlayReference(secondaryScoreOverlay, lowerRenderState.Overlay);
             lowerStaticParts = lowerRenderState.StaticParts;
         }
         else
@@ -2984,7 +3042,67 @@
         }
 
         UpdateScoreCursorStates(notationScore, upperRenderState.StaticParts, lowerStaticParts);
+        return HasCanvasRenderStateChanged();
     }
+
+    private static GrandStaffScoreOverlay PreserveScoreOverlayReference(
+        GrandStaffScoreOverlay? current,
+        GrandStaffScoreOverlay updated) =>
+        ScoreOverlaysEqual(current, updated) ? current! : updated;
+
+    internal static (GrandStaffScene Scene, LiveGrandStaffCursorState? Cursor) SeparateLiveGrandStaffCursor(
+        GrandStaffScene scene,
+        TimeSpan currentTime,
+        TimeSignature timeSignature,
+        Tempo tempo)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(timeSignature);
+        ArgumentNullException.ThrowIfNull(tempo);
+
+        GrandStaffLine? cursorLine = scene.Lines.FirstOrDefault(line => line.Kind == GrandStaffLineKind.Cursor);
+        if (cursorLine is null)
+        {
+            return (scene, null);
+        }
+
+        return (
+            scene with { Lines = scene.Lines.Where(line => line.Kind != GrandStaffLineKind.Cursor).ToArray() },
+            new LiveGrandStaffCursorState(
+                tempo.BeatsPerMinute,
+                timeSignature.Numerator,
+                GrandStaffLayout.GetLiveFirstVisibleMeasure(currentTime, timeSignature, tempo),
+                cursorLine.Y0,
+                cursorLine.Y1));
+    }
+
+    private static GrandStaffScene PreserveLiveGrandStaffSceneReference(
+        IPianoCanvasScene current,
+        GrandStaffScene updated) =>
+        current is GrandStaffScene existing && LiveGrandStaffScenesEqual(existing, updated)
+            ? existing
+            : updated;
+
+    private static bool LiveGrandStaffScenesEqual(GrandStaffScene left, GrandStaffScene right) =>
+        left.ShouldClipNotesAtClefs == right.ShouldClipNotesAtClefs &&
+        left.Lines.SequenceEqual(right.Lines) &&
+        left.Glyphs.SequenceEqual(right.Glyphs) &&
+        left.Notes.SequenceEqual(right.Notes) &&
+        left.Beams.SequenceEqual(right.Beams) &&
+        left.Ties.SequenceEqual(right.Ties) &&
+        left.Bands.SequenceEqual(right.Bands) &&
+        left.Slurs.SequenceEqual(right.Slurs) &&
+        left.ArpeggioMarks.SequenceEqual(right.ArpeggioMarks);
+
+    internal static bool ScoreOverlaysEqual(
+        GrandStaffScoreOverlay? left,
+        GrandStaffScoreOverlay? right) =>
+        ReferenceEquals(left, right) ||
+        (left is not null &&
+        right is not null &&
+        Equals(left.Cursor, right.Cursor) &&
+        left.Notes.SequenceEqual(right.Notes) &&
+        left.LedgerLines.SequenceEqual(right.LedgerLines));
 
     internal static IReadOnlyList<PerformedNote> GetPerformedNotesForScoreRow(
         IReadOnlyList<PerformedNote> performedNotes,
@@ -3100,24 +3218,33 @@
         return result.IsComplete ? $"{status} Idle note check complete." : status;
     }
 
-    private void RefreshKeyboardState(TimeSpan currentTime)
+    private bool RefreshKeyboardState(TimeSpan currentTime)
     {
         if (scheduledKeyboardNotes.Count > 0 && scheduledKeyboardNotes.All(note => note.ReleaseTime <= currentTime))
         {
             scheduledKeyboardNotes = [];
         }
 
-        activeKeyboardMidiNumbers = GetActiveKeyboardMidiNumbers(
+        IReadOnlySet<int> updatedActiveKeyboardMidiNumbers = GetActiveKeyboardMidiNumbers(
             noteTimeline.Snapshot(currentTime),
             ScorePlaybackSession.GetStartedNotes(currentTime).Concat(scheduledKeyboardNotes),
             currentTime,
             testNoteIsActive ? TestPitch : null);
-        nextKeyboardMidiNumbers = GetNextKeyboardMidiNumbers(
+        IReadOnlySet<int> updatedNextKeyboardMidiNumbers = GetNextKeyboardMidiNumbers(
             EffectiveShowNextKeyHints,
             practiceCoordinator.IsActive,
             practiceCoordinator.GetNextPitches(),
             IsIdleNoteCheckingActive,
             noteReadingSession.ExpectedNotes);
+        bool hasChanged = !activeKeyboardMidiNumbers.SetEquals(updatedActiveKeyboardMidiNumbers) ||
+            !nextKeyboardMidiNumbers.SetEquals(updatedNextKeyboardMidiNumbers);
+        if (hasChanged)
+        {
+            activeKeyboardMidiNumbers = updatedActiveKeyboardMidiNumbers;
+            nextKeyboardMidiNumbers = updatedNextKeyboardMidiNumbers;
+        }
+
+        return hasChanged;
     }
 
     internal static IReadOnlySet<int> GetNextKeyboardMidiNumbers(
@@ -3221,8 +3348,11 @@
     private async Task<bool> TickVisualizationAsync(CancellationToken cancellationToken)
     {
         TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync(cancellationToken);
-        RefreshCanvasScene(currentTime);
-        await InvokeAsync(StateHasChanged);
+        if (RefreshCanvasScene(currentTime))
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+
         return ShouldContinueVisualizationRefresh(
             showPianoRoll,
             NotationScore is not null,

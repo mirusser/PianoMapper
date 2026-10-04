@@ -1039,6 +1039,21 @@ input[type="file"]::file-selector-button:hover {
     height: clamp(25rem, 46vw, 34rem);
 }
 
+.score-canvas-layer {
+    position: relative;
+}
+
+.score-playback-cursor {
+    position: absolute;
+    top: 0;
+    z-index: 1;
+    display: none;
+    width: 2px;
+    background: #fb7185;
+    pointer-events: none;
+    will-change: transform;
+}
+
 .piano-canvas.score-note-editable {
     cursor: crosshair;
     border-color: #65e8f0;
@@ -1498,7 +1513,7 @@ input[type="file"]::file-selector-button:hover {
     }
 
     .piano-canvas-stack-score > .score-row-label,
-    .piano-canvas-stack-score > .score-row-canvas,
+    .piano-canvas-stack-score > .score-canvas-layer,
     .piano-canvas-stack-score > .score-row {
         min-width: 40rem;
     }

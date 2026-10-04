@@ -2,6 +2,7 @@ using PianoMapper.Web.Input;
 using PianoMapper.Web.Pages;
 using PianoMapper.Web.Rendering;
 using PianoMapper.Music;
+using PianoMapper.Rendering;
 
 namespace PianoMapper.Tests.UnitTests;
 
@@ -177,6 +178,61 @@ public sealed class PianoTests
             wrongNotes);
 
         Assert.Same(wrongNote, Assert.Single(result));
+    }
+
+    [Fact]
+    public void ScoreOverlaysEqual_DistinctEquivalentHeldNotes_ReturnsTrue()
+    {
+        var left = new GrandStaffScoreOverlay(
+            null,
+            [new GrandStaffNote("C4", 0, 0, 0, IsActive: true)],
+            []);
+        var right = new GrandStaffScoreOverlay(
+            null,
+            [new GrandStaffNote("C4", 0, 0, 0, IsActive: true)],
+            []);
+
+        Assert.True(Piano.ScoreOverlaysEqual(left, right));
+    }
+
+    [Fact]
+    public void ScoreOverlaysEqual_DifferentHeldNotes_ReturnsFalse()
+    {
+        var left = new GrandStaffScoreOverlay(
+            null,
+            [new GrandStaffNote("C4", 0, 0, 0, IsActive: true)],
+            []);
+        var right = new GrandStaffScoreOverlay(
+            null,
+            [new GrandStaffNote("D4", 0, 0, 0, IsActive: true)],
+            []);
+
+        Assert.False(Piano.ScoreOverlaysEqual(left, right));
+    }
+
+    [Fact]
+    public void SeparateLiveGrandStaffCursor_CursorLinePresent_ProjectsCursorAndRemovesItFromScene()
+    {
+        var scene = new GrandStaffScene(
+            [
+                new GrandStaffLine(-0.92, -0.5, 0.96, -0.5, GrandStaffLineKind.Staff),
+                new GrandStaffLine(-0.37, -0.5, -0.37, 0.5, GrandStaffLineKind.Cursor),
+            ],
+            [],
+            []);
+        var timeSignature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(60);
+
+        var (cursorFreeScene, cursor) = Piano.SeparateLiveGrandStaffCursor(
+            scene,
+            TimeSpan.FromSeconds(5),
+            timeSignature,
+            tempo);
+
+        Assert.DoesNotContain(cursorFreeScene.Lines, line => line.Kind == GrandStaffLineKind.Cursor);
+        Assert.Equal(
+            new LiveGrandStaffCursorState(60, 4, 0, -0.5, 0.5),
+            cursor);
     }
 
     [Fact]

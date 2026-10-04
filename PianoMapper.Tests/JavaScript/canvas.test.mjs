@@ -11,10 +11,11 @@ import {
     mapScoreNotationBeatToX,
     octaveShiftLineKind,
     render,
+    startLiveGrandStaffCursor,
     startScoreCursor,
+    stopLiveGrandStaffCursor,
     stopScoreCursor,
     updateScoreOverlay,
-    updateScoreSelection,
     verdictColors,
 } from "../../PianoMapper.Web/wwwroot/js/canvas.js";
 import {
@@ -279,9 +280,14 @@ async function createScoreCursorHarness(currentTime) {
         animationFrames,
         cancelledFrames,
         audioContext,
-        createCanvas() {
+        createCanvas(scoreCursorElement = undefined) {
             const canvas = new FakeCanvas();
-            initialize(canvas, new FakeCanvas(), new FakeCanvas(), { spectrumVisibleBinCount: 32 });
+            initialize(
+                canvas,
+                new FakeCanvas(),
+                new FakeCanvas(),
+                { spectrumVisibleBinCount: 32 },
+                scoreCursorElement);
             canvases.push(canvas);
             return canvas;
         },
@@ -535,6 +541,109 @@ test("score cursor animates without analysis panels and stops at completion or r
     }
 });
 
+test("score cursor animation moves the overlay without repainting the canvas", async () => {
+    const harness = await createScoreCursorHarness(1);
+    const cursorOverlay = { style: {} };
+    const canvas = harness.createCanvas(cursorOverlay);
+    const cursor = {
+        anchorSeconds: 0,
+        beatsPerMinute: 60,
+        beatsPerMeasure: 4,
+        firstVisibleMeasure: 0,
+        completionSeconds: 4,
+        cursorY0: -0.5,
+        cursorY1: 0.5,
+        visibleMeasureCount: 1,
+    };
+
+    try {
+        startScoreCursor(canvas, cursor);
+        const drawImageCalls = canvas.context.drawImageCalls;
+
+        harness.audioContext.currentTime = 1.25;
+        harness.animationFrames.shift().callback();
+
+        assert.equal(canvas.context.drawImageCalls, drawImageCalls);
+        assert.equal(cursorOverlay.style.display, "block");
+        assert.equal(cursorOverlay.style.height, "102px");
+        assert.equal(cursorOverlay.style.transform, "translate3d(291.4425px, 69px, 0)");
+
+        stopScoreCursor(canvas);
+
+        assert.equal(cursorOverlay.style.display, "none");
+    } finally {
+        await harness.dispose();
+    }
+});
+
+test("live grand-staff cursor moves the overlay without repainting the canvas", async () => {
+    const harness = await createScoreCursorHarness(1);
+    const cursorOverlay = { style: {} };
+    const canvas = harness.createCanvas(cursorOverlay);
+    const cursor = {
+        beatsPerMinute: 60,
+        beatsPerMeasure: 4,
+        firstVisibleMeasure: 0,
+        cursorY0: -0.5,
+        cursorY1: 0.5,
+    };
+
+    try {
+        render(canvas, createEditableScoreScene([]), false, false);
+        startLiveGrandStaffCursor(canvas, cursor);
+        const drawImageCalls = canvas.context.drawImageCalls;
+
+        harness.audioContext.currentTime = 1.25;
+        harness.animationFrames.shift().callback();
+
+        assert.equal(canvas.context.drawImageCalls, drawImageCalls);
+        assert.equal(cursorOverlay.style.display, "block");
+        assert.equal(cursorOverlay.style.height, "102px");
+        assert.match(cursorOverlay.style.transform, /^translate3d\(.*px, 69px, 0\)$/);
+        assert.ok(Math.abs(Number.parseFloat(cursorOverlay.style.transform.slice(12)) - 178.57) < 1e-9);
+
+        harness.audioContext.currentTime = 20;
+        harness.animationFrames.shift().callback();
+
+        assert.equal(cursorOverlay.style.display, "none");
+
+        stopLiveGrandStaffCursor(canvas);
+    } finally {
+        await harness.dispose();
+    }
+});
+
+test("score cursor animation repaints when the playback highlight changes", async () => {
+    const harness = await createScoreCursorHarness(0.5);
+    const cursorOverlay = { style: {} };
+    const canvas = harness.createCanvas(cursorOverlay);
+    const cursor = {
+        anchorSeconds: 0,
+        beatsPerMinute: 60,
+        beatsPerMeasure: 4,
+        firstVisibleMeasure: 0,
+        completionSeconds: 4,
+        cursorY0: -0.5,
+        cursorY1: 0.5,
+        visibleMeasureCount: 1,
+    };
+
+    try {
+        render(canvas, createEditableScoreScene([
+            { x: 0, y: 0, scoreOnsetBeats: 1, scoreEndBeats: 2, isActive: false, isFilled: true },
+        ]), false, false);
+        startScoreCursor(canvas, cursor);
+        const drawImageCalls = canvas.context.drawImageCalls;
+
+        harness.audioContext.currentTime = 1;
+        harness.animationFrames.shift().callback();
+
+        assert.equal(canvas.context.drawImageCalls, drawImageCalls + 1);
+    } finally {
+        await harness.dispose();
+    }
+});
+
 test("score playback highlights a chord only inside its half-open beat interval", async () => {
     const harness = await createScoreCursorHarness(1);
     const canvas = harness.createCanvas();
@@ -708,7 +817,7 @@ test("grand staff drawing caches its static layer until the scene or size change
     }, { onCreateElement: tagName => assert.equal(tagName, "canvas") });
 });
 
-test("score overlay updates do not rebuild the static score layer", () => {
+test("score overlay updates do not repaint the static score layer immediately", () => {
     withCanvasMocks(({ createdCanvases }) => {
         const canvas = new FakeCanvas();
         const waveformCanvas = new FakeCanvas();
@@ -732,14 +841,47 @@ test("score overlay updates do not rebuild the static score layer", () => {
                 ledgerLines: [],
             });
 
-            updateScoreSelection(canvas, null);
-
             assert.equal(scoreLayer.context.strokeCalls, staticStrokes);
-            assert.ok(canvas.context.lineSegments.some(segment => segment.x === 320));
+            assert.equal(canvas.context.lineSegments.some(segment => segment.x === 320), false);
         } finally {
             dispose(canvas);
         }
     }, { onCreateElement: tagName => assert.equal(tagName, "canvas") });
+});
+
+test("score overlay updates share the queued playback frame", async () => {
+    const harness = await createScoreCursorHarness(1);
+    const canvas = harness.createCanvas();
+    const cursor = {
+        anchorSeconds: 0,
+        beatsPerMinute: 60,
+        beatsPerMeasure: 4,
+        firstVisibleMeasure: 0,
+        completionSeconds: 4,
+        cursorY0: -0.5,
+        cursorY1: 0.5,
+        visibleMeasureCount: 1,
+    };
+
+    try {
+        startScoreCursor(canvas, cursor);
+        canvas.context.lineSegments.length = 0;
+
+        updateScoreOverlay(canvas, {
+            cursor: { x0: 0, y0: -0.5, x1: 0, y1: 0.5, kind: 3 },
+            notes: [],
+            ledgerLines: [],
+        });
+
+        assert.equal(canvas.context.lineSegments.length, 0);
+        assert.equal(harness.animationFrames.length, 1);
+
+        harness.animationFrames.shift().callback();
+
+        assert.ok(canvas.context.lineSegments.some(segment => segment.x === 320));
+    } finally {
+        await harness.dispose();
+    }
 });
 
 test("score-only canvas owns independent resize, scene cache, and disposal state", () => {
