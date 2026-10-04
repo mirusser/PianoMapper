@@ -26,7 +26,16 @@ internal sealed class SavedScoreRepository(NpgsqlDataSource dataSource)
     private const string ListScoresSql = """
         SELECT id, title, measure_count, created_at, updated_at
         FROM scores
-        ORDER BY updated_at DESC, id;
+        WHERE @title IS NULL OR title ILIKE '%' || @title || '%'
+        ORDER BY updated_at DESC, id
+        LIMIT @pageSize
+        OFFSET @offset;
+        """;
+
+    private const string CountScoresSql = """
+        SELECT COUNT(*)
+        FROM scores
+        WHERE @title IS NULL OR title ILIKE '%' || @title || '%';
         """;
 
     private const string FindScoreSql = """
@@ -63,10 +72,19 @@ internal sealed class SavedScoreRepository(NpgsqlDataSource dataSource)
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    internal async Task<IReadOnlyList<SavedScoreSummary>> ListAsync(CancellationToken cancellationToken)
+    internal async Task<SavedScorePage> ListAsync(
+        int page,
+        int pageSize,
+        string? title,
+        CancellationToken cancellationToken)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(page, 1);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(pageSize);
+
+        string? normalizedTitle = string.IsNullOrWhiteSpace(title) ? null : title.Trim();
         var scores = new List<SavedScoreSummary>();
         await using var command = dataSource.CreateCommand(ListScoresSql);
+        AddListParameters(command, page, pageSize, normalizedTitle);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -78,7 +96,10 @@ internal sealed class SavedScoreRepository(NpgsqlDataSource dataSource)
                 reader.GetFieldValue<DateTimeOffset>(4)));
         }
 
-        return scores;
+        await using var countCommand = dataSource.CreateCommand(CountScoresSql);
+        AddTitleParameter(countCommand, normalizedTitle);
+        long totalCount = (long)(await countCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? 0L);
+        return new SavedScorePage(scores, checked((int)totalCount));
     }
 
     internal async Task<SavedScoreDetails?> FindAsync(Guid id, CancellationToken cancellationToken)
@@ -157,6 +178,17 @@ internal sealed class SavedScoreRepository(NpgsqlDataSource dataSource)
             ScoreDocumentSerializer.Serialize(score));
         command.Parameters.AddWithValue("documentVersion", ScoreDocumentSerializer.CurrentVersion);
     }
+
+    private static void AddListParameters(NpgsqlCommand command, int page, int pageSize, string? title)
+    {
+        AddTitleParameter(command, title);
+        command.Parameters.AddWithValue("pageSize", pageSize);
+        long offset = ((long)page - 1) * pageSize;
+        command.Parameters.AddWithValue("offset", offset);
+    }
+
+    private static void AddTitleParameter(NpgsqlCommand command, string? title) =>
+        command.Parameters.AddWithValue("title", NpgsqlDbType.Text, (object?)title ?? DBNull.Value);
 
     private static void ValidateScore(Score score)
     {

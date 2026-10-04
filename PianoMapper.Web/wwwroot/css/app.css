@@ -749,7 +749,6 @@ input[type="file"]::file-selector-button:hover {
 .saved-score-library {
     margin-top: 0.65rem;
     padding-top: 0.65rem;
-    border-top: 1px solid #51436c;
 }
 
 .saved-score-library-actions {
@@ -787,11 +786,23 @@ input[type="file"]::file-selector-button:hover {
     color: #fff8ff;
 }
 
+.saved-score-search input:focus {
+    border-color: #ff7bd5;
+    background: #2d204b;
+    box-shadow: 0 0 0 3px rgb(255 123 213 / 22%);
+    outline: none;
+}
+
 .saved-score-list {
-    display: block;
+    display: grid;
+    gap: 0.4rem;
     max-height: min(18rem, 45vh);
     margin: 0.75rem 0 0;
-    padding: 0;
+    padding: 0.4rem;
+    border: 1px solid #51436c;
+    border-radius: 0.7rem;
+    background: rgb(16 12 33 / 72%);
+    box-shadow: inset 0 1px rgb(255 255 255 / 5%);
     list-style: none;
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -800,11 +811,48 @@ input[type="file"]::file-selector-button:hover {
 
 .saved-score-list li {
     display: flex;
-    gap: 0.75rem;
+    gap: 0.5rem;
     align-items: center;
     justify-content: space-between;
-    padding: 0.55rem 0.3rem;
-    border-bottom: 1px solid #51436c;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid #403059;
+    border-radius: 0.55rem;
+    background: linear-gradient(105deg, #251d45, #1d1735);
+    box-shadow: 0 0.2rem 0.5rem rgb(8 5 20 / 20%);
+    transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.saved-score-list li:nth-child(even) {
+    background: linear-gradient(105deg, #2b214d, #211a3d);
+}
+
+.saved-score-list li:hover,
+.saved-score-list li:focus-within {
+    border-color: #c453a4;
+    background: linear-gradient(105deg, #493060, #30224f);
+    box-shadow: 0 0 0 1px rgb(255 123 213 / 14%), 0 0.35rem 0.8rem rgb(8 5 20 / 32%);
+    transform: translateY(-1px);
+}
+
+.saved-score-row {
+    display: flex;
+    flex: 1 1 auto;
+    align-self: stretch;
+    align-items: center;
+    min-width: 0;
+    min-height: 0;
+    padding: 0.7rem 0.8rem;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+}
+
+.saved-score-row:hover:not(:disabled) {
+    background: transparent;
+    transform: none;
 }
 
 .saved-score-list span {
@@ -817,18 +865,49 @@ input[type="file"]::file-selector-button:hover {
 }
 
 .saved-score-list strong {
+    color: #fff8ff;
+    font-size: 0.9rem;
     overflow-wrap: anywhere;
 }
 
 .saved-score-list small {
-    margin-top: 0.2rem;
+    margin-top: 0.25rem;
     color: #b9accf;
+    font-size: 0.75rem;
 }
 
 .saved-score-actions {
     display: flex;
     flex: none;
+    align-self: stretch;
     gap: 0.5rem;
+    align-items: center;
+    padding: 0.35rem 0.45rem;
+    border-left: 1px solid rgb(255 255 255 / 10%);
+    background: rgb(13 9 28 / 28%);
+}
+
+.saved-score-actions .button-danger {
+    min-height: 2.2rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 0.45rem;
+}
+
+.saved-score-pagination {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: end;
+    margin-top: 0.75rem;
+    padding: 0.25rem;
+    border: 1px solid #51436c;
+    border-radius: 0.65rem;
+    background: rgb(27 21 52 / 72%);
+}
+
+.saved-score-pagination span {
+    color: #b9accf;
+    font-size: 0.78rem;
 }
 
 .measure-window {
@@ -1426,5 +1505,17 @@ input[type="file"]::file-selector-button:hover {
 
     .saved-score-list li {
         flex-wrap: wrap;
+    }
+
+    .saved-score-actions {
+        width: 100%;
+        justify-content: end;
+        padding: 0.35rem 0.45rem;
+        border-top: 1px solid rgb(255 255 255 / 10%);
+        border-left: 0;
+    }
+
+    .saved-score-pagination {
+        justify-content: space-between;
     }
 }

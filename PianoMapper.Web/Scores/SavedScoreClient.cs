@@ -6,11 +6,13 @@ namespace PianoMapper.Web.Scores;
 
 internal sealed class SavedScoreClient(HttpClient httpClient)
 {
-    internal async Task<IReadOnlyList<SavedScoreSummary>> ListAsync(
+    internal async Task<SavedScorePage> ListAsync(
+        int page,
+        string? title,
         CancellationToken cancellationToken = default) =>
-        await httpClient.GetFromJsonAsync<SavedScoreSummary[]>(
-            SavedScoreApiRoutes.Collection,
-            cancellationToken) ?? [];
+        await httpClient.GetFromJsonAsync<SavedScorePage>(
+            SavedScoreApiRoutes.List(page, SavedScorePage.DefaultPageSize, title),
+            cancellationToken) ?? new SavedScorePage([], 0);
 
     internal async Task<SavedScoreDetails> FindAsync(
         Guid id,

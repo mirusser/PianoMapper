@@ -17,9 +17,17 @@ internal static class SavedScoreEndpoints
 
     private static async Task<IResult> ListAsync(
         SavedScoreRepository repository,
-        CancellationToken cancellationToken)
+        int page = 1,
+        int pageSize = SavedScorePage.DefaultPageSize,
+        string? title = null,
+        CancellationToken cancellationToken = default)
     {
-        var scores = await repository.ListAsync(cancellationToken).ConfigureAwait(false);
+        if (page < 1 || pageSize is < 1 or > SavedScorePage.MaximumPageSize)
+        {
+            return Results.BadRequest("The page and page size are invalid.");
+        }
+
+        var scores = await repository.ListAsync(page, pageSize, title, cancellationToken).ConfigureAwait(false);
         return Results.Ok(scores);
     }
 

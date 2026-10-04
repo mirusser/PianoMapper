@@ -9,6 +9,33 @@ namespace PianoMapper.Tests.UnitTests;
 public sealed class SavedScoreClientTests
 {
     [Fact]
+    public async Task ListAsync_PageAndTitle_GetsPagedMatches()
+    {
+        var expected = new SavedScorePage(
+            [new SavedScoreSummary(
+                Guid.NewGuid(),
+                "Moonlight Sonata",
+                14,
+                DateTimeOffset.Parse("2026-09-12T10:00:00Z"),
+                DateTimeOffset.Parse("2026-09-12T11:00:00Z"))],
+            11);
+        var handler = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(expected),
+        });
+        using var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://localhost") };
+        var client = new SavedScoreClient(httpClient);
+
+        SavedScorePage actual = await client.ListAsync(2, "Moonlight Sonata");
+
+        Assert.Equal(HttpMethod.Get, handler.RequestMethod);
+        Assert.Equal(SavedScoreApiRoutes.Collection, handler.RequestUri?.AbsolutePath);
+        Assert.Equal("?page=2&pageSize=10&title=Moonlight%20Sonata", handler.RequestUri?.Query);
+        Assert.Equal(expected.TotalCount, actual.TotalCount);
+        Assert.Equal(expected.Scores, actual.Scores);
+    }
+
+    [Fact]
     public async Task CreateAsync_Score_PostsCollectionAndReadsDetails()
     {
         Score score = CreateScore();

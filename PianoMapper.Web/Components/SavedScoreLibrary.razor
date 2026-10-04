@@ -8,7 +8,7 @@
     }
 
     <details class="learning-disclosure">
-        <summary>Saved scores <span class="saved-score-count">@(savedScores?.Count.ToString(CultureInfo.CurrentCulture) ?? "…")</span></summary>
+        <summary>Saved scores <span class="saved-score-count">@(savedScores?.TotalCount.ToString(CultureInfo.CurrentCulture) ?? "…")</span></summary>
         <div class="controls saved-score-library-actions">
             <button class="button-primary"
                     type="button"
@@ -22,7 +22,7 @@
         {
             <p class="control-note">Loading saved scores…</p>
         }
-        else if (savedScores.Count == 0)
+        else if (savedScores.TotalCount == 0 && string.IsNullOrWhiteSpace(searchText))
         {
             <p class="control-note">No saved scores yet.</p>
         }
@@ -30,32 +30,36 @@
         {
             <label class="saved-score-search">
                 <span>Find a score</span>
-                <input type="search" placeholder="Search by title" @bind="searchText" @bind:event="oninput" />
+                <input type="search"
+                       placeholder="Search by title"
+                       @bind="searchText"
+                       @bind:event="oninput"
+                       @bind:after="SearchAsync" />
             </label>
-            @if (FilteredScores.Count == 0)
+            @if (savedScores.Scores.Count == 0)
             {
                 <p class="control-note">No scores match that title.</p>
             }
             else
             {
                 <ul class="saved-score-list">
-                    @foreach (var savedScore in FilteredScores)
+                    @foreach (var savedScore in savedScores.Scores)
                     {
-                        <li>
-                            <span>
-                                <strong>@savedScore.Title</strong>
-                                <small>
-                                    @savedScore.MeasureCount measure(s) · saved
-                                    @savedScore.UpdatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
-                                </small>
-                            </span>
+                        <li @key="savedScore.Id">
+                            <button class="saved-score-row"
+                                    type="button"
+                                    @onclick="() => LoadAsync(savedScore.Id)"
+                                    disabled="@isBusy"
+                                    aria-label="Load @savedScore.Title">
+                                <span>
+                                    <strong>@savedScore.Title</strong>
+                                    <small>
+                                        @savedScore.MeasureCount measure(s) · saved
+                                        @savedScore.UpdatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
+                                    </small>
+                                </span>
+                            </button>
                             <div class="saved-score-actions">
-                                <button type="button"
-                                        @onclick="() => LoadAsync(savedScore.Id)"
-                                        disabled="@isBusy"
-                                        aria-label="Load @savedScore.Title">
-                                    Load
-                                </button>
                                 <button class="button-danger"
                                         type="button"
                                         @onclick="() => DeleteAsync(savedScore)"
@@ -67,6 +71,21 @@
                         </li>
                     }
                 </ul>
+                <div class="saved-score-pagination" aria-label="Saved-score pages">
+                    <button class="button-quiet"
+                            type="button"
+                            @onclick="() => ChangePageAsync(currentPage - 1)"
+                            disabled="@(isBusy || currentPage == 1)">
+                        Previous
+                    </button>
+                    <span>Page @currentPage of @PageCount</span>
+                    <button class="button-quiet"
+                            type="button"
+                            @onclick="() => ChangePageAsync(currentPage + 1)"
+                            disabled="@(isBusy || currentPage == PageCount)">
+                        Next
+                    </button>
+                </div>
             }
         }
     </details>
@@ -78,14 +97,16 @@
 </section>
 
 @code {
-    private IReadOnlyList<SavedScoreSummary>? savedScores;
+    private SavedScorePage? savedScores;
     private string searchText = string.Empty;
     private string? status;
     private bool isBusy;
     private bool isLoadingScore;
+    private int currentPage = 1;
 
-    private IReadOnlyList<SavedScoreSummary> FilteredScores =>
-        savedScores?.Where(score => score.Title.Contains(searchText, StringComparison.CurrentCultureIgnoreCase)).ToArray() ?? [];
+    private int PageCount => savedScores is null
+        ? 1
+        : Math.Max(1, (int)Math.Ceiling((double)savedScores.TotalCount / SavedScorePage.DefaultPageSize));
 
     [Parameter]
     public Score? CurrentScore { get; set; }
@@ -102,25 +123,39 @@
     [Parameter]
     public EventCallback<Guid> ScoreDeleted { get; set; }
 
-    protected override Task OnInitializedAsync() => RefreshAsync();
+    protected override Task OnInitializedAsync() => LoadPageAsync();
 
-    private async Task RefreshAsync()
+    private Task RefreshAsync() => LoadPageAsync();
+
+    private async Task SearchAsync()
+    {
+        currentPage = 1;
+        await LoadPageAsync();
+    }
+
+    private async Task ChangePageAsync(int page)
+    {
+        currentPage = page;
+        await LoadPageAsync();
+    }
+
+    private async Task LoadPageAsync()
     {
         isBusy = true;
         try
         {
-            savedScores = await Client.ListAsync();
+            savedScores = await Client.ListAsync(currentPage, searchText);
             status = null;
         }
         catch (HttpRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
-            savedScores = [];
+            savedScores = new SavedScorePage([], 0);
             status = "Saved scores require the hosted PianoMapper server.";
         }
         catch (Exception exception) when (
             exception is HttpRequestException or JsonException or NotSupportedException)
         {
-            savedScores = [];
+            savedScores = new SavedScorePage([], 0);
             status = $"Could not load saved scores: {exception.Message}";
         }
         finally
@@ -142,9 +177,12 @@
             SavedScoreDetails savedScore = CurrentSavedScoreId is Guid id
                 ? await Client.UpdateAsync(id, CurrentScore)
                 : await Client.CreateAsync(CurrentScore);
-            AddOrReplaceSummary(savedScore);
             await ScoreSaved.InvokeAsync(savedScore);
-            status = $"Saved {savedScore.Score.Title}.";
+            await LoadPageAsync();
+            if (status is null)
+            {
+                status = $"Saved {savedScore.Score.Title}.";
+            }
         }
         catch (Exception exception) when (
             exception is HttpRequestException or InvalidDataException or JsonException or NotSupportedException)
@@ -195,13 +233,19 @@
         try
         {
             await Client.DeleteAsync(savedScore.Id);
-            savedScores = (savedScores ?? [])
-                .Where(score => score.Id != savedScore.Id)
-                .ToArray();
             await ScoreDeleted.InvokeAsync(savedScore.Id);
-            status = wasCurrentScore
-                ? $"Deleted {savedScore.Title} from saved scores. The score remains open until you unload or replace it."
-                : $"Deleted {savedScore.Title} from saved scores.";
+            if (savedScores is { Scores.Count: 1 } && currentPage > 1)
+            {
+                currentPage--;
+            }
+
+            await LoadPageAsync();
+            if (status is null)
+            {
+                status = wasCurrentScore
+                    ? $"Deleted {savedScore.Title} from saved scores. The score remains open until you unload or replace it."
+                    : $"Deleted {savedScore.Title} from saved scores.";
+            }
         }
         catch (Exception exception) when (
             exception is HttpRequestException or NotSupportedException)
@@ -214,14 +258,4 @@
         }
     }
 
-    private void AddOrReplaceSummary(SavedScoreDetails savedScore)
-    {
-        var summary = new SavedScoreSummary(
-            savedScore.Id,
-            savedScore.Score.Title,
-            savedScore.Score.Measures.Count,
-            savedScore.CreatedAt,
-            savedScore.UpdatedAt);
-        savedScores = [summary, .. (savedScores ?? []).Where(score => score.Id != summary.Id)];
-    }
 }
