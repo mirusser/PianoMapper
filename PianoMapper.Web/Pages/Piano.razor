@@ -449,6 +449,7 @@
                      SecondaryScoreOverlay="@secondaryScoreOverlay"
                      ScoreCursor="@scoreCursorState"
                      LiveGrandStaffCursor="@liveGrandStaffCursorState"
+                     SecondaryLiveGrandStaffCursor="@secondaryLiveGrandStaffCursorState"
                      SecondaryScoreCursor="@secondaryScoreCursorState"
                      AutoNextSecondsRemaining="@ExercisePresentation.AutoNextSecondsRemaining"
                      PrimaryScoreRangeLabel="@PrimaryScoreRangeLabel"
@@ -546,12 +547,15 @@
     private IJSObjectReference? keyboardModule;
     private IJSObjectReference? midiModule;
     private DotNetObjectReference<Piano>? inputReference;
-    private IPianoCanvasScene canvasScene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero, selectedOctave: 4);
-    private IPianoCanvasScene? secondaryCanvasScene;
+    private static readonly (GrandStaffScene Upper, GrandStaffScene Lower) initialLiveRows =
+        GrandStaffSceneBuilder.BuildLivePair([], TimeSpan.Zero, selectedOctave: 4);
+    private IPianoCanvasScene canvasScene = initialLiveRows.Upper;
+    private IPianoCanvasScene? secondaryCanvasScene = initialLiveRows.Lower;
     private GrandStaffScoreOverlay? scoreOverlay;
     private GrandStaffScoreOverlay? secondaryScoreOverlay;
     private ScoreCursorPlaybackState? scoreCursorState;
     private LiveGrandStaffCursorState? liveGrandStaffCursorState;
+    private LiveGrandStaffCursorState? secondaryLiveGrandStaffCursorState;
     private ScoreCursorPlaybackState? secondaryScoreCursorState;
     private IReadOnlySet<int> activeKeyboardMidiNumbers = new HashSet<int>();
     private IReadOnlySet<int> nextKeyboardMidiNumbers = new HashSet<int>();
@@ -938,7 +942,7 @@
         StateHasChanged();
         await TryAutoConnectMidiAsync();
         StateHasChanged();
-        await EnableAudioAsync();
+        await EnableAudioOnLoadAsync();
         StateHasChanged();
     }
 
@@ -1018,6 +1022,30 @@
         sightReadingHistory = SightReadingHistory.Empty;
         RefreshSightReadingInsights();
         await sightReadingHistoryStore.ClearAsync();
+    }
+
+    /// <summary>
+    /// Starts audio when the page opens only where the browser allows it without a user gesture. Creating or resuming an
+    /// audio context before a gesture the browser requires is refused (Chromium logs a warning) and would leave the page
+    /// waiting, so there the Enable audio button, which is a gesture, does it instead.
+    /// </summary>
+    private async Task EnableAudioOnLoadAsync()
+    {
+        try
+        {
+            if (!await AudioSession.CanStartWithoutUserGestureAsync())
+            {
+                audioStatus = "Select Enable audio to start audio.";
+                return;
+            }
+        }
+        catch (JSException exception)
+        {
+            audioStatus = $"Audio could not start: {exception.Message} Select Enable audio to retry.";
+            return;
+        }
+
+        await EnableAudioAsync();
     }
 
     private async Task EnableAudioAsync()
@@ -2868,6 +2896,7 @@
         GrandStaffScoreOverlay? previousSecondaryScoreOverlay = secondaryScoreOverlay;
         ScoreCursorPlaybackState? previousScoreCursorState = scoreCursorState;
         LiveGrandStaffCursorState? previousLiveGrandStaffCursorState = liveGrandStaffCursorState;
+        LiveGrandStaffCursorState? previousSecondaryLiveGrandStaffCursorState = secondaryLiveGrandStaffCursorState;
         ScoreCursorPlaybackState? previousSecondaryScoreCursorState = secondaryScoreCursorState;
         bool keyboardStateChanged = RefreshKeyboardState(currentTime);
 
@@ -2879,6 +2908,7 @@
             !ReferenceEquals(secondaryScoreOverlay, previousSecondaryScoreOverlay) ||
             !ReferenceEquals(scoreCursorState, previousScoreCursorState) ||
             !Equals(liveGrandStaffCursorState, previousLiveGrandStaffCursorState) ||
+            !Equals(secondaryLiveGrandStaffCursorState, previousSecondaryLiveGrandStaffCursorState) ||
             !ReferenceEquals(secondaryScoreCursorState, previousSecondaryScoreCursorState);
 
         if (showPianoRoll)
@@ -2891,6 +2921,7 @@
             scoreOverlay = null;
             secondaryScoreOverlay = null;
             liveGrandStaffCursorState = null;
+            secondaryLiveGrandStaffCursorState = null;
             UpdateScoreCursorStates();
             return HasCanvasRenderStateChanged();
         }
@@ -2898,7 +2929,7 @@
         Score? notationScore = NotationScore;
         if (notationScore is null)
         {
-            GrandStaffScene liveScene = GrandStaffSceneBuilder.Build(
+            var (upperLiveScene, lowerLiveScene) = GrandStaffSceneBuilder.BuildLivePair(
                 noteTimeline.Snapshot(currentTime),
                 currentTime,
                 displayTimeSignature,
@@ -2907,21 +2938,31 @@
                 showNoteLabels);
             if (AudioSession.IsInitialized)
             {
-                var liveRenderState = SeparateLiveGrandStaffCursor(
-                    liveScene,
+                var upperLiveRenderState = SeparateLiveGrandStaffCursor(
+                    upperLiveScene,
                     currentTime,
                     displayTimeSignature,
                     displayTempo);
-                canvasScene = PreserveLiveGrandStaffSceneReference(canvasScene, liveRenderState.Scene);
-                liveGrandStaffCursorState = liveRenderState.Cursor;
+                var lowerLiveRenderState = SeparateLiveGrandStaffCursor(
+                    lowerLiveScene,
+                    currentTime,
+                    displayTimeSignature,
+                    displayTempo);
+                canvasScene = PreserveLiveGrandStaffSceneReference(canvasScene, upperLiveRenderState.Scene);
+                secondaryCanvasScene = PreserveLiveGrandStaffSceneReference(
+                    secondaryCanvasScene,
+                    lowerLiveRenderState.Scene);
+                liveGrandStaffCursorState = upperLiveRenderState.Cursor;
+                secondaryLiveGrandStaffCursorState = lowerLiveRenderState.Cursor;
             }
             else
             {
-                canvasScene = liveScene;
+                canvasScene = upperLiveScene;
+                secondaryCanvasScene = lowerLiveScene;
                 liveGrandStaffCursorState = null;
+                secondaryLiveGrandStaffCursorState = null;
             }
 
-            secondaryCanvasScene = null;
             scoreOverlay = null;
             secondaryScoreOverlay = null;
             UpdateScoreCursorStates();
@@ -2929,6 +2970,7 @@
         }
 
         liveGrandStaffCursorState = null;
+        secondaryLiveGrandStaffCursorState = null;
         if (cursorBeats.HasValue)
         {
             UpdateScoreWindowPairFromCursor(cursorBeats.Value);
@@ -3077,7 +3119,7 @@
     }
 
     private static GrandStaffScene PreserveLiveGrandStaffSceneReference(
-        IPianoCanvasScene current,
+        IPianoCanvasScene? current,
         GrandStaffScene updated) =>
         current is GrandStaffScene existing && LiveGrandStaffScenesEqual(existing, updated)
             ? existing

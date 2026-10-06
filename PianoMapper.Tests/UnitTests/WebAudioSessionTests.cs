@@ -24,6 +24,44 @@ public sealed class WebAudioSessionTests
             calls.Take(2));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CanStartWithoutUserGestureAsync_BrowserAnswer_IsReturnedWithoutInitializingAudio(
+        bool browserAllowsStart)
+    {
+        var calls = new List<string>();
+        var module = new RecordingJsModule(
+            calls,
+            new AudioClockAnchor(1000, 2),
+            canStartWithoutUserGesture: browserAllowsStart);
+        var runtime = new RecordingJsRuntime(calls, module);
+        await using var session = new WebAudioSession(runtime);
+
+        bool canStart = await session.CanStartWithoutUserGestureAsync();
+
+        Assert.Equal(browserAllowsStart, canStart);
+        Assert.False(session.IsInitialized);
+        Assert.Equal(
+            ["runtime:import:./js/audio.js", "module:canStartWithoutUserGesture"],
+            calls);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_AfterStartCheck_ReusesTheImportedModule()
+    {
+        var calls = new List<string>();
+        var module = new RecordingJsModule(calls, new AudioClockAnchor(1000, 2));
+        var runtime = new RecordingJsRuntime(calls, module);
+        await using var session = new WebAudioSession(runtime);
+        await session.CanStartWithoutUserGestureAsync();
+
+        await session.InitializeAsync();
+
+        Assert.Single(calls, call => call.StartsWith("runtime:import:", StringComparison.Ordinal));
+        Assert.Contains("module:initialize", calls);
+    }
+
     [Fact]
     public async Task NoteCommands_ReplayedNoteThenClear_PreserveCommandOrder()
     {
@@ -189,7 +227,8 @@ public sealed class WebAudioSessionTests
     private sealed class RecordingJsModule(
         List<string> calls,
         AudioClockAnchor anchor,
-        string soundSource = "piano") : IJSObjectReference
+        string soundSource = "piano",
+        bool canStartWithoutUserGesture = false) : IJSObjectReference
     {
         internal Dictionary<string, object?[]?> Arguments { get; } = new(StringComparer.Ordinal);
 
@@ -208,6 +247,7 @@ public sealed class WebAudioSessionTests
                 "initialize" => anchor,
                 "getCurrentTime" => 3.0,
                 "getSoundSource" => soundSource,
+                "canStartWithoutUserGesture" => canStartWithoutUserGesture,
                 _ => default(TValue),
             };
             return ValueTask.FromResult((TValue)result!);

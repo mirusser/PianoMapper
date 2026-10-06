@@ -22,12 +22,19 @@ internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio
             return anchor;
         }
 
-        module ??= await jsRuntime.InvokeAsync<IJSObjectReference>(
-            "import",
-            cancellationToken,
-            [ModulePath]);
-        anchor = await module.InvokeAsync<AudioClockAnchor>("initialize", cancellationToken);
+        IJSObjectReference audioModule = await ImportModuleAsync(cancellationToken);
+        anchor = await audioModule.InvokeAsync<AudioClockAnchor>("initialize", cancellationToken);
         return anchor;
+    }
+
+    /// <summary>
+    /// Asks the browser whether audio could start without a user gesture. Creates no audio context, so it is safe to
+    /// call before the first click or key press.
+    /// </summary>
+    internal async ValueTask<bool> CanStartWithoutUserGestureAsync(CancellationToken cancellationToken = default)
+    {
+        IJSObjectReference audioModule = await ImportModuleAsync(cancellationToken);
+        return await audioModule.InvokeAsync<bool>("canStartWithoutUserGesture", cancellationToken);
     }
 
     internal ValueTask StartNoteAsync(
@@ -162,6 +169,12 @@ internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio
         await module.InvokeVoidAsync("dispose");
         await module.DisposeAsync();
     }
+
+    private async ValueTask<IJSObjectReference> ImportModuleAsync(CancellationToken cancellationToken) =>
+        module ??= await jsRuntime.InvokeAsync<IJSObjectReference>(
+            "import",
+            cancellationToken,
+            [ModulePath]);
 
     private IJSObjectReference GetInitializedModule() =>
         IsInitialized

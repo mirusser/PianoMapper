@@ -1,4 +1,5 @@
 using Npgsql;
+using PianoMapper.Server.Assets;
 using PianoMapper.Server.Omr;
 using PianoMapper.Server.Persistence;
 
@@ -25,6 +26,8 @@ builder.Services.AddSingleton<IImageScoreConverter, AudiverisImageScoreConverter
 builder.Services.AddSingleton<AudiverisMusicXmlNormalizer>();
 builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(scoreConnectionString));
 builder.Services.AddSingleton<SavedScoreRepository>();
+builder.Services.Configure<StaticFileOptions>(options =>
+    options.OnPrepareResponse = context => StaticAssetCachePolicy.Apply(context.Context));
 
 var app = builder.Build();
 

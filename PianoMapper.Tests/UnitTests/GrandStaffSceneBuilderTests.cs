@@ -2888,6 +2888,22 @@ public sealed partial class GrandStaffSceneBuilderTests
     }
 
     [Fact]
+    public void FitToSelectedOctave_ContentThatFitsAtScoreScale_IsNotEnlarged()
+    {
+        var scene = new GrandStaffScene(
+            [
+                new GrandStaffLine(-1, 0.1, 1, 0.1, GrandStaffLineKind.Staff),
+                new GrandStaffLine(-1, 0.2, 1, 0.2, GrandStaffLineKind.Staff),
+            ],
+            [],
+            []);
+
+        var fittedScene = GrandStaffSceneBuilder.FitToSelectedOctave(scene, selectedOctave: 4);
+
+        Assert.Equal(0.1, fittedScene.Lines[1].Y0 - fittedScene.Lines[0].Y0, 9);
+    }
+
+    [Fact]
     public void Build_ScenesWithoutTieInput_ReturnEmptyTieCollections()
     {
         var liveScene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero);

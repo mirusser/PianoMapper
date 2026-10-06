@@ -592,6 +592,55 @@ public sealed class GrandStaffLayoutTests
         Assert.Empty(segments);
     }
 
+    [Theory]
+    [InlineData(0, 18, 20, false, true)]
+    [InlineData(5, 20, 22, true, false)]
+    public void GetLiveNoteSegmentLayouts_ExplicitWindow_ReturnsOnlyThatWindowsPartOfANoteHeldAcrossIt(
+        int firstVisibleMeasure,
+        double expectedStartBeat,
+        double expectedEndBeat,
+        bool expectedIncomingTie,
+        bool expectedOutgoingTie)
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+
+        var segments = GrandStaffLayout.GetLiveNoteSegmentLayouts(
+            new Pitch(NoteLetter.C, 0, 4),
+            MusicalTime.BeatsToDuration(18, tempo),
+            MusicalTime.BeatsToDuration(22, tempo),
+            firstVisibleMeasure,
+            signature,
+            tempo);
+
+        var segment = Assert.Single(segments);
+        Assert.Equal(expectedStartBeat, segment.StartBeat, 5);
+        Assert.Equal(expectedEndBeat, segment.EndBeat, 5);
+        Assert.Equal(expectedIncomingTie, segment.HasIncomingTie);
+        Assert.Equal(expectedOutgoingTie, segment.HasOutgoingTie);
+        Assert.Equal(
+            GrandStaffLayout.MapAbsoluteBeatToScoreX(expectedStartBeat, signature, firstVisibleMeasure),
+            segment.X,
+            5);
+    }
+
+    [Fact]
+    public void GetLiveNoteSegmentLayouts_ExplicitWindowAfterTheNote_ReturnsEmptyCollection()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+
+        var segments = GrandStaffLayout.GetLiveNoteSegmentLayouts(
+            new Pitch(NoteLetter.C, 0, 4),
+            MusicalTime.BeatsToDuration(1, tempo),
+            MusicalTime.BeatsToDuration(2, tempo),
+            firstVisibleMeasure: 5,
+            signature,
+            tempo);
+
+        Assert.Empty(segments);
+    }
+
     [Fact]
     public void GetLiveMeasureGridLines_CurrentBeatInSecondGroup_ReturnsBarlinesMatchingVisibleWindow()
     {
@@ -656,6 +705,57 @@ public sealed class GrandStaffLayoutTests
         var currentTime = TimeSpan.FromSeconds(-1);
 
         var gridLines = GrandStaffLayout.GetLiveMeasureGridLines(currentTime, signature, tempo);
+
+        Assert.DoesNotContain(gridLines, line => line.Kind == GridLineKind.Cursor);
+    }
+
+    [Fact]
+    public void GetLiveMeasureGridLines_ExplicitWindowAheadOfTheCursor_DrawsThatWindowWithoutACursor()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+
+        var gridLines = GrandStaffLayout.GetLiveMeasureGridLines(
+            TimeSpan.FromSeconds(1),
+            signature,
+            tempo,
+            firstVisibleMeasure: 5);
+
+        Assert.DoesNotContain(gridLines, line => line.Kind == GridLineKind.Cursor);
+        Assert.Equal(
+            GrandStaffLayout.GetScoreBarlineXs(firstVisibleMeasure: 5, measureCount: 10),
+            gridLines.Where(line => line.Kind == GridLineKind.Barline).Select(line => line.X).ToArray());
+    }
+
+    [Fact]
+    public void GetLiveMeasureGridLines_ExplicitWindowContainingTheCursor_PlacesTheCursorInThatWindow()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        TimeSpan currentTime = MusicalTime.BeatsToDuration(22, tempo);
+
+        var gridLines = GrandStaffLayout.GetLiveMeasureGridLines(
+            currentTime,
+            signature,
+            tempo,
+            firstVisibleMeasure: 5);
+
+        var cursor = Assert.Single(gridLines, line => line.Kind == GridLineKind.Cursor);
+        Assert.Equal(GrandStaffLayout.MapAbsoluteBeatToScoreX(22, signature, firstVisibleMeasure: 5), cursor.X, 5);
+    }
+
+    [Fact]
+    public void GetLiveMeasureGridLines_CursorExactlyAtTheWindowEnd_OmitsCursorFromThatWindow()
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+        TimeSpan currentTime = MusicalTime.BeatsToDuration(20, tempo);
+
+        var gridLines = GrandStaffLayout.GetLiveMeasureGridLines(
+            currentTime,
+            signature,
+            tempo,
+            firstVisibleMeasure: 0);
 
         Assert.DoesNotContain(gridLines, line => line.Kind == GridLineKind.Cursor);
     }

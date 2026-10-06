@@ -98,6 +98,9 @@ internal static class GrandStaffSceneBuilder
     private const double OctaveShiftNumeralHalfHeightInStaffSpaces = 0.75;
     private const double ViewY0 = -0.9;
     private const double ViewY1 = 0.9;
+    // A scene's own scale: the staff size of an unfitted score or exercise row. Fitting to the selected octave may only
+    // shrink a scene below it, never enlarge it, so the live staff matches those rows when its content leaves room.
+    private const double MaximumFitScale = 1;
     private const int TrebleClefHeightInStaffSpaces = 7;
     private const int BassClefHeightInStaffSpaces = 3;
     private const int KeySignatureHeightInStaffSpaces = 2;
@@ -1478,15 +1481,89 @@ internal static class GrandStaffSceneBuilder
         int? selectedOctave = null,
         bool showNoteLabels = true)
     {
+        var scene = BuildLiveRow(
+            notes,
+            currentTime,
+            timeSignature,
+            tempo,
+            GrandStaffLayout.GetLiveFirstVisibleMeasure(currentTime, timeSignature, tempo),
+            showNoteLabels);
+        return selectedOctave.HasValue
+            ? FitToSelectedOctave(scene, selectedOctave.Value)
+            : scene;
+    }
+
+    internal static (GrandStaffScene Upper, GrandStaffScene Lower) BuildLivePair(
+        IReadOnlyList<PerformedNote> notes,
+        TimeSpan currentTime,
+        int? selectedOctave = null,
+        bool showNoteLabels = true) =>
+        BuildLivePair(
+            notes,
+            currentTime,
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            selectedOctave,
+            showNoteLabels);
+
+    /// <summary>
+    /// Builds the two rows of the live grand staff: the pair of five-measure pages chosen by
+    /// <see cref="ScoreGrandStaffWindowPair.FromLivePageIndex"/>, so the cursor crosses the upper row, then the lower
+    /// one, then the upper one again. Only the row holding the current beat carries a cursor line. When fitting to the
+    /// selected octave both rows share one vertical mapping, so the staves stay the same size and in step.
+    /// </summary>
+    internal static (GrandStaffScene Upper, GrandStaffScene Lower) BuildLivePair(
+        IReadOnlyList<PerformedNote> notes,
+        TimeSpan currentTime,
+        TimeSignature timeSignature,
+        Tempo tempo,
+        int? selectedOctave = null,
+        bool showNoteLabels = true)
+    {
+        int activePageIndex =
+            GrandStaffLayout.GetLiveFirstVisibleMeasure(currentTime, timeSignature, tempo)
+            / GrandStaffLayout.DefaultVisibleMeasureCount;
+        // Unlike a score's pairing, the live pairing always fills both rows.
+        var pair = ScoreGrandStaffWindowPair.FromLivePageIndex(activePageIndex);
+        var upper = BuildLiveRow(
+            notes,
+            currentTime,
+            timeSignature,
+            tempo,
+            pair.UpperFirstMeasure,
+            showNoteLabels);
+        var lower = BuildLiveRow(
+            notes,
+            currentTime,
+            timeSignature,
+            tempo,
+            pair.LowerFirstMeasure!.Value,
+            showNoteLabels);
+        if (!selectedOctave.HasValue)
+        {
+            return (upper, lower);
+        }
+
+        var fitted = FitToSelectedOctave([upper, lower], selectedOctave.Value);
+        return (fitted[0], fitted[1]);
+    }
+
+    private static GrandStaffScene BuildLiveRow(
+        IReadOnlyList<PerformedNote> notes,
+        TimeSpan currentTime,
+        TimeSignature timeSignature,
+        Tempo tempo,
+        int firstVisibleMeasure,
+        bool showNoteLabels)
+    {
         var lines = CreateStaffLines();
         var glyphs = CreateClefGlyphs();
         AddTimeSignatureGlyphs(glyphs, timeSignature, TimeSignatureX);
-        AddLiveMeasureGrid(lines, currentTime, timeSignature, tempo);
+        AddLiveMeasureGrid(lines, currentTime, timeSignature, tempo, firstVisibleMeasure);
 
         var renderedNotes = new List<GrandStaffNote>(notes.Count);
         var ties = new List<GrandStaffTie>();
         var staffHasVisibleNotes = new HashSet<Staff>();
-        int firstVisibleMeasure = GrandStaffLayout.GetLiveFirstVisibleMeasure(currentTime, timeSignature, tempo);
         foreach (var note in notes)
         {
             TimeSpan endTime = note.ReleaseTime ?? currentTime;
@@ -1494,7 +1571,7 @@ internal static class GrandStaffSceneBuilder
                 note.Pitch,
                 note.StartTime,
                 endTime,
-                currentTime,
+                firstVisibleMeasure,
                 timeSignature,
                 tempo);
             if (segments.Count == 0)
@@ -1530,7 +1607,10 @@ internal static class GrandStaffSceneBuilder
                     measureStartX + MeasureEdgeNoteClearance,
                     measureEndX - MeasureEdgeNoteClearance);
                 TimeSpan segmentDuration = MusicalTime.BeatsToDuration(segment.EndBeat - segment.StartBeat, tempo);
-                bool isActiveSegment = isPerformedNoteActive && segmentIndex == segments.Count - 1;
+                // A held note that runs on into the other row is still sounding there, not in this row's last segment.
+                bool isActiveSegment = isPerformedNoteActive
+                    && segmentIndex == segments.Count - 1
+                    && !segment.HasOutgoingTie;
                 NoteValue? noteValue = isActiveSegment
                     ? null
                     : GetNearestLiveNoteValue(segmentDuration, timeSignature, tempo);
@@ -1611,14 +1691,11 @@ internal static class GrandStaffSceneBuilder
                     GrandStaffLayout.GetStaffLabelY(staff) + GrandStaffLayout.AnnotationBandPadding))
                 .ToArray()
             : [];
-        var scene = new GrandStaffScene(lines, glyphs, renderedNotes, ShouldClipNotesAtClefs: true)
+        return new GrandStaffScene(lines, glyphs, renderedNotes, ShouldClipNotesAtClefs: true)
         {
             Ties = ties,
             Bands = bands,
         };
-        return selectedOctave.HasValue
-            ? FitToSelectedOctave(scene, selectedOctave.Value)
-            : scene;
     }
 
     private static void DistributeChordTieDirections(List<GrandStaffTie> ties)
@@ -1689,10 +1766,15 @@ internal static class GrandStaffSceneBuilder
         List<GrandStaffLine> lines,
         TimeSpan currentTime,
         TimeSignature timeSignature,
-        Tempo tempo)
+        Tempo tempo,
+        int firstVisibleMeasure)
     {
         var (barlineY0, barlineY1) = GetCursorLineYBounds();
-        foreach (var gridLine in GrandStaffLayout.GetLiveMeasureGridLines(currentTime, timeSignature, tempo))
+        foreach (var gridLine in GrandStaffLayout.GetLiveMeasureGridLines(
+            currentTime,
+            timeSignature,
+            tempo,
+            firstVisibleMeasure))
         {
             if (gridLine.Kind == GridLineKind.Barline && gridLine.X >= GrandStaffLayout.ScoreX1)
             {
@@ -2280,40 +2362,52 @@ internal static class GrandStaffSceneBuilder
         }
     }
 
-    internal static GrandStaffScene FitToSelectedOctave(GrandStaffScene scene, int selectedOctave)
+    internal static GrandStaffScene FitToSelectedOctave(GrandStaffScene scene, int selectedOctave) =>
+        FitToSelectedOctave([scene], selectedOctave)[0];
+
+    /// <summary>
+    /// Fits several scenes to one shared vertical range: the staves plus every note, label, tie and selected-octave C
+    /// of all of them, so scenes shown together (the live grand staff's two rows) are scaled and placed identically.
+    /// The scale is capped at <see cref="MaximumFitScale"/> so a fitted staff is never larger than an unfitted score row's;
+    /// the content stays centered in the view, so a smaller scale leaves its slack evenly above and below.
+    /// </summary>
+    internal static GrandStaffScene[] FitToSelectedOctave(IReadOnlyList<GrandStaffScene> scenes, int selectedOctave)
     {
         var yValues = new List<double>();
-        foreach (var line in scene.Lines)
+        foreach (var scene in scenes)
         {
-            yValues.Add(line.Y0);
-            yValues.Add(line.Y1);
-        }
+            foreach (var line in scene.Lines)
+            {
+                yValues.Add(line.Y0);
+                yValues.Add(line.Y1);
+            }
 
-        yValues.AddRange(scene.Glyphs.Select(glyph => glyph.Y));
-        yValues.AddRange(scene.Notes.Select(note => note.Y));
-        yValues.AddRange(scene.Notes.Select(note => note.LabelY).OfType<double>());
-        foreach (var band in scene.Bands)
-        {
-            yValues.Add(band.Y0);
-            yValues.Add(band.Y1);
-        }
+            yValues.AddRange(scene.Glyphs.Select(glyph => glyph.Y));
+            yValues.AddRange(scene.Notes.Select(note => note.Y));
+            yValues.AddRange(scene.Notes.Select(note => note.LabelY).OfType<double>());
+            foreach (var band in scene.Bands)
+            {
+                yValues.Add(band.Y0);
+                yValues.Add(band.Y1);
+            }
 
-        foreach (var tie in scene.Ties)
-        {
-            yValues.Add(tie.Y0);
-            yValues.Add(tie.Y1);
-        }
+            foreach (var tie in scene.Ties)
+            {
+                yValues.Add(tie.Y0);
+                yValues.Add(tie.Y1);
+            }
 
-        foreach (var slur in scene.Slurs)
-        {
-            yValues.Add(slur.Y0);
-            yValues.Add(slur.Y1);
-        }
+            foreach (var slur in scene.Slurs)
+            {
+                yValues.Add(slur.Y0);
+                yValues.Add(slur.Y1);
+            }
 
-        foreach (var arpeggioMark in scene.ArpeggioMarks)
-        {
-            yValues.Add(arpeggioMark.Y0);
-            yValues.Add(arpeggioMark.Y1);
+            foreach (var arpeggioMark in scene.ArpeggioMarks)
+            {
+                yValues.Add(arpeggioMark.Y0);
+                yValues.Add(arpeggioMark.Y1);
+            }
         }
 
         for (int octave = selectedOctave; octave <= selectedOctave + 1; octave++)
@@ -2326,33 +2420,37 @@ internal static class GrandStaffSceneBuilder
         double margin = GrandStaffLayout.DiatonicStep * 2;
         double sourceY0 = yValues.Min() - margin;
         double sourceY1 = yValues.Max() + margin;
-        double yScale = (ViewY1 - ViewY0) / (sourceY1 - sourceY0);
+        double yScale = Math.Min((ViewY1 - ViewY0) / (sourceY1 - sourceY0), MaximumFitScale);
+        double sourceCenterY = (sourceY0 + sourceY1) / 2;
+        double viewCenterY = (ViewY0 + ViewY1) / 2;
         double MapY(double y) =>
-            ViewY0 + ((y - sourceY0) * yScale);
+            viewCenterY + ((y - sourceCenterY) * yScale);
 
-        return new GrandStaffScene(
-            scene.Lines.Select(line => line with { Y0 = MapY(line.Y0), Y1 = MapY(line.Y1) }).ToArray(),
-            scene.Glyphs.Select(glyph => glyph with
+        return scenes
+            .Select(scene => new GrandStaffScene(
+                scene.Lines.Select(line => line with { Y0 = MapY(line.Y0), Y1 = MapY(line.Y1) }).ToArray(),
+                scene.Glyphs.Select(glyph => glyph with
+                {
+                    Y = MapY(glyph.Y),
+                    Height = glyph.Height * yScale,
+                }).ToArray(),
+                scene.Notes.Select(note => note with
+                {
+                    Y = MapY(note.Y),
+                    StemEndY = note.StemEndY.HasValue ? MapY(note.StemEndY.Value) : null,
+                    LabelY = note.LabelY.HasValue ? MapY(note.LabelY.Value) : null,
+                }).ToArray(),
+                scene.ShouldClipNotesAtClefs)
             {
-                Y = MapY(glyph.Y),
-                Height = glyph.Height * yScale,
-            }).ToArray(),
-            scene.Notes.Select(note => note with
-            {
-                Y = MapY(note.Y),
-                StemEndY = note.StemEndY.HasValue ? MapY(note.StemEndY.Value) : null,
-                LabelY = note.LabelY.HasValue ? MapY(note.LabelY.Value) : null,
-            }).ToArray(),
-            scene.ShouldClipNotesAtClefs)
-        {
-            Beams = scene.Beams.Select(beam => beam with { Y0 = MapY(beam.Y0), Y1 = MapY(beam.Y1) }).ToArray(),
-            Ties = scene.Ties.Select(tie => tie with { Y0 = MapY(tie.Y0), Y1 = MapY(tie.Y1) }).ToArray(),
-            Bands = scene.Bands.Select(band => band with { Y0 = MapY(band.Y0), Y1 = MapY(band.Y1) }).ToArray(),
-            Slurs = scene.Slurs.Select(slur => slur with { Y0 = MapY(slur.Y0), Y1 = MapY(slur.Y1) }).ToArray(),
-            ArpeggioMarks = scene.ArpeggioMarks
-                .Select(mark => mark with { Y0 = MapY(mark.Y0), Y1 = MapY(mark.Y1) })
-                .ToArray(),
-        };
+                Beams = scene.Beams.Select(beam => beam with { Y0 = MapY(beam.Y0), Y1 = MapY(beam.Y1) }).ToArray(),
+                Ties = scene.Ties.Select(tie => tie with { Y0 = MapY(tie.Y0), Y1 = MapY(tie.Y1) }).ToArray(),
+                Bands = scene.Bands.Select(band => band with { Y0 = MapY(band.Y0), Y1 = MapY(band.Y1) }).ToArray(),
+                Slurs = scene.Slurs.Select(slur => slur with { Y0 = MapY(slur.Y0), Y1 = MapY(slur.Y1) }).ToArray(),
+                ArpeggioMarks = scene.ArpeggioMarks
+                    .Select(mark => mark with { Y0 = MapY(mark.Y0), Y1 = MapY(mark.Y1) })
+                    .ToArray(),
+            })
+            .ToArray();
     }
 
     private static NoteValue GetNearestLiveNoteValue(

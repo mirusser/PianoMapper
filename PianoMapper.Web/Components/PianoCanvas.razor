@@ -54,7 +54,7 @@
                 <span><span class="legend-mark legend-mark-finished"></span>Released</span>
             </div>
         }
-        <div class="piano-canvas-stack @(IsScoreView ? "piano-canvas-stack-score" : null)">
+        <div class="piano-canvas-stack @(UsesRowLayout ? "piano-canvas-stack-score" : null)">
             @if (IsScoreView && PrimaryScoreRangeLabel is not null)
             {
                 <div class="score-row-label">
@@ -67,7 +67,7 @@
             }
             <div class="score-canvas-layer">
                 <canvas @ref="canvas"
-                        class="piano-canvas @(IsScoreView ? "score-row-canvas" : null) @(CanSelectScoreNotes ? "score-note-editable" : null)"
+                        class="piano-canvas @(UsesRowLayout ? "score-row-canvas" : null) @(CanSelectScoreNotes ? "score-note-editable" : null)"
                         role="img"
                         aria-label="@PrimarySceneLabel"
                         @onclick="SelectPrimaryScoreNoteAsync">
@@ -82,14 +82,17 @@
                     <span>Next exercise in @AutoNextSecondsRemaining s</span>
                 </div>
             }
-            <div class="score-row" hidden="@(!HasSecondaryScoreRow)">
-                <div class="score-row-label">
-                    <span>@SecondaryScoreRangeLabel</span>
-                    @if (SecondaryScoreRowStatus is not null)
-                    {
-                        <span class="score-row-status">@SecondaryScoreRowStatus</span>
-                    }
-                </div>
+            <div class="score-row" hidden="@(!HasSecondaryRow)">
+                @if (SecondaryScoreRangeLabel is not null)
+                {
+                    <div class="score-row-label">
+                        <span>@SecondaryScoreRangeLabel</span>
+                        @if (SecondaryScoreRowStatus is not null)
+                        {
+                            <span class="score-row-status">@SecondaryScoreRowStatus</span>
+                        }
+                    </div>
+                }
                 <div class="score-canvas-layer">
                     <canvas @ref="secondaryCanvas"
                             class="piano-canvas score-row-canvas @(CanSelectScoreNotes ? "score-note-editable" : null)"
@@ -331,6 +334,9 @@
     public IPianoCanvasScene? SecondaryScene { get; set; }
 
     [Parameter]
+    public LiveGrandStaffCursorState? SecondaryLiveGrandStaffCursor { get; set; }
+
+    [Parameter]
     public ScoreCursorPlaybackState? SecondaryScoreCursor { get; set; }
 
     [Parameter]
@@ -365,6 +371,7 @@
 
     private ScoreCursorPlaybackState? lastPushedScoreCursor;
     private LiveGrandStaffCursorState? lastPushedLiveGrandStaffCursor;
+    private LiveGrandStaffCursorState? lastPushedSecondaryLiveGrandStaffCursor;
     private ScoreCursorPlaybackState? lastPushedSecondaryScoreCursor;
     private IPianoCanvasScene? lastPushedScene;
     private IPianoCanvasScene? lastPushedSecondaryScene;
@@ -375,7 +382,10 @@
     private bool lastPushedIsWaveformVisible;
     private bool lastPushedIsFrequencySpectrumVisible;
 
-    private bool HasSecondaryScoreRow => IsScoreView && SecondaryScene is not null;
+    // The imported score and the live grand staff both draw two stacked rows; they share the row layout and its CSS.
+    private bool HasSecondaryRow => Scene.Kind == PianoCanvasSceneKind.GrandStaff && SecondaryScene is not null;
+
+    private bool UsesRowLayout => IsScoreView || HasSecondaryRow;
 
     private bool ShowsAutoNextCountdown =>
         IsScoreView && Scene.Kind == PianoCanvasSceneKind.GrandStaff && AutoNextSecondsRemaining is not null;
@@ -392,9 +402,7 @@
 
     private string SceneDescription => Scene.Kind == PianoCanvasSceneKind.PianoRoll
         ? "Time moves from left to right; higher notes appear higher in the panel."
-        : IsScoreView
-            ? string.Empty
-            : "The view follows the selected keyboard octave while preserving each note's real position on the staff.";
+        : string.Empty;
 
     private string SceneLabel => Scene.Kind == PianoCanvasSceneKind.PianoRoll
         ? "Scrolling piano roll"
@@ -406,8 +414,9 @@
         ? $"Grand staff for imported score, {PrimaryScoreRangeLabel}, {PrimaryScoreRowStatus}"
         : SceneLabel;
 
-    private string SecondarySceneLabel =>
-        $"Grand staff for imported score, {SecondaryScoreRangeLabel}, {SecondaryScoreRowStatus}";
+    private string SecondarySceneLabel => IsScoreView
+        ? $"Grand staff for imported score, {SecondaryScoreRangeLabel}, {SecondaryScoreRowStatus}"
+        : $"Live grand staff, second row, focused on keyboard octave {SelectedOctave}";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -505,12 +514,18 @@
             lastPushedScoreOverlay = null;
         }
 
-        if (!HasSecondaryScoreRow)
+        if (!HasSecondaryRow)
         {
             if (lastPushedSecondaryScoreCursor is not null)
             {
                 await module!.InvokeVoidAsync("stopScoreCursor", secondaryCanvas);
                 lastPushedSecondaryScoreCursor = null;
+            }
+
+            if (lastPushedSecondaryLiveGrandStaffCursor is not null)
+            {
+                await module!.InvokeVoidAsync("stopLiveGrandStaffCursor", secondaryCanvas);
+                lastPushedSecondaryLiveGrandStaffCursor = null;
             }
 
             lastPushedSecondaryScene = null;
@@ -528,6 +543,22 @@
             else
             {
                 await module!.InvokeVoidAsync("startScoreCursor", secondaryCanvas, SecondaryScoreCursor);
+            }
+        }
+
+        if (SecondaryLiveGrandStaffCursor != lastPushedSecondaryLiveGrandStaffCursor)
+        {
+            lastPushedSecondaryLiveGrandStaffCursor = SecondaryLiveGrandStaffCursor;
+            if (SecondaryLiveGrandStaffCursor is null)
+            {
+                await module!.InvokeVoidAsync("stopLiveGrandStaffCursor", secondaryCanvas);
+            }
+            else
+            {
+                await module!.InvokeVoidAsync(
+                    "startLiveGrandStaffCursor",
+                    secondaryCanvas,
+                    SecondaryLiveGrandStaffCursor);
             }
         }
 

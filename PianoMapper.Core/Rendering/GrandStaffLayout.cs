@@ -184,9 +184,27 @@ public static class GrandStaffLayout
         TimeSpan endTime,
         TimeSpan currentTime,
         TimeSignature timeSignature,
+        Tempo tempo) =>
+        GetLiveNoteSegmentLayouts(
+            pitch,
+            startTime,
+            endTime,
+            GetLiveFirstVisibleMeasure(currentTime, timeSignature, tempo),
+            timeSignature,
+            tempo);
+
+    /// <summary>
+    /// The part of a live note that falls inside the window starting at <paramref name="firstVisibleMeasure"/>, which a
+    /// two-row live grand staff chooses per row instead of following the current time.
+    /// </summary>
+    public static IReadOnlyList<LiveNoteSegmentLayout> GetLiveNoteSegmentLayouts(
+        Pitch pitch,
+        TimeSpan startTime,
+        TimeSpan endTime,
+        int firstVisibleMeasure,
+        TimeSignature timeSignature,
         Tempo tempo)
     {
-        int firstVisibleMeasure = GetLiveFirstVisibleMeasure(currentTime, timeSignature, tempo);
         double windowStartBeat = firstVisibleMeasure * timeSignature.Numerator;
         double windowEndBeat = (firstVisibleMeasure + DefaultVisibleMeasureCount) * timeSignature.Numerator;
         double startBeat = MusicalTime.DurationToBeats(startTime, tempo);
@@ -223,9 +241,23 @@ public static class GrandStaffLayout
     public static IReadOnlyList<GridLine> GetLiveMeasureGridLines(
         TimeSpan now,
         TimeSignature timeSignature,
-        Tempo tempo)
+        Tempo tempo) =>
+        GetLiveMeasureGridLines(
+            now,
+            timeSignature,
+            tempo,
+            GetLiveFirstVisibleMeasure(now, timeSignature, tempo));
+
+    /// <summary>
+    /// The grid of the window starting at <paramref name="firstVisibleMeasure"/>. The cursor line is included only
+    /// while the current beat lies inside that window, so of two live rows only one carries it.
+    /// </summary>
+    public static IReadOnlyList<GridLine> GetLiveMeasureGridLines(
+        TimeSpan now,
+        TimeSignature timeSignature,
+        Tempo tempo,
+        int firstVisibleMeasure)
     {
-        int firstVisibleMeasure = GetLiveFirstVisibleMeasure(now, timeSignature, tempo);
         var lines = new List<GridLine>();
 
         foreach (float barlineX in GetScoreBarlineXs(firstVisibleMeasure, firstVisibleMeasure + DefaultVisibleMeasureCount))
@@ -247,10 +279,13 @@ public static class GrandStaffLayout
         }
 
         double currentBeat = MusicalTime.DurationToBeats(now, tempo);
-        float cursorX = MapAbsoluteBeatToScoreX(currentBeat, timeSignature, firstVisibleMeasure);
-        if (cursorX >= ScoreX0 && cursorX <= ScoreX1)
+        double windowStartBeat = firstVisibleMeasure * timeSignature.Numerator;
+        double windowEndBeat = windowStartBeat + (DefaultVisibleMeasureCount * timeSignature.Numerator);
+        if (currentBeat >= windowStartBeat && currentBeat < windowEndBeat)
         {
-            lines.Add(new GridLine(cursorX, GridLineKind.Cursor));
+            lines.Add(new GridLine(
+                MapAbsoluteBeatToScoreX(currentBeat, timeSignature, firstVisibleMeasure),
+                GridLineKind.Cursor));
         }
 
         return lines;

@@ -88,6 +88,41 @@ public sealed class ScoreGrandStaffWindowPairTests
         Assert.Equal((ScoreGrandStaffWindowPair.PhysicalRow)expectedActiveRow, state.ActiveRow);
     }
 
+    [Theory]
+    [InlineData(0, 0, 5, 0)]
+    [InlineData(1, 0, 5, 1)]
+    [InlineData(2, 10, 5, 0)]
+    [InlineData(3, 10, 15, 1)]
+    [InlineData(4, 20, 15, 0)]
+    public void FromLivePageIndex_UnboundedPages_AlternatesRowsAndKeepsThePreviousPageVisible(
+        int activePageIndex,
+        int expectedUpperFirstMeasure,
+        int expectedLowerFirstMeasure,
+        int expectedActiveRow)
+    {
+        var state = ScoreGrandStaffWindowPair.FromLivePageIndex(activePageIndex);
+
+        Assert.Equal(activePageIndex, state.ActivePageIndex);
+        Assert.Equal(expectedUpperFirstMeasure, state.UpperFirstMeasure);
+        Assert.Equal(expectedLowerFirstMeasure, state.LowerFirstMeasure);
+        Assert.Equal((ScoreGrandStaffWindowPair.PhysicalRow)expectedActiveRow, state.ActiveRow);
+    }
+
+    [Fact]
+    public void FromLivePageIndex_CustomVisibleMeasureCount_UsesConfiguredPageSize()
+    {
+        var state = ScoreGrandStaffWindowPair.FromLivePageIndex(activePageIndex: 3, visibleMeasureCount: 2);
+
+        Assert.Equal(4, state.UpperFirstMeasure);
+        Assert.Equal(6, state.LowerFirstMeasure);
+    }
+
+    [Fact]
+    public void FromLivePageIndex_NegativePage_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => ScoreGrandStaffWindowPair.FromLivePageIndex(-1));
+    }
+
     [Fact]
     public void FromCursorBeats_DirectMultiPageJump_DerivesTargetPairFromAbsolutePosition()
     {

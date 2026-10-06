@@ -22,6 +22,9 @@ let masterGain;
 let analyser;
 let soundSource = defaultSoundSource;
 const activeNotes = new Map();
+// Notes whose noteOn is still waiting for its piano samples, by note id (the latest per id): a noteOff or clear
+// arriving in that window has no active note to release, so it is remembered here and applied once the note exists.
+const pendingNotes = new Map();
 const scheduledScoreNotes = new Map();
 const scheduledMetronomeClicks = new Set();
 const schedulingDelaysMilliseconds = [];
@@ -46,6 +49,21 @@ const harmonics = [
     { multiplier: 3, gain: 0.08 },
 ];
 const pianoSampleBaseUrl = new URL("../audio/piano/salamander/", import.meta.url);
+
+// Whether the browser would let an audio context start right now, without a click or key press. Starting one it would
+// refuse makes Chromium log "The AudioContext was not allowed to start" and leaves the page waiting on a resume that
+// only a user gesture can complete. It creates nothing, so it is safe to ask before any gesture.
+export function canStartWithoutUserGesture() {
+    // Firefox reports the policy for audio contexts directly, including a site the user has allowed to autoplay.
+    const policy = navigator.getAutoplayPolicy?.("audiocontext");
+    if (policy !== undefined) {
+        return policy === "allowed";
+    }
+
+    // Chromium has no such API, but allows an audio context to start once the page has had a user gesture (also after
+    // a reload). With no signal at all, keep trying as before.
+    return navigator.userActivation?.hasBeenActive ?? true;
+}
 
 export async function initialize() {
     soundSource = readSoundSourcePreference(document.cookie);
@@ -100,13 +118,22 @@ export async function noteOn(
     eventPerformanceTimeMilliseconds,
     velocity = defaultPianoVelocity) {
     ensureReady();
-    if (soundSource === "piano") {
-        await ensurePianoSamplesLoaded(velocity);
-    } else if (soundSource === externalMidiSoundSource) {
-        ensureMidiOutputAvailable();
+    const pending = beginPendingNote(noteId, startTimeSeconds);
+    try {
+        if (soundSource === "piano") {
+            await ensurePianoSamplesLoaded(velocity);
+        } else if (soundSource === externalMidiSoundSource) {
+            ensureMidiOutputAvailable();
+        }
+    } catch (error) {
+        endPendingNote(noteId, pending);
+        throw error;
     }
 
-    releaseNote(noteId, audioContext.currentTime);
+    const isLatestNote = endPendingNote(noteId, pending);
+    if (isLatestNote) {
+        releaseNote(noteId, audioContext.currentTime);
+    }
 
     if (eventPerformanceTimeMilliseconds !== null) {
         schedulingDelaysMilliseconds.push(Math.max(0, performance.now() - eventPerformanceTimeMilliseconds));
@@ -116,7 +143,15 @@ export async function noteOn(
     }
 
     const startTime = Math.max(startTimeSeconds, audioContext.currentTime);
-    activeNotes.set(noteId, createNote(noteId, frequency, velocity, startTime));
+    const note = createNote(noteId, frequency, velocity, startTime);
+    if (isLatestNote && pending.releaseTimeSeconds === undefined) {
+        activeNotes.set(noteId, note);
+        return;
+    }
+
+    // Released while it was waiting for its samples (or replaced by a newer note of the same pitch): play it for the
+    // time it was held, starting from when it could actually start, so a short tap is a short note, not a stuck one.
+    releaseNodes(note, startTime + Math.max(0, pending.releaseTimeSeconds - startTimeSeconds));
 }
 
 export async function setSoundSource(source) {
@@ -398,11 +433,21 @@ function createNoteEnvelope(startTime) {
 
 export function noteOff(noteId, releaseTimeSeconds) {
     ensureInitialized();
+    const pending = pendingNotes.get(noteId);
+    if (pending) {
+        pending.releaseTimeSeconds ??= releaseTimeSeconds;
+        return;
+    }
+
     releaseNote(noteId, releaseTimeSeconds);
 }
 
 export function clear(releaseTimeSeconds) {
     ensureInitialized();
+    for (const pending of pendingNotes.values()) {
+        pending.releaseTimeSeconds ??= releaseTimeSeconds;
+    }
+
     for (const noteId of [...activeNotes.keys()]) {
         releaseNote(noteId, releaseTimeSeconds);
     }
@@ -450,6 +495,7 @@ export async function dispose() {
     soundSource = readSoundSourcePreference(document.cookie);
     pianoBuffers.clear();
     pianoLayerLoads.clear();
+    pendingNotes.clear();
 }
 
 function ensureReady() {
@@ -463,6 +509,28 @@ function ensureInitialized() {
     if (!audioContext || !masterGain || audioContext.state === "closed") {
         throw new Error("Audio is not initialized.");
     }
+}
+
+function beginPendingNote(noteId, startTimeSeconds) {
+    // A retrigger releases the note it replaces, exactly as it does for a note that is already sounding.
+    const replaced = pendingNotes.get(noteId);
+    if (replaced) {
+        replaced.releaseTimeSeconds ??= startTimeSeconds;
+    }
+
+    const pending = { releaseTimeSeconds: undefined };
+    pendingNotes.set(noteId, pending);
+    return pending;
+}
+
+// Returns whether the note is still the latest for its id (nothing replaced it while it loaded).
+function endPendingNote(noteId, pending) {
+    if (pendingNotes.get(noteId) !== pending) {
+        return false;
+    }
+
+    pendingNotes.delete(noteId);
+    return true;
 }
 
 function releaseNote(noteId, releaseTimeSeconds) {

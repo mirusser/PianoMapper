@@ -44,6 +44,28 @@ internal static class ScoreGrandStaffWindowPair
             : new State(clampedPageIndex, adjacentFirstMeasure, activeFirstMeasure, PhysicalRow.Lower);
     }
 
+    /// <summary>
+    /// Pairs the pages of an endless live grand staff, which has no final page to bound a look-ahead. The active page
+    /// keeps its row by parity (even pages upper, odd pages lower) and the other row keeps the page played just
+    /// before it, so the notes just played stay on screen until the cursor wraps back to that row. The first page's
+    /// other row is the still-empty second page.
+    /// </summary>
+    internal static State FromLivePageIndex(
+        int activePageIndex,
+        int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(activePageIndex);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(visibleMeasureCount);
+
+        int otherPageIndex = activePageIndex == 0 ? 1 : activePageIndex - 1;
+        int activeFirstMeasure = activePageIndex * visibleMeasureCount;
+        int otherFirstMeasure = otherPageIndex * visibleMeasureCount;
+
+        return activePageIndex % 2 == 0
+            ? new State(activePageIndex, activeFirstMeasure, otherFirstMeasure, PhysicalRow.Upper)
+            : new State(activePageIndex, otherFirstMeasure, activeFirstMeasure, PhysicalRow.Lower);
+    }
+
     internal static State FromCursorBeats(
         int measureCount,
         double cursorBeats,
