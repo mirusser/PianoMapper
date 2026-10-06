@@ -75,10 +75,15 @@ const reviewMarkStripGapPixels = 1.5;
 const reviewMarkStripHardGapPixels = 0.25;
 // Own colors and line styles, not verdictColors (D3): shape carries the meaning as well as color, so the marks still
 // read without telling orange from red. Clean notes have no entry on purpose, so no ring is drawn for them.
-const reviewMarkStyles = new Map([
+const darkReviewMarkStyles = new Map([
     [reviewMarkTiming, { color: "#14b8a6", lineWidth: 2, dash: [] }],
     [reviewMarkPitch, { color: "#e879f9", lineWidth: 3, dash: [] }],
     [reviewMarkMissed, { color: "#d1d5db", lineWidth: 2, dash: [6, 4] }],
+]);
+const lightReviewMarkStyles = new Map([
+    [reviewMarkTiming, { color: "#0f766e", lineWidth: 2, dash: [] }],
+    [reviewMarkPitch, { color: "#a21caf", lineWidth: 3, dash: [] }],
+    [reviewMarkMissed, { color: "#475569", lineWidth: 2, dash: [6, 4] }],
 ]);
 // Note-name labels are 16 px text centred under their note. Two labels in one row that would touch are drawn smaller (see
 // getNoteLabelFitScales), never below this fraction of their size and keeping this much air between neighbours.
@@ -106,25 +111,79 @@ const slurMinimumHeightInStaffSpaces = 0.6;
 const slurMaximumHeightInStaffSpaces = 1.6;
 const slurHeightToLengthRatio = 0.12;
 const slurStrokeWidthInStaffSpaces = 0.12;
-const slurColor = "#e2e8f0";
 const arpeggioMarkStrokeWidthInStaffSpaces = 0.12;
 const arpeggioMarkWaveAmplitudeInStaffSpaces = 0.25;
 const arpeggioMarkWaveSegmentHeightInStaffSpaces = 0.5;
 const arpeggioMarkBracketTickWidthInStaffSpaces = 0.35;
-const arpeggioMarkColor = "#e2e8f0";
-const glissandoLineColor = "#f472b6";
-const octaveShiftLineColor = "#60a5fa";
 const octaveShiftDashLengthInStaffSpaces = 0.7;
 const octaveShiftDashGapInStaffSpaces = 0.45;
 const staffLineWidth = 1.5;
 const spectrumReleaseClearMilliseconds = 120;
-const scorePlaybackHighlightColor = "#a78bfa";
-const scoreNoteSelectionColor = "#38bdf8";
 const scoreNoteHitRadiusPixels = 12;
 const plotLeftMargin = 44;
 const plotRightMargin = 16;
 const plotTopMargin = 26;
 const plotBottomMargin = 34;
+
+const darkGrandStaffPalette = {
+    activeNote: "#22d3ee",
+    arpeggio: "#e2e8f0",
+    band: "rgba(51, 65, 85, 0.35)",
+    barline: "#64748b",
+    beam: "#60a5fa",
+    beatLine: "#334155",
+    clefGlyph: "#e2e8f0",
+    cursor: "#fb7185",
+    fingering: "#f8fafc",
+    glissando: "#f472b6",
+    glyph: "#f8fafc",
+    ledgerLine: "#cbd5e1",
+    note: "#60a5fa",
+    octaveShift: "#60a5fa",
+    reviewMarkStyles: darkReviewMarkStyles,
+    scoreNoteSelection: "#38bdf8",
+    scorePlaybackHighlight: "#a78bfa",
+    slur: "#e2e8f0",
+    staffLine: "#94a3b8",
+    tie: "#60a5fa",
+    activeTie: "#22d3ee",
+    verdictColors,
+};
+
+const lightGrandStaffPalette = {
+    activeNote: "#0369a1",
+    arpeggio: "#111827",
+    background: "#fff",
+    band: "transparent",
+    barline: "#111827",
+    beam: "#111827",
+    beatLine: "#111827",
+    clefGlyph: "#111827",
+    cursor: "#dc2626",
+    fingering: "#111827",
+    glissando: "#111827",
+    glyph: "#111827",
+    ledgerLine: "#111827",
+    note: "#111827",
+    octaveShift: "#111827",
+    reviewMarkStyles: lightReviewMarkStyles,
+    scoreNoteSelection: "#0369a1",
+    scorePlaybackHighlight: "#6d28d9",
+    slur: "#111827",
+    staffLine: "#111827",
+    tie: "#111827",
+    activeTie: "#0369a1",
+    verdictColors: [
+        "#15803d", // Correct
+        "#b91c1c", // WrongPitch
+        "#c2410c", // Early
+        "#c2410c", // Late
+        "#a16207", // TooShort
+        "#a16207", // TooLong
+        "#475569", // Missed
+        "#a21caf", // Extra
+    ],
+};
 
 export function initialize(canvas, waveformCanvas, spectrumCanvas, analysisLayout, scoreCursorElement) {
     initializeCanvas(canvas, waveformCanvas, spectrumCanvas, analysisLayout, scoreCursorElement);
@@ -170,6 +229,7 @@ function initializeCanvas(canvas, waveformCanvas, spectrumCanvas, analysisLayout
         analysisLayout,
         isWaveformVisible: false,
         isFrequencySpectrumVisible: false,
+        isLightMode: false,
     };
     state.resizeObserver = new ResizeObserver(() => draw(state));
     state.resizeObserver.observe(canvas);
@@ -183,7 +243,7 @@ function initializeCanvas(canvas, waveformCanvas, spectrumCanvas, analysisLayout
     draw(state);
 }
 
-export function render(canvas, scene, isWaveformVisible, isFrequencySpectrumVisible, selectedScoreNoteAddress) {
+export function render(canvas, scene, isWaveformVisible, isFrequencySpectrumVisible, selectedScoreNoteAddress, isLightMode = false) {
     const state = canvases.get(canvas);
     if (!state) {
         throw new Error("Canvas is not initialized.");
@@ -193,6 +253,11 @@ export function render(canvas, scene, isWaveformVisible, isFrequencySpectrumVisi
     state.selectedScoreNoteAddress = selectedScoreNoteAddress;
     state.isWaveformVisible = isWaveformVisible;
     state.isFrequencySpectrumVisible = isFrequencySpectrumVisible;
+    const nextIsLightMode = isLightMode === true;
+    if (state.isLightMode !== nextIsLightMode) {
+        state.isLightMode = nextIsLightMode;
+        state.scoreLayerDirty = true;
+    }
     if (scene.kind !== grandStaffSceneKind) {
         state.scoreOverlay = undefined;
     }
@@ -354,6 +419,7 @@ function draw(state, knownScorePlaybackBeats = undefined, knownLiveGrandStaffPla
         state.scorePlaybackHighlightKey = undefined;
         hideScoreCursorOverlay(state);
     } else {
+        const palette = getGrandStaffPalette(state);
         const scoreLayer = prepareScoreLayer(state, width, height, pixelRatio);
         context.drawImage(scoreLayer, 0, 0, width, height);
         const staffSpace = getCachedStaffSpace(state, height);
@@ -364,7 +430,8 @@ function draw(state, knownScorePlaybackBeats = undefined, knownLiveGrandStaffPla
             width,
             height,
             state.selectedScoreNoteAddress,
-            staffSpace);
+            staffSpace,
+            palette);
         scorePlaybackBeats = knownScorePlaybackBeats ?? getScorePlaybackBeats(state);
         liveGrandStaffPlaybackBeats = knownLiveGrandStaffPlaybackBeats ??
             getLiveGrandStaffPlaybackBeats(state);
@@ -374,13 +441,14 @@ function draw(state, knownScorePlaybackBeats = undefined, knownLiveGrandStaffPla
             width,
             height,
             scorePlaybackBeats,
-            staffSpace);
-        drawLedgerLines(context, scene, width, height, staffSpace);
-        drawScoreOverlay(context, state.scoreOverlay, width, height, staffSpace);
+            staffSpace,
+            palette);
+        drawLedgerLines(context, scene, width, height, staffSpace, palette);
+        drawScoreOverlay(context, state.scoreOverlay, width, height, staffSpace, palette);
         if (state.scoreCursorElement) {
             updateCompositedCursorOverlay(state, scorePlaybackBeats, liveGrandStaffPlaybackBeats);
         } else {
-            drawScoreCursor(context, state, width, height, scorePlaybackBeats);
+            drawScoreCursor(context, state, width, height, scorePlaybackBeats, palette);
         }
     }
 
@@ -393,21 +461,25 @@ function draw(state, knownScorePlaybackBeats = undefined, knownLiveGrandStaffPla
     ensureAnimation(state, scorePlaybackBeats, liveGrandStaffPlaybackBeats);
 }
 
-function drawScoreOverlay(context, overlay, width, height, staffSpace) {
+function getGrandStaffPalette(state) {
+    return state.isLightMode ? lightGrandStaffPalette : darkGrandStaffPalette;
+}
+
+function drawScoreOverlay(context, overlay, width, height, staffSpace, palette) {
     if (!overlay) {
         return;
     }
 
     if (overlay.cursor) {
-        drawLine(context, overlay.cursor, width, height, staffSpace);
+        drawLine(context, overlay.cursor, width, height, staffSpace, palette);
     }
     for (const note of overlay.notes ?? []) {
-        drawNote(context, note, width, height, staffSpace);
+        drawNote(context, note, width, height, staffSpace, undefined, undefined, palette);
     }
-    drawLedgerLines(context, { lines: overlay.ledgerLines ?? [] }, width, height, staffSpace);
+    drawLedgerLines(context, { lines: overlay.ledgerLines ?? [] }, width, height, staffSpace, palette);
 }
 
-function drawScoreNoteSelection(context, state, scene, width, height, selectedAddress, staffSpace) {
+function drawScoreNoteSelection(context, state, scene, width, height, selectedAddress, staffSpace, palette) {
     if (!isScoreNoteAddress(selectedAddress)) {
         return;
     }
@@ -419,7 +491,7 @@ function drawScoreNoteSelection(context, state, scene, width, height, selectedAd
 
     const radiusX = (staffSpace * noteHeadWidthInStaffSpaces / 2) + 5;
     const radiusY = (staffSpace * noteHeadHeightInStaffSpaces / 2) + 5;
-    context.strokeStyle = scoreNoteSelectionColor;
+    context.strokeStyle = palette.scoreNoteSelection;
     context.lineWidth = 3;
     context.beginPath();
     context.ellipse(
@@ -485,8 +557,13 @@ function prepareScoreLayer(state, width, height, pixelRatio) {
 function drawGrandStaff(context, state, width, height) {
     const { scene } = state;
     const staffSpace = getCachedStaffSpace(state, height);
+    const palette = getGrandStaffPalette(state);
+    if (palette.background) {
+        context.fillStyle = palette.background;
+        context.fillRect(0, 0, width, height);
+    }
     for (const band of scene.bands ?? []) {
-        drawBand(context, band, width, height);
+        drawBand(context, band, width, height, palette);
     }
 
     for (const line of scene.lines) {
@@ -494,7 +571,7 @@ function drawGrandStaff(context, state, width, height) {
             continue;
         }
 
-        drawLine(context, line, width, height, staffSpace);
+        drawLine(context, line, width, height, staffSpace, palette);
     }
 
     let clefRight;
@@ -503,7 +580,7 @@ function drawGrandStaff(context, state, width, height) {
             continue;
         }
 
-        const glyphRight = drawGlyph(context, glyph, width, height);
+        const glyphRight = drawGlyph(context, glyph, width, height, palette);
         if (Number.isFinite(glyphRight)) {
             clefRight = Math.max(clefRight ?? glyphRight, glyphRight);
         }
@@ -521,40 +598,40 @@ function drawGrandStaff(context, state, width, height) {
 
     for (const glyph of scene.glyphs) {
         if (glyph.kind !== clefGlyphKind) {
-            drawGlyph(context, glyph, width, height);
+            drawGlyph(context, glyph, width, height, palette);
         }
     }
 
     // Under the ties and notes: a ring never covers the notation it surrounds.
-    drawReviewMarks(context, scene, width, height, staffSpace);
+    drawReviewMarks(context, scene, width, height, staffSpace, palette);
 
     for (const tie of scene.ties ?? []) {
-        drawTie(context, tie, width, height, staffSpace);
+        drawTie(context, tie, width, height, staffSpace, palette);
     }
 
     for (const slur of scene.slurs ?? []) {
-        drawSlur(context, slur, width, height, staffSpace);
+        drawSlur(context, slur, width, height, staffSpace, palette);
     }
 
     for (const arpeggioMark of scene.arpeggioMarks ?? []) {
-        drawArpeggioMark(context, arpeggioMark, width, height, staffSpace);
+        drawArpeggioMark(context, arpeggioMark, width, height, staffSpace, palette);
     }
 
     const labelFitScales = getLabelFitScales(context, scene.notes, width);
     for (const note of scene.notes) {
         if (!note.isActive) {
-            drawNote(context, note, width, height, staffSpace, undefined, labelFitScales.get(note));
+            drawNote(context, note, width, height, staffSpace, undefined, labelFitScales.get(note), palette);
         }
     }
     for (const beam of scene.beams ?? []) {
-        drawBeam(context, beam, width, height, staffSpace);
+        drawBeam(context, beam, width, height, staffSpace, palette);
     }
     for (const note of scene.notes) {
         if (note.isActive) {
-            drawNote(context, note, width, height, staffSpace, undefined, labelFitScales.get(note));
+            drawNote(context, note, width, height, staffSpace, undefined, labelFitScales.get(note), palette);
         }
     }
-    drawLedgerLines(context, scene, width, height, staffSpace);
+    drawLedgerLines(context, scene, width, height, staffSpace, palette);
 
     if (shouldClipNoteElements) {
         context.restore();
@@ -563,10 +640,10 @@ function drawGrandStaff(context, state, width, height) {
 
 // Draws the review-mark halos of a finished exercise: one ring per prompt per staff (notes sharing reviewMarkGroup, so a
 // chord gets one ring around its whole stack), none for a clean note. The scene only carries marks in Review.
-function drawReviewMarks(context, scene, width, height, staffSpace) {
+function drawReviewMarks(context, scene, width, height, staffSpace, palette) {
     const groups = new Map();
     scene.notes.forEach((note, index) => {
-        const style = reviewMarkStyles.get(note.reviewMark);
+        const style = palette.reviewMarkStyles.get(note.reviewMark);
         if (!style) {
             return;
         }
@@ -583,7 +660,7 @@ function drawReviewMarks(context, scene, width, height, staffSpace) {
     const accidentals = (scene.glyphs ?? []).filter(glyph => glyph.kind === accidentalGlyphKind);
     const inkBoxes = scene.notes.map(note => ({
         ...getReviewMarkInkBox(note, accidentals, width, height, staffSpace),
-        hasHalo: reviewMarkStyles.has(note.reviewMark),
+        hasHalo: palette.reviewMarkStyles.has(note.reviewMark),
     }));
     const fixedObstacles = getReviewMarkFixedObstacles(scene, width, height);
     for (const group of groups.values()) {
@@ -725,9 +802,9 @@ function drawReviewMarkHalo(context, style, memberBoxes, otherBoxes, bands, widt
     context.setLineDash([]);
 }
 
-function drawLedgerLines(context, scene, width, height, staffSpace) {
+function drawLedgerLines(context, scene, width, height, staffSpace, palette = darkGrandStaffPalette) {
     let hasLedgerLines = false;
-    context.strokeStyle = "#cbd5e1";
+    context.strokeStyle = palette.ledgerLine;
     context.lineWidth = 1.5;
     context.beginPath();
     for (const line of scene.lines ?? []) {
@@ -1034,7 +1111,7 @@ function getLiveGrandStaffPlaybackBeats(state) {
     }
 }
 
-function drawScorePlaybackHighlights(context, scene, width, height, scorePlaybackBeats, staffSpace) {
+function drawScorePlaybackHighlights(context, scene, width, height, scorePlaybackBeats, staffSpace, palette) {
     const highlightKey = getScorePlaybackHighlightKey(scene, scorePlaybackBeats);
     if (highlightKey === undefined) {
         return highlightKey;
@@ -1047,7 +1124,15 @@ function drawScorePlaybackHighlights(context, scene, width, height, scorePlaybac
             && Number.isFinite(note.scoreEndBeats)
             && scorePlaybackBeats >= note.scoreOnsetBeats
             && scorePlaybackBeats < note.scoreEndBeats) {
-            drawNote(context, note, width, height, staffSpace, scorePlaybackHighlightColor, labelFitScales.get(note));
+            drawNote(
+                context,
+                note,
+                width,
+                height,
+                staffSpace,
+                palette.scorePlaybackHighlight,
+                labelFitScales.get(note),
+                palette);
         }
     }
 
@@ -1078,7 +1163,7 @@ function getScorePlaybackHighlightKey(scene, scorePlaybackBeats) {
     return highlightKey;
 }
 
-function drawScoreCursor(context, state, width, height, scorePlaybackBeats) {
+function drawScoreCursor(context, state, width, height, scorePlaybackBeats, palette) {
     const cursor = state.scoreCursor;
     if (!cursor || !Number.isFinite(scorePlaybackBeats)) {
         return;
@@ -1104,7 +1189,9 @@ function drawScoreCursor(context, state, width, height, scorePlaybackBeats) {
         context,
         { x0: x, y0: cursor.cursorY0, x1: x, y1: cursor.cursorY1, kind: cursorLineKind },
         width,
-        height);
+        height,
+        getCachedStaffSpace(state, height),
+        palette);
 }
 
 function updateScoreCursorOverlay(state, scorePlaybackBeats) {
@@ -1373,29 +1460,29 @@ export function getNoteLabelFitScales(context, notes, width) {
     return scales;
 }
 
-function drawBand(context, band, width, height) {
+function drawBand(context, band, width, height, palette = darkGrandStaffPalette) {
     const x0 = mapX(band.x0, width);
     const x1 = mapX(band.x1, width);
     const y0 = mapY(band.y0, height);
     const y1 = mapY(band.y1, height);
-    context.fillStyle = "rgba(51, 65, 85, 0.35)";
+    context.fillStyle = palette.band;
     context.beginPath();
     context.roundRect(x0, Math.min(y0, y1), x1 - x0, Math.abs(y1 - y0), 6);
     context.fill();
 }
 
-function drawLine(context, line, width, height, staffSpace) {
+function drawLine(context, line, width, height, staffSpace, palette = darkGrandStaffPalette) {
     context.strokeStyle = line.kind === cursorLineKind
-        ? "#fb7185"
+        ? palette.cursor
         : line.kind === beatLineKind
-            ? "#334155"
+            ? palette.beatLine
             : line.kind === barlineKind
-            ? "#64748b"
+            ? palette.barline
             : line.kind === staffLineKind
-                ? "#94a3b8"
+                ? palette.staffLine
                 : line.kind === glissandoLineKind
-                    ? glissandoLineColor
-                    : line.kind === octaveShiftLineKind ? octaveShiftLineColor : "#cbd5e1";
+                    ? palette.glissando
+                    : line.kind === octaveShiftLineKind ? palette.octaveShift : palette.ledgerLine;
     context.lineWidth = line.kind === staffLineKind
         ? staffLineWidth
         : line.kind === cursorLineKind
@@ -1426,13 +1513,13 @@ function drawLine(context, line, width, height, staffSpace) {
     }
 }
 
-function drawGlyph(context, glyph, width, height) {
+function drawGlyph(context, glyph, width, height, palette = darkGrandStaffPalette) {
     if (glyph.kind === accidentalGlyphKind) {
         context.fillStyle = Number.isInteger(glyph.verdict)
-            ? verdictColors[glyph.verdict]
-            : glyph.isActive ? "#22d3ee" : "#60a5fa";
+            ? palette.verdictColors[glyph.verdict]
+            : glyph.isActive ? palette.activeNote : palette.note;
     } else {
-        context.fillStyle = glyph.kind === clefGlyphKind ? "#e2e8f0" : "#f8fafc";
+        context.fillStyle = glyph.kind === clefGlyphKind ? palette.clefGlyph : palette.glyph;
     }
     context.textAlign = "center";
     const x = mapX(glyph.x, width);
@@ -1469,14 +1556,22 @@ function drawGlyph(context, glyph, width, height) {
     context.fillText(glyph.text, x, y);
 }
 
-function drawNote(context, note, width, height, staffSpace, colorOverride, labelFitScale = 1) {
+function drawNote(
+    context,
+    note,
+    width,
+    height,
+    staffSpace,
+    colorOverride,
+    labelFitScale = 1,
+    palette = darkGrandStaffPalette) {
     const x = mapX(note.x, width);
     const y = mapY(note.y, height);
     const noteHeadRadiusX = staffSpace * noteHeadWidthInStaffSpaces / 2;
     const noteHeadRadiusY = staffSpace * noteHeadHeightInStaffSpaces / 2;
     const noteColor = colorOverride ?? (Number.isInteger(note.verdict)
-        ? verdictColors[note.verdict]
-        : note.isActive ? "#22d3ee" : "#60a5fa");
+        ? palette.verdictColors[note.verdict]
+        : note.isActive ? palette.activeNote : palette.note);
     context.strokeStyle = noteColor;
     context.fillStyle = context.strokeStyle;
     context.lineWidth = 2;
@@ -1551,14 +1646,14 @@ function drawNote(context, note, width, height, staffSpace, colorOverride, label
     }
 
     if (typeof note.fingering === "string" && Number.isFinite(note.fingeringY)) {
-        context.fillStyle = "#f8fafc";
+        context.fillStyle = palette.fingering;
         context.font = "600 15px system-ui, sans-serif";
         context.textBaseline = "middle";
         context.fillText(note.fingering, x, mapY(note.fingeringY, height));
     }
 }
 
-function drawBeam(context, beam, width, height, staffSpace) {
+function drawBeam(context, beam, width, height, staffSpace, palette = darkGrandStaffPalette) {
     const stemGoesUp = beam.stemDirection === stemDirectionUp;
     const stemXOffset = staffSpace * noteHeadWidthInStaffSpaces / 2 * (stemGoesUp ? 1 : -1);
     const beamSpacingDirection = stemGoesUp ? 1 : -1;
@@ -1566,7 +1661,7 @@ function drawBeam(context, beam, width, height, staffSpace) {
     const x1 = mapX(beam.x1, width) + stemXOffset;
     const y0 = mapY(beam.y0, height);
     const y1 = mapY(beam.y1, height);
-    context.strokeStyle = "#60a5fa";
+    context.strokeStyle = palette.beam;
     context.lineWidth = Math.max(3, staffSpace * 0.45);
     context.lineCap = "butt";
     for (let beamIndex = 0; beamIndex < beam.count; beamIndex++) {
@@ -1578,7 +1673,7 @@ function drawBeam(context, beam, width, height, staffSpace) {
     }
 }
 
-function drawTie(context, tie, width, height, staffSpace) {
+function drawTie(context, tie, width, height, staffSpace, palette = darkGrandStaffPalette) {
     const noteCenterX0 = mapX(tie.x0, width);
     const noteCenterX1 = mapX(tie.x1, width);
     const horizontalDirection = noteCenterX1 >= noteCenterX0 ? 1 : -1;
@@ -1615,7 +1710,7 @@ function drawTie(context, tie, width, height, staffSpace) {
     const thicknessControlOffset = curveDirection
         * Math.max(staffSpace * tieCenterThicknessInStaffSpaces, tieMinimumCenterThicknessPixels)
         * 2 / 3;
-    context.fillStyle = tie.isActive ? "#22d3ee" : "#60a5fa";
+    context.fillStyle = tie.isActive ? palette.activeTie : palette.tie;
     context.beginPath();
     context.moveTo(x0, y0);
     context.bezierCurveTo(
@@ -1640,7 +1735,7 @@ function drawTie(context, tie, width, height, staffSpace) {
 // direction shape but is drawn with its own simpler curve, not drawTie's tapered filled shape —
 // see the "Curve rendering exists but is tuned for a different shape" note in
 // docs/plans/notations-rendering.md.
-function drawSlur(context, slur, width, height, staffSpace) {
+function drawSlur(context, slur, width, height, staffSpace, palette = darkGrandStaffPalette) {
     const x0 = mapX(slur.x0, width);
     const x1 = mapX(slur.x1, width);
     const y0 = mapY(slur.y0, height);
@@ -1655,7 +1750,7 @@ function drawSlur(context, slur, width, height, staffSpace) {
     const controlX2 = x0 + ((x1 - x0) * 2 / 3);
     const controlY1 = y0 + ((y1 - y0) / 3) + controlHeight;
     const controlY2 = y0 + ((y1 - y0) * 2 / 3) + controlHeight;
-    context.strokeStyle = slurColor;
+    context.strokeStyle = palette.slur;
     context.lineWidth = Math.max(1, staffSpace * slurStrokeWidthInStaffSpaces);
     context.beginPath();
     context.moveTo(x0, y0);
@@ -1666,11 +1761,11 @@ function drawSlur(context, slur, width, height, staffSpace) {
 // A vertical arpeggio mark to the left of a chord: a wavy line (quadratic-curve zigzag) for
 // GrandStaffArpeggioMark.IsNonArpeggiate false, or a straight bracket for true — no existing
 // primitive to adapt (ties/beams/slurs are all horizontal-ish; this is the first vertical mark).
-function drawArpeggioMark(context, mark, width, height, staffSpace) {
+function drawArpeggioMark(context, mark, width, height, staffSpace, palette = darkGrandStaffPalette) {
     const x = mapX(mark.x, width);
     const yTop = mapY(Math.max(mark.y0, mark.y1), height);
     const yBottom = mapY(Math.min(mark.y0, mark.y1), height);
-    context.strokeStyle = arpeggioMarkColor;
+    context.strokeStyle = palette.arpeggio;
     context.lineWidth = Math.max(1, staffSpace * arpeggioMarkStrokeWidthInStaffSpaces);
     if (mark.isNonArpeggiate) {
         drawArpeggioBracket(context, x, yTop, yBottom, staffSpace);

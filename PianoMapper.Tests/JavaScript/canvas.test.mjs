@@ -40,9 +40,11 @@ class FakeCanvasContext {
     strokeCalls = 0;
     drawImageCalls = 0;
     ellipseCalls = [];
+    ellipseStyles = [];
     arcCalls = [];
     curveCalls = [];
     filledPathCalls = [];
+    fillRects = [];
     strokedPathCalls = [];
     fillTextCalls = [];
     lineSegments = [];
@@ -63,7 +65,9 @@ class FakeCanvasContext {
 
     setTransform() { }
     clearRect() { }
-    fillRect() { }
+    fillRect(...args) {
+        this.fillRects.push({ args, fillStyle: this.fillStyle });
+    }
     strokeRect() { }
     setLineDash(pattern) {
         this.lineDashCalls.push([...pattern]);
@@ -98,7 +102,7 @@ class FakeCanvasContext {
     }
     lineTo(x, y) {
         if (this.pathStart) {
-            const segment = { ...this.pathStart, x1: x, y1: y };
+            const segment = { ...this.pathStart, x1: x, y1: y, strokeStyle: this.strokeStyle };
             this.lineSegments.push(segment);
             this.operations.push({ kind: "line", segment });
         }
@@ -175,6 +179,7 @@ class FakeCanvasContext {
 
     ellipse(...args) {
         this.ellipseCalls.push(args);
+        this.ellipseStyles.push(this.fillStyle);
         this.operations.push({ kind: "ellipse", args });
     }
 
@@ -224,6 +229,7 @@ async function createScoreCursorHarness(currentTime) {
     const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
     const animationFrames = [];
     const cancelledFrames = [];
+    const scoreLayers = [];
     let nextAnimationFrame = 1;
 
     class FakeAudioContext {
@@ -252,7 +258,9 @@ async function createScoreCursorHarness(currentTime) {
     globalThis.document = {
         cookie: "pianomapper-sound-source=synth",
         createElement() {
-            return new FakeCanvas();
+            const canvas = new FakeCanvas();
+            scoreLayers.push(canvas);
+            return canvas;
         },
         querySelector() {
             return null;
@@ -279,6 +287,7 @@ async function createScoreCursorHarness(currentTime) {
     return {
         animationFrames,
         cancelledFrames,
+        scoreLayers,
         audioContext,
         createCanvas(scoreCursorElement = undefined) {
             const canvas = new FakeCanvas();
@@ -319,6 +328,29 @@ function createEditableScoreScene(notes) {
         bands: [],
     };
 }
+
+test("light score mode renders static notation black and active notes high contrast", async () => {
+    const harness = await createScoreCursorHarness(0);
+    const canvas = harness.createCanvas();
+    const scene = createEditableScoreScene([
+        { x: 0, y: 0.2, isActive: true, isFilled: true, stemDirection: 0 },
+    ]);
+
+    try {
+        render(canvas, scene, false, false);
+
+        const scoreLayer = harness.scoreLayers.at(-1);
+        const lightRenderStart = scoreLayer.context.lineSegments.length;
+        const lightFillStart = scoreLayer.context.fillRects.length;
+        render(canvas, scene, false, false, undefined, true);
+
+        assert.equal(scoreLayer.context.fillRects[lightFillStart].fillStyle, "#fff");
+        assert.equal(scoreLayer.context.lineSegments[lightRenderStart].strokeStyle, "#111827");
+        assert.equal(scoreLayer.context.ellipseStyles.at(-1), "#0369a1");
+    } finally {
+        await harness.dispose();
+    }
+});
 
 test("score note hit testing selects the closest chord member", async () => {
     const harness = await createScoreCursorHarness(0);

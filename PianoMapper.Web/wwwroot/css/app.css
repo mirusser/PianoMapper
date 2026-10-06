@@ -215,6 +215,19 @@ p {
     align-items: center;
 }
 
+.controls .staff-theme-toggle {
+    flex: 0 0 auto;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.staff-theme-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0.45rem;
+    align-items: center;
+}
+
 .sound-source-picker {
     display: grid;
     grid-template-columns: repeat(3, minmax(4.5rem, 1fr));
@@ -283,11 +296,13 @@ button:active:not(:disabled) {
 }
 
 .button-quiet {
+    border-color: #51436c;
     background: transparent;
     color: #ded1eb;
 }
 
 .button-quiet:hover:not(:disabled) {
+    border-color: #8d79ad;
     background: rgb(255 255 255 / 9%);
 }
 
@@ -1026,6 +1041,66 @@ input[type="file"]::file-selector-button:hover {
     border-style: dashed;
 }
 
+.legend-light {
+    color: #475569;
+}
+
+.legend-light .legend-mark-expected {
+    background: #0369a1;
+}
+
+.legend-light .legend-mark-active {
+    background: #0369a1;
+}
+
+.legend-light .legend-mark-score {
+    background: #111827;
+}
+
+.legend-light .legend-mark-finished {
+    background: #111827;
+}
+
+.legend-light .legend-mark-playing {
+    background: #6d28d9;
+}
+
+.legend-light .legend-mark-correct {
+    background: #15803d;
+}
+
+.legend-light .legend-mark-wrong-pitch {
+    background: #b91c1c;
+}
+
+.legend-light .legend-mark-timing {
+    background: #c2410c;
+}
+
+.legend-light .legend-mark-duration {
+    background: #a16207;
+}
+
+.legend-light .legend-mark-missed {
+    background: #475569;
+}
+
+.legend-light .legend-mark-extra {
+    background: #a21caf;
+}
+
+.legend-light .legend-mark-review-timing {
+    color: #0f766e;
+}
+
+.legend-light .legend-mark-review-pitch {
+    color: #a21caf;
+}
+
+.legend-light .legend-mark-review-missed {
+    color: #475569;
+}
+
 .piano-canvas,
 .analysis-canvas {
     display: block;
@@ -1037,6 +1112,11 @@ input[type="file"]::file-selector-button:hover {
 
 .piano-canvas {
     height: clamp(25rem, 46vw, 34rem);
+}
+
+.piano-canvas-light {
+    border-color: #64748b;
+    background: #fff;
 }
 
 .score-canvas-layer {
@@ -1052,6 +1132,10 @@ input[type="file"]::file-selector-button:hover {
     background: #fb7185;
     pointer-events: none;
     will-change: transform;
+}
+
+.score-playback-cursor-light {
+    background: #dc2626;
 }
 
 .piano-canvas.score-note-editable {

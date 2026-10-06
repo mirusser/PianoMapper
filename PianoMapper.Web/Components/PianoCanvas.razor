@@ -7,16 +7,25 @@
             <div>
                 <h2 id="piano-view-heading">@SceneTitle</h2>
             </div>
-            @if (IsScoreView)
+            @if (Scene.Kind == PianoCanvasSceneKind.GrandStaff)
             {
                 <div class="controls">
                     <span class="panel-context">@SceneContext</span>
-                    <button class="button-quiet"
-                            type="button"
-                            disabled="@(!CanResetScoreHighlights)"
-                            @onclick="ResetScoreHighlights">
-                        Reset highlights
-                    </button>
+                    <div class="staff-theme-actions">
+                        <label class="control-checkbox staff-theme-toggle">
+                            <input type="checkbox" @bind="isLightMode" />
+                            Light mode
+                        </label>
+                        @if (IsScoreView)
+                        {
+                            <button class="button-quiet"
+                                    type="button"
+                                    disabled="@(!CanResetScoreHighlights)"
+                                    @onclick="ResetScoreHighlights">
+                                Reset highlights
+                            </button>
+                        }
+                    </div>
                 </div>
             }
             else
@@ -30,7 +39,7 @@
         }
         @if (IsScoreView)
         {
-            <div class="legend" aria-label="Grand staff note color legend">
+            <div class="legend @(isLightMode ? "legend-light" : null)" aria-label="Grand staff note color legend">
                 <span><span class="legend-mark legend-mark-expected"></span>Next note</span>
                 <span><span class="legend-mark legend-mark-score"></span>Other score note</span>
                 <span><span class="legend-mark legend-mark-playing"></span>Playing now</span>
@@ -41,7 +50,7 @@
                 <span><span class="legend-mark legend-mark-missed"></span>Missed</span>
                 <span><span class="legend-mark legend-mark-extra"></span>Extra</span>
             </div>
-            <div class="legend" aria-label="Grand staff review mark legend">
+            <div class="legend @(isLightMode ? "legend-light" : null)" aria-label="Grand staff review mark legend">
                 <span><span class="legend-mark legend-mark-review-timing"></span>Review ring: timing</span>
                 <span><span class="legend-mark legend-mark-review-pitch"></span>Review ring: pitch</span>
                 <span><span class="legend-mark legend-mark-review-missed"></span>Review ring: missed</span>
@@ -49,7 +58,7 @@
         }
         else
         {
-            <div class="legend" aria-label="Note color legend">
+            <div class="legend @(isLightMode ? "legend-light" : null)" aria-label="Note color legend">
                 <span><span class="legend-mark legend-mark-active"></span>Pressed by you</span>
                 <span><span class="legend-mark legend-mark-finished"></span>Released</span>
             </div>
@@ -67,13 +76,13 @@
             }
             <div class="score-canvas-layer">
                 <canvas @ref="canvas"
-                        class="piano-canvas @(UsesRowLayout ? "score-row-canvas" : null) @(CanSelectScoreNotes ? "score-note-editable" : null)"
+                        class="piano-canvas @(UsesRowLayout ? "score-row-canvas" : null) @(CanSelectScoreNotes ? "score-note-editable" : null) @(isLightMode ? "piano-canvas-light" : null)"
                         role="img"
                         aria-label="@PrimarySceneLabel"
                         @onclick="SelectPrimaryScoreNoteAsync">
                     Piano visualization.
                 </canvas>
-                <div @ref="scoreCursorElement" class="score-playback-cursor" aria-hidden="true"></div>
+                <div @ref="scoreCursorElement" class="score-playback-cursor @(isLightMode ? "score-playback-cursor-light" : null)" aria-hidden="true"></div>
             </div>
             @if (ShowsAutoNextCountdown)
             {
@@ -95,13 +104,13 @@
                 }
                 <div class="score-canvas-layer">
                     <canvas @ref="secondaryCanvas"
-                            class="piano-canvas score-row-canvas @(CanSelectScoreNotes ? "score-note-editable" : null)"
+                            class="piano-canvas score-row-canvas @(CanSelectScoreNotes ? "score-note-editable" : null) @(isLightMode ? "piano-canvas-light" : null)"
                             role="img"
                             aria-label="@SecondarySceneLabel"
                             @onclick="SelectSecondaryScoreNoteAsync">
                         Secondary imported-score grand staff.
                     </canvas>
-                    <div @ref="secondaryScoreCursorElement" class="score-playback-cursor" aria-hidden="true"></div>
+                    <div @ref="secondaryScoreCursorElement" class="score-playback-cursor @(isLightMode ? "score-playback-cursor-light" : null)" aria-hidden="true"></div>
                 </div>
             </div>
         </div>
@@ -293,6 +302,7 @@
     private bool isWaveformVisible;
     private bool isFrequencySpectrumVisible;
     private bool isKeyboardVisible;
+    private bool isLightMode;
 
     [Parameter, EditorRequired]
     public IPianoCanvasScene Scene { get; set; } = new GrandStaffScene([], [], []);
@@ -381,6 +391,8 @@
     private ScoreNoteAddress? lastPushedSecondarySelectedScoreNote;
     private bool lastPushedIsWaveformVisible;
     private bool lastPushedIsFrequencySpectrumVisible;
+    private bool lastPushedIsLightMode;
+    private bool lastPushedSecondaryIsLightMode;
 
     // The imported score and the live grand staff both draw two stacked rows; they share the row layout and its CSS.
     private bool HasSecondaryRow => Scene.Kind == PianoCanvasSceneKind.GrandStaff && SecondaryScene is not null;
@@ -469,7 +481,7 @@
         // GrandStaffSceneCache keeps the static score scene reference-stable until visible notation
         // changes. Reference equality therefore skips whole-scene interop while the separate
         // score overlay carries only the moving cursor and held notes on practice ticks.
-        if (!ReferenceEquals(Scene, lastPushedScene))
+        if (!ReferenceEquals(Scene, lastPushedScene) || isLightMode != lastPushedIsLightMode)
         {
             await module!.InvokeVoidAsync(
                 "render",
@@ -477,11 +489,13 @@
                 Scene,
                 isWaveformVisible,
                 isFrequencySpectrumVisible,
-                effectiveSelectedScoreNote);
+                effectiveSelectedScoreNote,
+                isLightMode);
             lastPushedScene = Scene;
             lastPushedSelectedScoreNote = effectiveSelectedScoreNote;
             lastPushedIsWaveformVisible = isWaveformVisible;
             lastPushedIsFrequencySpectrumVisible = isFrequencySpectrumVisible;
+            lastPushedIsLightMode = isLightMode;
         }
 
         if (Scene.Kind == PianoCanvasSceneKind.GrandStaff &&
@@ -562,7 +576,8 @@
             }
         }
 
-        if (!ReferenceEquals(SecondaryScene, lastPushedSecondaryScene))
+        if (!ReferenceEquals(SecondaryScene, lastPushedSecondaryScene) ||
+            isLightMode != lastPushedSecondaryIsLightMode)
         {
             await module!.InvokeVoidAsync(
                 "render",
@@ -570,9 +585,11 @@
                 SecondaryScene!,
                 false,
                 false,
-                effectiveSelectedScoreNote);
+                effectiveSelectedScoreNote,
+                isLightMode);
             lastPushedSecondaryScene = SecondaryScene;
             lastPushedSecondarySelectedScoreNote = effectiveSelectedScoreNote;
+            lastPushedSecondaryIsLightMode = isLightMode;
         }
 
         if (effectiveSelectedScoreNote != lastPushedSecondarySelectedScoreNote)
