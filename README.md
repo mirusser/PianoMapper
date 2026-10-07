@@ -17,7 +17,7 @@ PianoMapper is a .NET 10 application with three clients: an OpenTK desktop app, 
 
 ### Play, hear, and follow scores
 
-- Use browser USB MIDI with velocity-sensitive note-on/note-off input, optional Roland FP-10 output, and a configurable metronome.
+- Use browser USB MIDI with velocity-sensitive note-on/note-off input, optional Roland FP-10 output, and a configurable metronome with tap tempo, sound choices, and common irregular-meter groupings.
 - Play through the desktop client with a computer-key piano, octave controls, OpenAL synthesis, oscilloscope, and spectrum.
 - Follow scheduled playback, count-in practice, random measures, tempo cursor, measure navigation, and an adjustable browser score page size.
 - Read a live grand staff or scrolling piano roll with clefs, ledger lines, accidentals, note duration, ties, beams, key signatures, and notation annotations.
@@ -80,7 +80,7 @@ The exercise panel starts with simple reading and progressively introduces rhyth
 | **Pitch + hold** | Correct key and written duration |
 | **Pitch + hold + rhythm** | Pitch, onset, and duration together |
 
-Timed exercises include a one-measure count-in, adjustable tempo, a beat indicator, and an optional continuing click. **Wait for me** pauses until the correct key is found; **Play along** keeps time and records missed or extra notes. During a run, answer-revealing aids such as names, fingering, next-key highlighting, and coach hints are opt-in. Afterward, the review distinguishes pitch, timing, and missed-note issues and can generate a focused retry.
+Timed exercises include a one-measure metronome count-in, adjustable tempo, a beat indicator, and an optional continuing click. Their grading anchor owns the click while they run, so controls cannot re-phase it mid-exercise. **Wait for me** pauses until the correct key is found; **Play along** keeps time and records missed or extra notes. Score playback can optionally share the same click anchor. During a run, answer-revealing aids such as names, fingering, next-key highlighting, and coach hints are opt-in. Afterward, the review distinguishes pitch, timing, and missed-note issues and can generate a focused retry.
 
 ## 🎼 Scores, notation, and fingering
 

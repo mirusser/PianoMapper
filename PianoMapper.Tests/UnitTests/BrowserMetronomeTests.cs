@@ -24,6 +24,9 @@ public sealed class BrowserMetronomeTests
         Assert.Equal(TimeSpan.FromSeconds(2.0 / 3.0), audio.BeatDuration);
         Assert.Equal(6, audio.BeatsPerMeasure);
         Assert.Equal(3, audio.BeatsPerGroup);
+        Assert.Equal([0, 3], audio.GroupStartBeatIndices);
+        Assert.Equal(1, audio.Volume.GetValueOrDefault(), 6);
+        Assert.Equal(MetronomeTimbre.Sine, audio.Timbre);
     }
 
     [Fact]
@@ -36,6 +39,7 @@ public sealed class BrowserMetronomeTests
 
         Assert.Equal(4, audio.BeatsPerMeasure);
         Assert.Equal(1, audio.BeatsPerGroup);
+        Assert.Equal([0], audio.GroupStartBeatIndices);
     }
 
     [Fact]
@@ -55,6 +59,45 @@ public sealed class BrowserMetronomeTests
         Assert.Equal(TimeSpan.FromSeconds(1), audio.BeatDuration);
         Assert.Equal(4, audio.BeatsPerMeasure);
         Assert.Equal(1, audio.BeatsPerGroup);
+    }
+
+    [Fact]
+    public async Task StartAsync_CustomManualOptions_PassesResolvedGroupingAndSoundOptionsToAudio()
+    {
+        var audio = new FakeMetronomeAudio(TimeSpan.FromSeconds(10));
+        var metronome = new BrowserMetronome(audio);
+        var options = new MetronomeOptions
+        {
+            GroupLengths = [2, 3],
+            Volume = 0.6,
+            Timbre = MetronomeTimbre.Triangle,
+        };
+
+        await metronome.StartAsync(
+            new TimeSignature(5, new NoteValue(8)),
+            new Tempo(120),
+            options: options);
+
+        Assert.Equal([0, 2], audio.GroupStartBeatIndices);
+        Assert.Equal(0.6, audio.Volume.GetValueOrDefault(), 6);
+        Assert.Equal(MetronomeTimbre.Triangle, audio.Timbre);
+    }
+
+    [Fact]
+    public async Task SetSoundAsync_RunningMetronome_UpdatesSoundWithoutRestartingTheGrid()
+    {
+        var audio = new FakeMetronomeAudio(TimeSpan.FromSeconds(10));
+        var metronome = new BrowserMetronome(audio);
+        await metronome.StartAsync(new TimeSignature(4, new NoteValue(4)), new Tempo(120));
+        var grid = metronome.Grid;
+
+        await metronome.SetSoundAsync(0.3, MetronomeTimbre.Triangle);
+
+        Assert.Same(grid, metronome.Grid);
+        Assert.Equal(1, audio.StartCount);
+        Assert.Equal(1, audio.SetSoundCount);
+        Assert.Equal(0.3, audio.Volume.GetValueOrDefault(), 6);
+        Assert.Equal(MetronomeTimbre.Triangle, audio.Timbre);
     }
 
     [Fact]
@@ -91,9 +134,17 @@ public sealed class BrowserMetronomeTests
 
         internal int? BeatsPerGroup { get; private set; }
 
+        internal IReadOnlyList<int>? GroupStartBeatIndices { get; private set; }
+
+        internal double? Volume { get; private set; }
+
+        internal MetronomeTimbre? Timbre { get; private set; }
+
         internal int StartCount { get; private set; }
 
         internal int StopCount { get; private set; }
+
+        internal int SetSoundCount { get; private set; }
 
         public ValueTask<TimeSpan> GetCurrentTimeAsync(CancellationToken cancellationToken = default) =>
             ValueTask.FromResult(CurrentTime);
@@ -102,20 +153,38 @@ public sealed class BrowserMetronomeTests
             TimeSpan anchor,
             TimeSpan beatDuration,
             int beatsPerMeasure,
-            int beatsPerGroup,
+            IReadOnlyList<int> groupStartBeatIndices,
+            double volume,
+            MetronomeTimbre timbre,
             CancellationToken cancellationToken = default)
         {
             StartCount++;
             Anchor = anchor;
             BeatDuration = beatDuration;
             BeatsPerMeasure = beatsPerMeasure;
-            BeatsPerGroup = beatsPerGroup;
+            GroupStartBeatIndices = groupStartBeatIndices;
+            BeatsPerGroup = groupStartBeatIndices.Count == 2
+                ? groupStartBeatIndices[1]
+                : 1;
+            Volume = volume;
+            Timbre = timbre;
             return ValueTask.CompletedTask;
         }
 
         public ValueTask StopMetronomeAsync(CancellationToken cancellationToken = default)
         {
             StopCount++;
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask SetMetronomeSoundAsync(
+            double volume,
+            MetronomeTimbre timbre,
+            CancellationToken cancellationToken = default)
+        {
+            SetSoundCount++;
+            Volume = volume;
+            Timbre = timbre;
             return ValueTask.CompletedTask;
         }
     }

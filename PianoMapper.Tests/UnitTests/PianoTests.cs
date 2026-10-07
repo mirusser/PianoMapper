@@ -1,13 +1,68 @@
 using PianoMapper.Web.Input;
 using PianoMapper.Web.Pages;
+using PianoMapper.Web.Practice;
 using PianoMapper.Web.Rendering;
 using PianoMapper.Music;
+using PianoMapper.Practice;
 using PianoMapper.Rendering;
 
 namespace PianoMapper.Tests.UnitTests;
 
 public sealed class PianoTests
 {
+    [Theory]
+    [InlineData(true, (int)SightReadingExercisePhase.Inactive, (int)NoteReadingMode.PitchAndRhythm, true)]
+    [InlineData(true, (int)SightReadingExercisePhase.Active, (int)NoteReadingMode.PitchAndOrder, true)]
+    [InlineData(true, (int)SightReadingExercisePhase.Active, (int)NoteReadingMode.PitchAndRhythm, false)]
+    [InlineData(true, (int)SightReadingExercisePhase.Active, (int)NoteReadingMode.PitchAndHold, false)]
+    [InlineData(true, (int)SightReadingExercisePhase.Review, (int)NoteReadingMode.PitchAndRhythm, true)]
+    [InlineData(false, (int)SightReadingExercisePhase.Inactive, (int)NoteReadingMode.PitchAndRhythm, false)]
+    public void CanToggleMetronome_ExercisePhaseAndMode_ReturnsExpectedPolicy(
+        bool isAudioInitialized,
+        int phaseValue,
+        int modeValue,
+        bool expected)
+    {
+        bool canToggle = Piano.CanToggleMetronome(
+            isAudioInitialized,
+            (SightReadingExercisePhase)phaseValue,
+            (NoteReadingMode)modeValue);
+
+        Assert.Equal(expected, canToggle);
+    }
+
+    [Fact]
+    public void CanToggleMetronome_ScorePlaybackActive_ReturnsFalse()
+    {
+        bool canToggle = Piano.CanToggleMetronome(
+            isAudioInitialized: true,
+            phase: SightReadingExercisePhase.Inactive,
+            mode: NoteReadingMode.PitchAndRhythm,
+            isScorePlaybackActive: true);
+
+        Assert.False(canToggle);
+    }
+
+    [Fact]
+    public void FormatTimingLabel_CompoundEighthMeter_ShowsTheFeltPulse()
+    {
+        string label = Piano.FormatTimingLabel(
+            new TimeSignature(6, new NoteValue(8)),
+            new Tempo(120));
+
+        Assert.Equal("6/8 · 120 eighth-note BPM (40 dotted-quarter pulses)", label);
+    }
+
+    [Fact]
+    public void FormatTimingLabel_SimpleMeter_RemainsConcise()
+    {
+        string label = Piano.FormatTimingLabel(
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120));
+
+        Assert.Equal("4/4 · 120 BPM", label);
+    }
+
     [Theory]
     [InlineData(false, false, true)]
     [InlineData(true, false, false)]

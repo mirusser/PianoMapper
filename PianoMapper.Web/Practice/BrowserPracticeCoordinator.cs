@@ -9,8 +9,6 @@ internal sealed class BrowserPracticeCoordinator(IBrowserScoreAudio audio, NoteT
     private static readonly IReadOnlyDictionary<ScoreNote, Verdict> NoVerdicts =
         new Dictionary<ScoreNote, Verdict>();
     private static readonly TimeSpan SchedulingLead = TimeSpan.FromMilliseconds(50);
-    private static readonly TimeSpan CountInClickDuration = TimeSpan.FromMilliseconds(50);
-    private const double CountInClickFrequency = 880;
 
     private readonly BrowserPracticeTimeProvider timeProvider = new();
     private readonly List<PerformedNote> capturedPerformedNotes = [];
@@ -36,20 +34,12 @@ internal sealed class BrowserPracticeCoordinator(IBrowserScoreAudio audio, NoteT
     internal ValueTask StartAsync(Score score, CancellationToken cancellationToken = default) =>
         StartAsync(score, new GradingOptions(), cancellationToken);
 
-    internal ValueTask StartAsync(
-        Score score,
-        GradingOptions gradingOptions,
-        CancellationToken cancellationToken = default) =>
-        StartAsync(score, gradingOptions, new PracticeRunOptions(), cancellationToken);
-
     internal async ValueTask StartAsync(
         Score score,
         GradingOptions gradingOptions,
-        PracticeRunOptions runOptions,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(gradingOptions);
-        ArgumentNullException.ThrowIfNull(runOptions);
         await audio.StopScoreAsync(cancellationToken);
         capturedPerformedNotes.Clear();
         capturedPerformedNoteIdentities.Clear();
@@ -59,20 +49,6 @@ internal sealed class BrowserPracticeCoordinator(IBrowserScoreAudio audio, NoteT
         session = new PracticeSession(score, timeProvider, gradingOptions);
         session.Start(startTime);
         Result = null;
-        if (!runOptions.ScheduleCountInClicks)
-        {
-            return;
-        }
-
-        TimeSpan beatDuration = MusicalTime.BeatsToDuration(1, score.Tempo);
-        var countInEvents = Enumerable.Range(0, score.TimeSignature.Numerator)
-            .Select(index => new BrowserScoreAudioEvent(
-                $"practice-count-in-{index}",
-                CountInClickFrequency,
-                startTime + (beatDuration * index),
-                CountInClickDuration))
-            .ToArray();
-        await audio.ScheduleScoreAsync(countInEvents, cancellationToken);
     }
 
     internal async ValueTask UpdateAsync(CancellationToken cancellationToken = default)

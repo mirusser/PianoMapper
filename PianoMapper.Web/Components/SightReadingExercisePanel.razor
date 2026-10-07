@@ -176,6 +176,7 @@
                             <label class="control-checkbox">
                                 <input type="checkbox"
                                        checked="@Presentation.ClickWhilePlaying"
+                                       disabled="@(!Presentation.CanChangeClickWhilePlaying)"
                                        @onchange="SelectClickWhilePlayingAsync" />
                                 Keep the click going while playing
                             </label>

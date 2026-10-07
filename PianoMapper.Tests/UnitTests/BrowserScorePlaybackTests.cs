@@ -22,6 +22,21 @@ public sealed class BrowserScorePlaybackTests
     }
 
     [Fact]
+    public async Task StartAsync_ExplicitAudioClockAnchor_SchedulesFromThatAnchor()
+    {
+        var audio = new FakeScoreAudio(TimeSpan.FromSeconds(10));
+        var playback = new BrowserScorePlayback(audio);
+        TimeSpan anchor = TimeSpan.FromSeconds(42.25);
+
+        await playback.StartAsync(CreateScore(beatOffset: 2), anchor);
+
+        BrowserScoreAudioEvent scheduledEvent = Assert.Single(audio.ScheduledEvents);
+        Assert.Equal(TimeSpan.FromSeconds(43.25), scheduledEvent.StartTime);
+        ScoreCursorAnchor cursorAnchor = Assert.IsType<ScoreCursorAnchor>(playback.GetCursorAnchor());
+        Assert.Equal(anchor.TotalSeconds, cursorAnchor.AnchorSeconds, 6);
+    }
+
+    [Fact]
     public async Task StartAsync_OctaveShiftedScore_SchedulesSoundingFrequency()
     {
         var audio = new FakeScoreAudio(TimeSpan.FromSeconds(10));

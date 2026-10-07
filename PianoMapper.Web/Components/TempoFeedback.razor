@@ -1,5 +1,8 @@
 <div class="tempo-feedback" aria-live="polite">
-    <span class="metronome-pulse" data-metronome-pulse aria-hidden="true"></span>
+    @if (ShowPulse)
+    {
+        <span class="metronome-pulse" data-metronome-pulse aria-hidden="true"></span>
+    }
     @if (Feedback.LastAlignment is { } alignment &&
         Feedback.MedianDeviation is { } medianDeviation)
     {
@@ -10,10 +13,6 @@
             @Feedback.OnTimeCount/@Feedback.TotalCount on time · median
             @FormatSignedMilliseconds(medianDeviation)
         </span>
-    }
-    else
-    {
-        <span class="tempo-feedback-stats">Play a note to check your timing.</span>
     }
 </div>
 
@@ -47,4 +46,7 @@
 
     [Parameter, EditorRequired]
     public TempoFeedbackTracker Feedback { get; set; } = null!;
+
+    [Parameter]
+    public bool ShowPulse { get; set; } = true;
 }

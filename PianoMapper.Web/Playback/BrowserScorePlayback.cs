@@ -14,8 +14,20 @@ internal sealed class BrowserScorePlayback(IBrowserScoreAudio audio)
 
     internal async ValueTask StartAsync(Score score, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(score);
+        TimeSpan audioClockAnchor = await audio.GetCurrentTimeAsync(cancellationToken) + SchedulingLead;
+        await StartAsync(score, audioClockAnchor, cancellationToken);
+    }
+
+    /// <summary>Schedules playback from an explicit Web Audio anchor, so another audio track can share its grid.</summary>
+    internal async ValueTask StartAsync(
+        Score score,
+        TimeSpan audioClockAnchor,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(score);
         await audio.StopScoreAsync(cancellationToken);
-        anchor = await audio.GetCurrentTimeAsync(cancellationToken) + SchedulingLead;
+        anchor = audioClockAnchor;
         tempo = score.Tempo;
         var schedule = ScorePlayback.CreateSchedule(score, anchor.Value);
         var audioEvents = schedule.Select((scheduledEvent, index) =>

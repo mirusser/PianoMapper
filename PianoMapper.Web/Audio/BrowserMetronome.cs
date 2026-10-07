@@ -14,10 +14,11 @@ internal sealed class BrowserMetronome(IBrowserMetronomeAudio audio)
     internal async ValueTask StartAsync(
         TimeSignature timeSignature,
         Tempo tempo,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        MetronomeOptions? options = null)
     {
         TimeSpan anchor = await audio.GetCurrentTimeAsync(cancellationToken) + SchedulingLead;
-        await StartAsync(timeSignature, tempo, anchor, cancellationToken);
+        await StartAsync(timeSignature, tempo, anchor, cancellationToken, options);
     }
 
     /// <summary>
@@ -28,14 +29,20 @@ internal sealed class BrowserMetronome(IBrowserMetronomeAudio audio)
         TimeSignature timeSignature,
         Tempo tempo,
         TimeSpan anchor,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        MetronomeOptions? options = null)
     {
+        options ??= new MetronomeOptions();
+        options.Validate();
         var grid = new MetronomeGrid(anchor, tempo, timeSignature);
+        MetronomeAccentPattern accentPattern = MetronomeAccentPattern.Create(grid, options.GroupLengths);
         await audio.StartMetronomeAsync(
             grid.Anchor,
             grid.BeatDuration,
             grid.TimeSignature.Numerator,
-            grid.BeatsPerGroup,
+            accentPattern.GroupStartBeatIndices,
+            options.Volume,
+            options.Timbre,
             cancellationToken);
         Grid = grid;
     }
@@ -44,5 +51,17 @@ internal sealed class BrowserMetronome(IBrowserMetronomeAudio audio)
     {
         await audio.StopMetronomeAsync(cancellationToken);
         Grid = null;
+    }
+
+    /// <summary>Changes the sound of an active grid without moving its beat positions.</summary>
+    internal ValueTask SetSoundAsync(
+        double volume,
+        MetronomeTimbre timbre,
+        CancellationToken cancellationToken = default)
+    {
+        new MetronomeOptions { Volume = volume, Timbre = timbre }.Validate();
+        return IsRunning
+            ? audio.SetMetronomeSoundAsync(volume, timbre, cancellationToken)
+            : ValueTask.CompletedTask;
     }
 }

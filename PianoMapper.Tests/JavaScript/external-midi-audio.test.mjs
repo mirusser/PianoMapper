@@ -13,6 +13,7 @@ import {
     noteOff,
     noteOn,
     scheduleScore,
+    setMetronomeSound,
     setSoundSource,
     startMetronome,
     stopMetronome,
@@ -163,13 +164,24 @@ test("metronome pulse marks every beat indicator on the page and clears them tog
     const originalFetch = Object.getOwnPropertyDescriptor(globalThis, "fetch");
     const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
     const indicators = [createFakeIndicator(), createFakeIndicator()];
+    const beatLabels = [{ textContent: "Beat —" }, { textContent: "Beat —" }];
+    const beatCurrent = [{ textContent: "—" }, { textContent: "—" }];
+    const beatTotal = [{ textContent: "—" }, { textContent: "—" }];
     const timers = [];
     Object.defineProperty(globalThis, "document", {
         configurable: true,
         value: {
             cookie: "",
             querySelector: () => null,
-            querySelectorAll: selector => selector === "[data-metronome-pulse]" ? indicators : [],
+            querySelectorAll: selector => selector === "[data-metronome-pulse]"
+                ? indicators
+                : selector === "[data-metronome-beat]"
+                    ? beatLabels
+                    : selector === "[data-metronome-beat-current]"
+                        ? beatCurrent
+                        : selector === "[data-metronome-beat-total]"
+                            ? beatTotal
+                            : [],
         },
     });
     Object.defineProperty(globalThis, "fetch", {
@@ -206,6 +218,10 @@ test("metronome pulse marks every beat indicator on the page and clears them tog
             assert.ok(indicator.classes.has("metronome-pulse-active"));
             assert.ok(indicator.classes.has("metronome-pulse-downbeat"));
         }
+        assert.deepEqual(beatLabels.map(label => label.textContent), ["Beat 1 of 4", "Beat 1 of 4"]);
+        assert.deepEqual(beatCurrent.map(label => label.textContent), [1, 1]);
+        assert.deepEqual(beatTotal.map(label => label.textContent), [4, 4]);
+        assert.ok(indicators.every(indicator => indicator.styles.get("--metronome-beat-progress") === "0.25"));
 
         stopMetronome();
 
@@ -236,14 +252,16 @@ test("metronome accents the downbeat strongest and each beat group start in 6/8 
             arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
         }),
     });
+    const intervalCallbacks = [];
     Object.defineProperty(globalThis, "window", {
         configurable: true,
         value: {
             AudioContext: FakeAudioContext,
             clearInterval() {},
             clearTimeout() {},
-            setInterval() {
-                return 1;
+            setInterval(callback) {
+                intervalCallbacks.push(callback);
+                return intervalCallbacks.length;
             },
             setTimeout() {
                 return 1;
@@ -255,12 +273,12 @@ test("metronome accents the downbeat strongest and each beat group start in 6/8 
         await initialize();
 
         createdClicks.length = 0;
-        startMetronome(2, 0.01, 6, 3);
+        startMetronome(2, 0.01, 6, [0, 3]);
         const compound = createdClicks.slice(0, 12).map(click => click.frequency);
         stopMetronome();
 
         createdClicks.length = 0;
-        startMetronome(2, 0.01, 4, 1);
+        startMetronome(2, 0.01, 4, [0]);
         const simple = createdClicks.slice(0, 8).map(click => click.frequency);
         stopMetronome();
 
@@ -273,6 +291,30 @@ test("metronome accents the downbeat strongest and each beat group start in 6/8 
             downbeat, ordinary, ordinary, ordinary,
             downbeat, ordinary, ordinary, ordinary,
         ]);
+
+        createdClicks.length = 0;
+        startMetronome(2, 0.01, 5, [0, 2], 0.6, "triangle");
+        const irregular = createdClicks.slice(0, 10);
+        stopMetronome();
+
+        assert.deepEqual(irregular.map(click => click.frequency), [
+            downbeat, ordinary, groupStart, ordinary, ordinary,
+            downbeat, ordinary, groupStart, ordinary, ordinary,
+        ]);
+        assert.ok(irregular.every(click => click.type === "triangle"));
+        assert.equal(irregular[0].peakGain, 0.33);
+
+        createdClicks.length = 0;
+        startMetronome(2.5, 0.5, 4);
+        setMetronomeSound(0.3, "triangle");
+        lastCreatedAudioContext.currentTime = 2.31;
+        intervalCallbacks.at(-1)();
+        assert.equal(createdClicks.length, 1);
+        const [liveSoundClick] = createdClicks;
+        stopMetronome();
+
+        assert.equal(liveSoundClick.type, "triangle");
+        assert.equal(liveSoundClick.peakGain, 0.165);
     } finally {
         stopMetronome();
         await disposeAudio();
@@ -284,23 +326,30 @@ test("metronome accents the downbeat strongest and each beat group start in 6/8 
 
 function createFakeIndicator() {
     const classes = new Set();
+    const styles = new Map();
     return {
         classes,
+        styles,
         classList: {
             add: (...names) => names.forEach(name => classes.add(name)),
             remove: (...names) => names.forEach(name => classes.delete(name)),
             toggle: (name, force) => (force ? classes.add(name) : classes.delete(name)),
         },
+        style: {
+            setProperty: (name, value) => styles.set(name, value),
+        },
     };
 }
 
 const createdClicks = [];
+let lastCreatedAudioContext;
 
 class FakeAudioContext {
     constructor() {
         this.currentTime = 2;
         this.destination = {};
         this.state = "running";
+        lastCreatedAudioContext = this;
     }
 
     createAnalyser() {
@@ -310,20 +359,25 @@ class FakeAudioContext {
     }
 
     createGain() {
+        const click = createdClicks.at(-1);
         return {
             connect() {},
             disconnect() {},
             gain: {
                 value: 0,
                 cancelScheduledValues() {},
-                exponentialRampToValueAtTime() {},
+                exponentialRampToValueAtTime(value) {
+                    if (click && value > 0.001) {
+                        click.peakGain = value;
+                    }
+                },
                 setValueAtTime() {},
             },
         };
     }
 
     createOscillator() {
-        const click = { frequency: undefined };
+        const click = { frequency: undefined, type: undefined, peakGain: undefined };
         createdClicks.push(click);
         return {
             connect() {},
@@ -332,6 +386,9 @@ class FakeAudioContext {
                 setValueAtTime(value) {
                     click.frequency = value;
                 },
+            },
+            set type(value) {
+                click.type = value;
             },
             start() {},
             stop() {},

@@ -146,7 +146,9 @@ internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio
         TimeSpan anchor,
         TimeSpan beatDuration,
         int beatsPerMeasure,
-        int beatsPerGroup,
+        IReadOnlyList<int> groupStartBeatIndices,
+        double volume,
+        MetronomeTimbre timbre,
         CancellationToken cancellationToken = default) =>
         GetInitializedModule().InvokeVoidAsync(
             "startMetronome",
@@ -154,10 +156,22 @@ internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio
             anchor.TotalSeconds,
             beatDuration.TotalSeconds,
             beatsPerMeasure,
-            beatsPerGroup);
+            groupStartBeatIndices,
+            volume,
+            timbre.ToString().ToLowerInvariant());
 
     public ValueTask StopMetronomeAsync(CancellationToken cancellationToken = default) =>
         GetInitializedModule().InvokeVoidAsync("stopMetronome", cancellationToken);
+
+    public ValueTask SetMetronomeSoundAsync(
+        double volume,
+        MetronomeTimbre timbre,
+        CancellationToken cancellationToken = default) =>
+        GetInitializedModule().InvokeVoidAsync(
+            "setMetronomeSound",
+            cancellationToken,
+            volume,
+            timbre.ToString().ToLowerInvariant());
 
     public async ValueTask DisposeAsync()
     {

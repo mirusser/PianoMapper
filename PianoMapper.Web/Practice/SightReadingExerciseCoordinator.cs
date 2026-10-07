@@ -10,7 +10,6 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     private readonly TimeProvider timeProvider = timeProvider ?? TimeProvider.System;
     private bool hasConsumedCurrentCompletionSummary;
     private TimeSpan countInAudioClockOrigin;
-    private long countInStartTimestamp;
     private TimeSpan countInDuration;
     private int? chosenTempoPulsesPerMinute;
     private PlayAlongOutcome? playAlongOutcome;
@@ -561,7 +560,8 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     /// Starts a one-measure count-in anchored to <paramref name="currentAudioClockTime"/> (from
     /// <c>AudioSession.GetCurrentTimeAsync</c>). While counting in, the session is intentionally *not* yet reset for
     /// real grading — the caller must not route note input to it — so a note played during the count-in can't
-    /// accidentally seed the lazy rhythm anchor. Call <see cref="TryCompleteCountIn"/> once the measure has elapsed.
+    /// accidentally seed the lazy rhythm anchor. Call <see cref="TryCompleteCountIn"/> with the same audio clock
+    /// once the measure has elapsed.
     /// </summary>
     internal void StartCountIn(TimeSpan currentAudioClockTime)
     {
@@ -571,42 +571,41 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
         }
 
         countInAudioClockOrigin = currentAudioClockTime;
-        countInStartTimestamp = timeProvider.GetTimestamp();
         countInDuration = MusicalTime.BeatsToDuration(Score.TimeSignature.Numerator, Score.Tempo);
         IsCountingIn = true;
     }
 
     /// <summary>
     /// Which count-in beat (1-based, clamped to the time signature's numerator) is currently due, for status text
-    /// like "3… 2… 1…". Mirrors <c>PracticeSession.CountInTicksDue</c>. Derives elapsed time from
-    /// <see cref="TimeProvider"/> rather than re-reading the audio clock on every poll, the same technique
-    /// <c>PracticeSession</c> already uses.
+    /// like "3… 2… 1…". The elapsed time comes from the Web Audio clock, the same clock that scheduled the click.
     /// </summary>
-    internal int CountInTicksDue
+    internal int GetCountInTicksDue(TimeSpan currentAudioClockTime)
     {
-        get
+        if (!IsCountingIn || Score is not { } score)
         {
-            if (!IsCountingIn || Score is not { } score)
-            {
-                return 0;
-            }
-
-            double elapsedBeats = MusicalTime.DurationToBeats(
-                timeProvider.GetElapsedTime(countInStartTimestamp),
-                score.Tempo);
-            return Math.Clamp((int)Math.Floor(elapsedBeats) + 1, 0, score.TimeSignature.Numerator);
+            return 0;
         }
+
+        TimeSpan elapsed = currentAudioClockTime - countInAudioClockOrigin;
+        if (elapsed < TimeSpan.Zero)
+        {
+            elapsed = TimeSpan.Zero;
+        }
+
+        double elapsedBeats = MusicalTime.DurationToBeats(elapsed, score.Tempo);
+        return Math.Clamp((int)Math.Floor(elapsedBeats) + 1, 0, score.TimeSignature.Numerator);
     }
 
     /// <summary>
-    /// Once a full measure has elapsed since <see cref="StartCountIn"/>, resets the session for real grading with
-    /// the count-in's end as the explicit rhythm anchor (see Task 15's <c>NoteReadingSession.Reset</c> overload) and
-    /// returns <see langword="true"/>. Returns <see langword="false"/> without side effects if not currently
-    /// counting in, or if the measure hasn't elapsed yet — safe to poll repeatedly from a ticker.
+    /// Once a full measure has elapsed on <paramref name="currentAudioClockTime"/> since
+    /// <see cref="StartCountIn"/>, resets the session for real grading with the count-in's end as the explicit rhythm
+    /// anchor (see Task 15's <c>NoteReadingSession.Reset</c> overload) and returns <see langword="true"/>. Returns
+    /// <see langword="false"/> without side effects if not currently counting in, or if the measure hasn't elapsed yet
+    /// — safe to poll repeatedly from a ticker.
     /// </summary>
-    internal bool TryCompleteCountIn(TimeSpan timingTolerance)
+    internal bool TryCompleteCountIn(TimeSpan currentAudioClockTime, TimeSpan timingTolerance)
     {
-        if (!IsCountingIn || timeProvider.GetElapsedTime(countInStartTimestamp) < countInDuration)
+        if (!IsCountingIn || currentAudioClockTime < countInAudioClockOrigin + countInDuration)
         {
             return false;
         }

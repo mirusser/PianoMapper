@@ -1021,7 +1021,7 @@ public sealed class SightReadingExerciseCoordinatorTests
         Assert.True(coordinator.ShouldClickSound);
 
         timeProvider.Advance(TimeSpan.FromSeconds(2));
-        Assert.True(coordinator.TryCompleteCountIn(Tolerance));
+        Assert.True(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(7), Tolerance));
 
         Assert.Equal(expectedAfterCountIn, coordinator.ShouldClickSound);
 
@@ -1154,7 +1154,7 @@ public sealed class SightReadingExerciseCoordinatorTests
         Assert.True(coordinator.ShouldClickSound);
 
         timeProvider.Advance(TimeSpan.FromSeconds(2));
-        Assert.True(coordinator.TryCompleteCountIn(Tolerance));
+        Assert.True(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(7), Tolerance));
 
         Assert.True(coordinator.ShouldClickSound);
         coordinator.SetClickWhilePlaying(false);
@@ -1831,10 +1831,10 @@ public sealed class SightReadingExerciseCoordinatorTests
         coordinator.StartCountIn(TimeSpan.FromSeconds(5));
 
         timeProvider.Advance(TimeSpan.FromMilliseconds(3999));
-        Assert.False(coordinator.TryCompleteCountIn(Tolerance));
+        Assert.False(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(8.999), Tolerance));
 
         timeProvider.Advance(TimeSpan.FromMilliseconds(1));
-        Assert.True(coordinator.TryCompleteCountIn(Tolerance));
+        Assert.True(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(9), Tolerance));
     }
 
     [Fact]
@@ -1990,7 +1990,7 @@ public sealed class SightReadingExerciseCoordinatorTests
 
         coordinator.StartCountIn(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(1, coordinator.CountInTicksDue);
+        Assert.Equal(1, coordinator.GetCountInTicksDue(TimeSpan.FromSeconds(5)));
     }
 
     [Fact]
@@ -2003,9 +2003,7 @@ public sealed class SightReadingExerciseCoordinatorTests
         coordinator.StartCountIn(TimeSpan.FromSeconds(5));
 
         // The tempo is pinned to 120 BPM (the pre-Task-5 default): one quarter-note beat is 500 ms.
-        timeProvider.Advance(TimeSpan.FromMilliseconds(500));
-
-        Assert.Equal(2, coordinator.CountInTicksDue);
+        Assert.Equal(2, coordinator.GetCountInTicksDue(TimeSpan.FromSeconds(5.5)));
     }
 
     [Fact]
@@ -2016,9 +2014,7 @@ public sealed class SightReadingExerciseCoordinatorTests
         coordinator.Generate(new Random(1), Tolerance);
         coordinator.StartCountIn(TimeSpan.FromSeconds(5));
 
-        timeProvider.Advance(TimeSpan.FromSeconds(10));
-
-        Assert.Equal(4, coordinator.CountInTicksDue);
+        Assert.Equal(4, coordinator.GetCountInTicksDue(TimeSpan.FromSeconds(15)));
     }
 
     [Fact]
@@ -2027,7 +2023,7 @@ public sealed class SightReadingExerciseCoordinatorTests
         var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
         coordinator.Generate(new Random(1), Tolerance);
 
-        Assert.Equal(0, coordinator.CountInTicksDue);
+        Assert.Equal(0, coordinator.GetCountInTicksDue(TimeSpan.Zero));
     }
 
     [Fact]
@@ -2040,7 +2036,7 @@ public sealed class SightReadingExerciseCoordinatorTests
         coordinator.StartCountIn(TimeSpan.FromSeconds(5));
         timeProvider.Advance(TimeSpan.FromMilliseconds(1999));
 
-        bool didComplete = coordinator.TryCompleteCountIn(Tolerance);
+        bool didComplete = coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(6.999), Tolerance);
 
         Assert.False(didComplete);
         Assert.True(coordinator.IsCountingIn);
@@ -2058,7 +2054,7 @@ public sealed class SightReadingExerciseCoordinatorTests
 
         // One 4/4 measure at 120 BPM is exactly 2 seconds; the anchor should land at 5s + 2s = 7s.
         timeProvider.Advance(TimeSpan.FromSeconds(2));
-        bool didComplete = coordinator.TryCompleteCountIn(Tolerance);
+        bool didComplete = coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(7), Tolerance);
 
         Assert.True(didComplete);
         Assert.False(coordinator.IsCountingIn);
@@ -2067,6 +2063,22 @@ public sealed class SightReadingExerciseCoordinatorTests
             firstNote.Pitch,
             TimeSpan.FromSeconds(7));
         Assert.Equal(Verdict.Correct, onTimeResult.Verdict);
+    }
+
+    [Fact]
+    public void TryCompleteCountIn_UsesTheAudioClockRatherThanTheWallClock()
+    {
+        var timeProvider = new FakeTimeProvider();
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession(), timeProvider);
+        coordinator.SetMode(NoteReadingMode.PitchAndRhythm);
+        coordinator.SetTempoPulsesPerMinute(120);
+        coordinator.Generate(new Random(1), Tolerance);
+        coordinator.StartCountIn(TimeSpan.FromSeconds(5));
+
+        timeProvider.Advance(TimeSpan.FromSeconds(10));
+
+        Assert.False(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(6.999), Tolerance));
+        Assert.True(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(7), Tolerance));
     }
 
     [Fact]
@@ -2081,7 +2093,7 @@ public sealed class SightReadingExerciseCoordinatorTests
 
         // One 6/8 measure at "120" (eighth notes)/minute is 6 * 500 ms = 3 seconds, not the 4/4-style 2 seconds.
         timeProvider.Advance(TimeSpan.FromSeconds(3));
-        bool didComplete = coordinator.TryCompleteCountIn(Tolerance);
+        bool didComplete = coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(8), Tolerance);
 
         Assert.True(didComplete);
         ScoreNote firstNote = coordinator.Score!.Measures[0].Notes[0];
@@ -2097,7 +2109,7 @@ public sealed class SightReadingExerciseCoordinatorTests
         var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
         coordinator.Generate(new Random(1), Tolerance);
 
-        bool didComplete = coordinator.TryCompleteCountIn(Tolerance);
+        bool didComplete = coordinator.TryCompleteCountIn(TimeSpan.Zero, Tolerance);
 
         Assert.False(didComplete);
     }
@@ -2112,7 +2124,7 @@ public sealed class SightReadingExerciseCoordinatorTests
 
         coordinator.CancelCountIn();
         timeProvider.Advance(TimeSpan.FromSeconds(10));
-        bool didComplete = coordinator.TryCompleteCountIn(Tolerance);
+        bool didComplete = coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(15), Tolerance);
 
         Assert.False(coordinator.IsCountingIn);
         Assert.False(didComplete);
@@ -2486,9 +2498,11 @@ public sealed class SightReadingExerciseCoordinatorTests
         coordinator.StartCountIn(TimeSpan.FromSeconds(5));
 
         timeProvider.Advance(TimeSpan.FromSeconds(expectedSeconds - 0.1));
-        Assert.False(coordinator.TryCompleteCountIn(Tolerance));
+        Assert.False(coordinator.TryCompleteCountIn(
+            TimeSpan.FromSeconds(5 + expectedSeconds - 0.1),
+            Tolerance));
         timeProvider.Advance(TimeSpan.FromSeconds(0.1));
-        Assert.True(coordinator.TryCompleteCountIn(Tolerance));
+        Assert.True(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(5 + expectedSeconds), Tolerance));
     }
 
     [Fact]
@@ -2578,7 +2592,7 @@ public sealed class SightReadingExerciseCoordinatorTests
         coordinator.Generate(new Random(1), Tolerance);
         coordinator.StartCountIn(TimeSpan.FromSeconds(5));
         timeProvider.Advance(TimeSpan.FromSeconds(2));
-        Assert.True(coordinator.TryCompleteCountIn(Tolerance));
+        Assert.True(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(7), Tolerance));
         Assert.True(coordinator.ShouldClickSound);
 
         coordinator.SetMode(NoteReadingMode.PitchAndOrder);
@@ -2598,7 +2612,7 @@ public sealed class SightReadingExerciseCoordinatorTests
         coordinator.SetMode(NoteReadingMode.PitchAndOrder);
         timeProvider.Advance(TimeSpan.FromSeconds(2));
 
-        Assert.True(coordinator.TryCompleteCountIn(Tolerance));
+        Assert.True(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(7), Tolerance));
 
         // The count-in ends at 7 s; 300 ms after that is late when the beat is graded and fine when it is not.
         ScoreNote firstNote = coordinator.Score!.Measures[0].Notes[0];

@@ -114,7 +114,9 @@ public sealed class ExerciseClickTests
             TimeSpan anchor,
             TimeSpan beatDuration,
             int beatsPerMeasure,
-            int beatsPerGroup,
+            IReadOnlyList<int> groupStartBeatIndices,
+            double volume,
+            MetronomeTimbre timbre,
             CancellationToken cancellationToken = default)
         {
             BeatDuration = beatDuration;
@@ -127,5 +129,11 @@ public sealed class ExerciseClickTests
             StopCount++;
             return ValueTask.CompletedTask;
         }
+
+        public ValueTask SetMetronomeSoundAsync(
+            double volume,
+            MetronomeTimbre timbre,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
     }
 }

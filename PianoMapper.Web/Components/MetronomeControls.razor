@@ -8,7 +8,14 @@
     </button>
     @if (IsRunning)
     {
-        <TempoFeedback Feedback="Feedback" />
+        <div class="metronome-beacon" data-metronome-pulse aria-hidden="true">
+            <span class="metronome-beacon-label">Beat</span>
+            <span class="metronome-beacon-count">
+                <span data-metronome-beat-current>—</span><span class="metronome-beacon-separator">/</span><span data-metronome-beat-total>—</span>
+            </span>
+        </div>
+        <TempoFeedback Feedback="Feedback" ShowPulse="false" />
+        <span class="metronome-beat" data-metronome-beat>Beat —</span>
     }
 </div>
 

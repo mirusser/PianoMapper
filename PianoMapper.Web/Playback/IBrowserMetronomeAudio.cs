@@ -1,3 +1,5 @@
+using PianoMapper.Web.Audio;
+
 namespace PianoMapper.Web.Playback;
 
 internal interface IBrowserMetronomeAudio
@@ -8,7 +10,14 @@ internal interface IBrowserMetronomeAudio
         TimeSpan anchor,
         TimeSpan beatDuration,
         int beatsPerMeasure,
-        int beatsPerGroup,
+        IReadOnlyList<int> groupStartBeatIndices,
+        double volume,
+        MetronomeTimbre timbre,
+        CancellationToken cancellationToken = default);
+
+    ValueTask SetMetronomeSoundAsync(
+        double volume,
+        MetronomeTimbre timbre,
         CancellationToken cancellationToken = default);
 
     ValueTask StopMetronomeAsync(CancellationToken cancellationToken = default);

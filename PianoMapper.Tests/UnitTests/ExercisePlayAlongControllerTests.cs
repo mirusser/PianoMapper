@@ -25,17 +25,32 @@ public sealed class ExercisePlayAlongControllerTests
     }
 
     [Fact]
-    public async Task StartAsync_ClickSettingOff_UsesThePracticeCountInBeepsAndNoMetronome()
+    public async Task StartAsync_ClickSettingOff_UsesMetronomeForCountIn()
     {
         Fixture fixture = CreateFixture();
         fixture.Exercise.SetClickWhilePlaying(false);
 
         await fixture.Controller.StartAsync(Tolerance);
 
-        Assert.Equal(4, fixture.Audio.ScheduledEvents.Count);
-        Assert.False(fixture.MetronomeAudio.IsRunning);
-        Assert.False(fixture.Click.IsRunning);
+        Assert.Empty(fixture.Audio.ScheduledEvents);
+        Assert.True(fixture.MetronomeAudio.IsRunning);
+        Assert.True(fixture.Click.IsRunning);
         Assert.Equal(PracticeSessionState.CountingIn, fixture.Practice.State);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ClickSettingOff_StopsClickWhenTheGradedRunStarts()
+    {
+        Fixture fixture = CreateFixture();
+        fixture.Exercise.SetClickWhilePlaying(false);
+        await fixture.Controller.StartAsync(Tolerance);
+        fixture.Audio.CurrentTime = fixture.Practice.PracticeAnchor;
+
+        await fixture.Controller.UpdateAsync();
+
+        Assert.Equal(PracticeSessionState.Running, fixture.Practice.State);
+        Assert.False(fixture.Click.IsRunning);
+        Assert.False(fixture.MetronomeAudio.IsRunning);
     }
 
     [Fact]
@@ -509,7 +524,9 @@ public sealed class ExercisePlayAlongControllerTests
             TimeSpan anchor,
             TimeSpan beatDuration,
             int beatsPerMeasure,
-            int beatsPerGroup,
+            IReadOnlyList<int> groupStartBeatIndices,
+            double volume,
+            MetronomeTimbre timbre,
             CancellationToken cancellationToken = default)
         {
             IsRunning = true;
@@ -524,6 +541,12 @@ public sealed class ExercisePlayAlongControllerTests
             IsRunning = false;
             return ValueTask.CompletedTask;
         }
+
+        public ValueTask SetMetronomeSoundAsync(
+            double volume,
+            MetronomeTimbre timbre,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
     }
 
     private sealed class FakePracticeAudio(TimeSpan currentTime) : IBrowserScoreAudio

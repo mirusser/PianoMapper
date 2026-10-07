@@ -8,7 +8,7 @@ namespace PianoMapper.Tests.UnitTests;
 public sealed class BrowserPracticeCoordinatorTests
 {
     [Fact]
-    public async Task StartAsync_Score_SchedulesCountInOnAudioClock()
+    public async Task StartAsync_Score_DoesNotScheduleItsOwnCountInClicks()
     {
         var audio = new FakePracticeAudio(TimeSpan.FromSeconds(10));
         var coordinator = new BrowserPracticeCoordinator(audio, new NoteTimeline());
@@ -18,12 +18,7 @@ public sealed class BrowserPracticeCoordinatorTests
 
         Assert.Equal(PracticeSessionState.CountingIn, coordinator.State);
         Assert.Equal(TimeSpan.FromSeconds(12.05), coordinator.PracticeAnchor);
-        Assert.Collection(
-            audio.ScheduledEvents,
-            scoreEvent => Assert.Equal(TimeSpan.FromSeconds(10.05), scoreEvent.StartTime),
-            scoreEvent => Assert.Equal(TimeSpan.FromSeconds(10.55), scoreEvent.StartTime),
-            scoreEvent => Assert.Equal(TimeSpan.FromSeconds(11.05), scoreEvent.StartTime),
-            scoreEvent => Assert.Equal(TimeSpan.FromSeconds(11.55), scoreEvent.StartTime));
+        Assert.Empty(audio.ScheduledEvents);
     }
 
     [Fact]
@@ -92,22 +87,6 @@ public sealed class BrowserPracticeCoordinatorTests
 
         await coordinator.AbortAsync();
         Assert.Empty(coordinator.GetNextPitches());
-    }
-
-    [Fact]
-    public async Task StartAsync_WithoutCountInClicks_SchedulesNoClicksButKeepsTheAnchor()
-    {
-        var audio = new FakePracticeAudio(TimeSpan.FromSeconds(10));
-        var coordinator = new BrowserPracticeCoordinator(audio, new NoteTimeline());
-
-        await coordinator.StartAsync(
-            CreateScore(),
-            new GradingOptions(),
-            new PracticeRunOptions { ScheduleCountInClicks = false });
-
-        Assert.Equal(PracticeSessionState.CountingIn, coordinator.State);
-        Assert.Equal(TimeSpan.FromSeconds(12.05), coordinator.PracticeAnchor);
-        Assert.Empty(audio.ScheduledEvents);
     }
 
     [Fact]

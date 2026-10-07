@@ -35,10 +35,9 @@ internal sealed class ExercisePlayAlongController(
     internal IReadOnlyList<Pitch> GetNextPitches() => practice.GetNextPitches();
 
     /// <summary>
-    /// Starts the run for the current exercise. Rhythm-only runs ignore which key was played. With the exercise's
-    /// click on, the metronome is the one click track: it starts exactly at the run's start (so its beat after the
-    /// one-measure count-in is the graded anchor) and the practice engine adds no beeps of its own; with it off the
-    /// practice engine beeps its count-in as it always has.
+    /// Starts the run for the current exercise. Rhythm-only runs ignore which key was played. The metronome is the
+    /// one click track: it starts one measure before the graded anchor, so its next downbeat is exactly the start of
+    /// the run. The user's click preference decides whether it continues after that count-in.
     /// </summary>
     internal async ValueTask StartAsync(
         TimeSpan onTimeTolerance,
@@ -57,18 +56,10 @@ internal sealed class ExercisePlayAlongController(
             IgnorePitch = exercise.RunMode == NoteReadingMode.RhythmOnly,
         };
         hasCompletedRun = false;
-        bool metronomeOwnsTheClick = exercise.ClickWhilePlaying;
-        await practice.StartAsync(
-            score,
-            gradingOptions,
-            new PracticeRunOptions { ScheduleCountInClicks = !metronomeOwnsTheClick },
-            cancellationToken);
-        if (metronomeOwnsTheClick)
-        {
-            TimeSpan runStart = practice.PracticeAnchor -
-                MusicalTime.BeatsToDuration(score.TimeSignature.Numerator, score.Tempo);
-            await click.StartAsync(score, runStart, cancellationToken);
-        }
+        await practice.StartAsync(score, gradingOptions, cancellationToken);
+        TimeSpan runStart = practice.PracticeAnchor -
+            MusicalTime.BeatsToDuration(score.TimeSignature.Numerator, score.Tempo);
+        await click.StartAsync(score, runStart, cancellationToken);
     }
 
     /// <summary>
@@ -77,7 +68,15 @@ internal sealed class ExercisePlayAlongController(
     /// </summary>
     internal async ValueTask<bool> UpdateAsync(CancellationToken cancellationToken = default)
     {
+        PracticeSessionState stateBeforeUpdate = practice.State;
         await practice.UpdateAsync(cancellationToken);
+        if (stateBeforeUpdate == PracticeSessionState.CountingIn &&
+            practice.State == PracticeSessionState.Running &&
+            !exercise.ClickWhilePlaying)
+        {
+            await click.StopAsync(cancellationToken);
+        }
+
         if (practice.State == PracticeSessionState.Finished &&
             !hasCompletedRun &&
             practice.Result is { } result &&

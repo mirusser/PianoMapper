@@ -34,7 +34,9 @@ let metronomeInterval;
 let metronomeAnchorSeconds;
 let metronomeSecondsPerBeat;
 let metronomeBeatsPerMeasure;
-let metronomeBeatsPerGroup = 1;
+let metronomeGroupStartBeatIndices = [0];
+let metronomeVolume = 1;
+let metronomeTimbre = "sine";
 let nextMetronomeBeatIndex;
 
 const attackSeconds = 0.012;
@@ -231,14 +233,32 @@ export function stopScore() {
     }
 }
 
-export function startMetronome(anchorSeconds, secondsPerBeat, beatsPerMeasure, beatsPerGroup = 1) {
+export function startMetronome(
+    anchorSeconds,
+    secondsPerBeat,
+    beatsPerMeasure,
+    groupStartBeatIndices = [0],
+    volume = 1,
+    timbre = "sine") {
     ensureReady();
     stopMetronome();
 
     metronomeAnchorSeconds = anchorSeconds;
     metronomeSecondsPerBeat = secondsPerBeat;
     metronomeBeatsPerMeasure = beatsPerMeasure;
-    metronomeBeatsPerGroup = beatsPerGroup;
+    metronomeGroupStartBeatIndices = Array.isArray(groupStartBeatIndices) && groupStartBeatIndices.length > 0
+        ? groupStartBeatIndices.filter(index => Number.isInteger(index) && index >= 0 && index < beatsPerMeasure)
+        : Number.isInteger(groupStartBeatIndices) && groupStartBeatIndices > 0
+            ? Array.from(
+                { length: Math.ceil(beatsPerMeasure / groupStartBeatIndices) },
+                (_, group) => group * groupStartBeatIndices)
+            : [0];
+    if (metronomeGroupStartBeatIndices.length === 0) {
+        metronomeGroupStartBeatIndices = [0];
+    }
+
+    metronomeVolume = Math.min(1, Math.max(0, volume));
+    metronomeTimbre = timbre === "triangle" ? "triangle" : "sine";
     nextMetronomeBeatIndex = Math.max(
         0,
         Math.ceil((audioContext.currentTime - anchorSeconds) / secondsPerBeat));
@@ -246,6 +266,12 @@ export function startMetronome(anchorSeconds, secondsPerBeat, beatsPerMeasure, b
     metronomeInterval = window.setInterval(
         scheduleMetronomeClicks,
         metronomeSchedulerIntervalMilliseconds);
+}
+
+export function setMetronomeSound(volume, timbre) {
+    ensureReady();
+    metronomeVolume = Math.min(1, Math.max(0, volume));
+    metronomeTimbre = timbre === "triangle" ? "triangle" : "sine";
 }
 
 export function stopMetronome() {
@@ -286,24 +312,24 @@ function scheduleMetronomeClicks() {
         }
 
         const isDownbeat = nextMetronomeBeatIndex % metronomeBeatsPerMeasure === 0;
-        const isGroupStart = metronomeBeatsPerGroup > 1 &&
-            !isDownbeat &&
-            nextMetronomeBeatIndex % metronomeBeatsPerGroup === 0;
+        const beatInMeasure = nextMetronomeBeatIndex % metronomeBeatsPerMeasure;
+        const isGroupStart = !isDownbeat && metronomeGroupStartBeatIndices.includes(beatInMeasure);
         scheduleMetronomeClick(
             Math.max(clickTime, audioContext.currentTime),
             isDownbeat,
-            isGroupStart);
+            isGroupStart,
+            nextMetronomeBeatIndex);
         nextMetronomeBeatIndex++;
     }
 }
 
-function scheduleMetronomeClick(startTime, isDownbeat, isGroupStart = false) {
+function scheduleMetronomeClick(startTime, isDownbeat, isGroupStart = false, beatIndex = 0) {
     const oscillator = audioContext.createOscillator();
     const envelope = audioContext.createGain();
     // Downbeat strongest, a beat group's start (6/8: beats 1 and 4) in between, every other beat plainest.
-    const peakGain = isDownbeat ? 0.55 : isGroupStart ? 0.45 : 0.35;
+    const peakGain = (isDownbeat ? 0.55 : isGroupStart ? 0.45 : 0.35) * metronomeVolume;
     const frequency = isDownbeat ? 1760 : isGroupStart ? 1540 : 1320;
-    oscillator.type = "sine";
+    oscillator.type = metronomeTimbre;
     oscillator.frequency.setValueAtTime(frequency, startTime);
     envelope.gain.setValueAtTime(0.0001, startTime);
     envelope.gain.exponentialRampToValueAtTime(peakGain, startTime + 0.002);
@@ -319,14 +345,14 @@ function scheduleMetronomeClick(startTime, isDownbeat, isGroupStart = false) {
         envelope.disconnect();
     };
     click.pulseTimer = window.setTimeout(
-        () => pulseMetronome(click, isDownbeat),
+        () => pulseMetronome(click, isDownbeat, beatIndex),
         Math.max(0, (startTime - audioContext.currentTime) * 1000));
     oscillator.start(startTime);
     oscillator.stop(startTime + metronomeClickDurationSeconds);
 }
 
-function pulseMetronome(click, isDownbeat) {
-    // The beat indicator can be on the page twice (the Timing card and the exercise panel): pulse them together.
+function pulseMetronome(click, isDownbeat, beatIndex) {
+    // The beat indicator can be on the page twice (the Timing card and the exercise panel): update them together.
     const pulses = document.querySelectorAll("[data-metronome-pulse]");
     if (pulses.length === 0) {
         return;
@@ -335,6 +361,23 @@ function pulseMetronome(click, isDownbeat) {
     for (const pulse of pulses) {
         pulse.classList.toggle("metronome-pulse-downbeat", isDownbeat);
         pulse.classList.add("metronome-pulse-active");
+    }
+
+    const beatDetails = getMetronomeBeat(beatIndex);
+    for (const label of document.querySelectorAll("[data-metronome-beat]")) {
+        label.textContent = `Beat ${beatDetails.current} of ${beatDetails.total}`;
+    }
+
+    for (const current of document.querySelectorAll("[data-metronome-beat-current]")) {
+        current.textContent = beatDetails.current;
+    }
+
+    for (const total of document.querySelectorAll("[data-metronome-beat-total]")) {
+        total.textContent = beatDetails.total;
+    }
+
+    for (const pulse of pulses) {
+        pulse.style.setProperty("--metronome-beat-progress", `${beatDetails.current / beatDetails.total}`);
     }
 
     click.pulseClearTimer = window.setTimeout(
@@ -346,6 +389,26 @@ function clearMetronomePulse() {
     for (const pulse of document.querySelectorAll("[data-metronome-pulse]")) {
         pulse.classList.remove("metronome-pulse-active", "metronome-pulse-downbeat");
     }
+}
+
+function getMetronomeBeat(beatIndex) {
+    const beatInMeasure = beatIndex % metronomeBeatsPerMeasure;
+    let groupStart = 0;
+    let nextGroupStart = metronomeBeatsPerMeasure;
+    for (let index = 0; index < metronomeGroupStartBeatIndices.length; index++) {
+        const candidate = metronomeGroupStartBeatIndices[index];
+        if (candidate > beatInMeasure) {
+            nextGroupStart = candidate;
+            break;
+        }
+
+        groupStart = candidate;
+    }
+
+    return {
+        current: beatInMeasure - groupStart + 1,
+        total: nextGroupStart - groupStart,
+    };
 }
 
 function createNote(noteId, frequency, velocity, startTime) {

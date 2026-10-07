@@ -53,6 +53,12 @@ public sealed record SightReadingExercisePresentation
 
     public required bool ClickWhilePlaying { get; init; }
 
+    /// <summary>
+    /// False while a timing-graded exercise is running, because changing the audible click then could make it disagree
+    /// with the run's fixed grading anchor.
+    /// </summary>
+    public required bool CanChangeClickWhilePlaying { get; init; }
+
     public required bool CoachHints { get; init; }
 
     public required bool AutoNext { get; init; }

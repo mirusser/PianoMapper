@@ -94,6 +94,12 @@
                                             disabled="@(!AudioSession.IsInitialized)">
                                         Play / restart <kbd>P</kbd>
                                     </button>
+                                    <label class="control-checkbox">
+                                        <input type="checkbox"
+                                               @bind="playScoreWithClick"
+                                               disabled="@ScorePlaybackSession.IsActive" />
+                                        Play with click
+                                    </label>
                                     <button type="button" @onclick="ShowPreviousMeasures" disabled="@(!CanShowPreviousMeasures)">
                                         Previous <kbd>[</kbd>
                                     </button>
@@ -322,62 +328,127 @@
                 <h2 id="timing-controls-heading">Timing &amp; metronome</h2>
                 <span>@TimingLabel</span>
             </summary>
-            <div class="timing-controls">
-                <label class="timing-field">
-                    <span>Beats per measure</span>
-                    <input type="number"
-                           min="@MinimumMeterNumerator"
-                           max="@MaximumMeterNumerator"
-                           step="1"
-                           value="@displayTimeSignature.Numerator"
-                           disabled="@IsSightReadingExerciseActive"
-                           @onchange="SelectMeterNumeratorAsync" />
-                </label>
-                <label class="timing-field">
-                    <span>One beat is a</span>
-                    <select value="@displayTimeSignature.BeatNoteValue.Denominator"
-                            disabled="@IsSightReadingExerciseActive"
-                            @onchange="SelectBeatNoteAsync">
-                        <option value="1">Whole note (1)</option>
-                        <option value="2">Half note (2)</option>
-                        <option value="4">Quarter note (4)</option>
-                        <option value="8">Eighth note (8)</option>
-                        <option value="16">Sixteenth note (16)</option>
-                    </select>
-                </label>
-                <label class="timing-field">
-                    <span>Tempo (BPM)</span>
-                    <input type="number"
-                           min="@MinimumTempoBeatsPerMinute"
-                           max="@MaximumTempoBeatsPerMinute"
-                           step="1"
-                           value="@TempoBeatsPerMinuteText"
-                           disabled="@IsSightReadingExerciseActive"
-                           @onchange="SelectTempoAsync" />
-                </label>
-                <label class="timing-field">
-                    <span>On-time tolerance</span>
-                    <select value="@OnTimeToleranceMilliseconds"
-                            @onchange="SelectOnTimeToleranceAsync">
-                        <option value="@StrictToleranceMilliseconds">Strict (30 ms)</option>
-                        <option value="@NormalToleranceMilliseconds">Normal (60 ms)</option>
-                        <option value="@RelaxedToleranceMilliseconds">Relaxed (100 ms)</option>
-                    </select>
-                </label>
+            <div class="timing-metronome-layout">
+                <section class="timing-section timing-grid-section" aria-label="Time grid">
+                    <div class="timing-section-heading">
+                        <span class="timing-section-kicker">Time grid</span>
+                        <p>Choose the written meter, tempo, and how close is counted as on time.</p>
+                    </div>
+                    <div class="timing-controls">
+                        <label class="timing-field">
+                            <span>Beats per measure</span>
+                            <input type="number"
+                                   min="@MinimumMeterNumerator"
+                                   max="@MaximumMeterNumerator"
+                                   step="1"
+                                   value="@displayTimeSignature.Numerator"
+                                   disabled="@IsSightReadingExerciseActive"
+                                   @onchange="SelectMeterNumeratorAsync" />
+                        </label>
+                        <label class="timing-field">
+                            <span>One beat is a</span>
+                            <select value="@displayTimeSignature.BeatNoteValue.Denominator"
+                                    disabled="@IsSightReadingExerciseActive"
+                                    @onchange="SelectBeatNoteAsync">
+                                <option value="1">Whole note (1)</option>
+                                <option value="2">Half note (2)</option>
+                                <option value="4">Quarter note (4)</option>
+                                <option value="8">Eighth note (8)</option>
+                                <option value="16">Sixteenth note (16)</option>
+                            </select>
+                        </label>
+                        <label class="timing-field">
+                            <span>Tempo (BPM)</span>
+                            <input type="number"
+                                   min="@MinimumTempoBeatsPerMinute"
+                                   max="@MaximumTempoBeatsPerMinute"
+                                   step="1"
+                                   value="@TempoBeatsPerMinuteText"
+                                   disabled="@IsSightReadingExerciseActive"
+                                   @onchange="SelectTempoAsync" />
+                        </label>
+                        <label class="timing-field">
+                            <span>On-time tolerance</span>
+                            <select value="@OnTimeToleranceMilliseconds"
+                                    @onchange="SelectOnTimeToleranceAsync">
+                                <option value="@StrictToleranceMilliseconds">Strict (30 ms)</option>
+                                <option value="@NormalToleranceMilliseconds">Normal (60 ms)</option>
+                                <option value="@RelaxedToleranceMilliseconds">Relaxed (100 ms)</option>
+                            </select>
+                        </label>
+                    </div>
+                    <p class="timing-section-note">
+                        Changing timing stops score or practice playback. A running manual click restarts on the new grid.
+                    </p>
+                </section>
+
+                <section class="timing-section manual-metronome-section" aria-label="Manual metronome">
+                    <div class="timing-section-heading">
+                        <span class="timing-section-kicker">Manual metronome</span>
+                        <p>Start a reference click, then use the pulse and count to stay oriented.</p>
+                    </div>
+                    <MetronomeControls IsRunning="@Metronome.IsRunning"
+                                        CanToggle="@CanToggleManualMetronome"
+                                        Feedback="@tempoFeedbackTracker"
+                                        Toggle="ToggleMetronomeAsync" />
+                    <div class="timing-controls metronome-options" aria-label="Manual metronome options">
+                        <label class="timing-field">
+                            <span>Click volume</span>
+                            <select value="@manualMetronomeVolume"
+                                    disabled="@(!CanChangeManualMetronomeSound)"
+                                    @onchange="SelectManualMetronomeVolume">
+                                <option value="0.3">Quiet</option>
+                                <option value="0.6">Medium</option>
+                                <option value="1">Full</option>
+                            </select>
+                        </label>
+                        <label class="timing-field">
+                            <span>Click timbre</span>
+                            <select value="@manualMetronomeTimbre"
+                                    disabled="@(!CanChangeManualMetronomeSound)"
+                                    @onchange="SelectManualMetronomeTimbre">
+                                <option value="@MetronomeTimbre.Sine">Soft</option>
+                                <option value="@MetronomeTimbre.Triangle">Bright</option>
+                            </select>
+                        </label>
+                        @if (ManualMetronomeGroupingOptions.Count > 0)
+                        {
+                            <label class="timing-field">
+                                <span>Beat grouping</span>
+                                <select value="@SelectedManualMetronomeGrouping"
+                                        disabled="@(!CanConfigureManualMetronome)"
+                                        @onchange="SelectManualMetronomeGrouping">
+                                    @foreach (ManualMetronomeGroupingOption grouping in ManualMetronomeGroupingOptions)
+                                    {
+                                        <option value="@grouping.Value">@grouping.Label</option>
+                                    }
+                                </select>
+                            </label>
+                        }
+                    </div>
+                    <div class="metronome-actions">
+                        <button type="button"
+                                @onclick="TapManualTempoAsync"
+                                disabled="@(!CanConfigureManualMetronome)">
+                            Tap tempo <span>(@manualTapTempoTracker.TapCount/4)</span>
+                        </button>
+                        <p>Tap four steady beats to set the tempo.</p>
+                    </div>
+                </section>
             </div>
-            <MetronomeControls IsRunning="@Metronome.IsRunning"
-                                CanToggle="@AudioSession.IsInitialized"
-                                Feedback="@tempoFeedbackTracker"
-                                Toggle="ToggleMetronomeAsync" />
-            <p class="control-note">
-                Timing changes stop score or practice playback. A running metronome restarts on the new beat grid.
-            </p>
             @if (IsSightReadingExerciseActive)
             {
-                <p class="control-note" role="status">
-                    The note reading exercise sets the beats, beat note and tempo while it is active. Change its
-                    tempo in the exercise panel, or end the exercise to edit them here.
-                </p>
+                <div class="timing-ownership" role="status">
+                    <strong>Exercise controls this clock</strong>
+                    <span>Change its tempo in the exercise panel, or end the exercise to edit it here.</span>
+                </div>
+            }
+            else if (ScorePlaybackSession.IsActive)
+            {
+                <div class="timing-ownership" role="status">
+                    <strong>Score playback controls the click</strong>
+                    <span>Stop playback before starting or changing the manual metronome.</span>
+                </div>
             }
             <details class="learning-disclosure">
                 <summary>Understand the timing controls</summary>
@@ -525,9 +596,21 @@
     private static readonly TimeSpan BrowserSchedulingLead = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan CanvasRefreshInterval = TimeSpan.FromMilliseconds(16);
     private static readonly TimeSpan AutoNextRefreshInterval = TimeSpan.FromMilliseconds(250);
+    private static readonly IReadOnlyList<ManualMetronomeGroupingOption> FiveEightGroupings =
+    [
+        new("2+3", "2 + 3", [2, 3]),
+        new("3+2", "3 + 2", [3, 2]),
+    ];
+    private static readonly IReadOnlyList<ManualMetronomeGroupingOption> SevenEightGroupings =
+    [
+        new("2+2+3", "2 + 2 + 3", [2, 2, 3]),
+        new("2+3+2", "2 + 3 + 2", [2, 3, 2]),
+        new("3+2+2", "3 + 2 + 2", [3, 2, 2]),
+    ];
 
     private readonly NoteTimeline noteTimeline = new();
     private readonly TempoFeedbackTracker tempoFeedbackTracker = new();
+    private readonly TapTempoTracker manualTapTempoTracker = new();
     private readonly BrowserKeyboardState keyboardState;
     private readonly BrowserNoteInputState noteInputState;
     private readonly BrowserMidiInputState midiInputState;
@@ -589,6 +672,10 @@
     private bool showNoteLabels = true;
     private bool showFingerings = true;
     private bool showNextKeyHints;
+    private bool playScoreWithClick;
+    private double manualMetronomeVolume = 1;
+    private MetronomeTimbre manualMetronomeTimbre = MetronomeTimbre.Sine;
+    private string manualMetronomeGrouping = "2+3";
     private int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount;
     private bool isFingeringEditing;
     private bool isFingeringGenerating;
@@ -621,6 +708,7 @@
         RevealFingeringWhileActive = sightReadingExerciseCoordinator.RevealFingeringWhileActive,
         RevealKeysWhileActive = sightReadingExerciseCoordinator.RevealKeysWhileActive,
         ClickWhilePlaying = sightReadingExerciseCoordinator.ClickWhilePlaying,
+        CanChangeClickWhilePlaying = !IsExerciseMetronomeLocked,
         CoachHints = sightReadingExerciseCoordinator.CoachHints,
         AutoNext = sightReadingExerciseCoordinator.AutoNext,
         AutoNextSecondsRemaining = sightReadingExerciseCoordinator.AutoNextRemaining is { } autoNextRemaining
@@ -658,8 +746,21 @@
         displayTempo.BeatsPerMinute.ToString("F0", CultureInfo.InvariantCulture);
 
     private string TimingLabel =>
-        $"{displayTimeSignature.Numerator}/{displayTimeSignature.BeatNoteValue.Denominator} · " +
-        $"{TempoBeatsPerMinuteText} BPM";
+        FormatTimingLabel(displayTimeSignature, displayTempo);
+
+    internal static string FormatTimingLabel(TimeSignature timeSignature, Tempo tempo)
+    {
+        string meter = $"{timeSignature.Numerator}/{timeSignature.BeatNoteValue.Denominator}";
+        string beatsPerMinute = tempo.BeatsPerMinute.ToString("F0", CultureInfo.InvariantCulture);
+        bool isCompoundEighthMeter = new MetronomeGrid(TimeSpan.Zero, tempo, timeSignature).BeatsPerGroup == 3;
+        if (!isCompoundEighthMeter)
+        {
+            return $"{meter} · {beatsPerMinute} BPM";
+        }
+
+        string dottedQuarterPulses = (tempo.BeatsPerMinute / 3).ToString("F0", CultureInfo.InvariantCulture);
+        return $"{meter} · {beatsPerMinute} eighth-note BPM ({dottedQuarterPulses} dotted-quarter pulses)";
+    }
 
     private int OnTimeToleranceMilliseconds => (int)onTimeTolerance.TotalMilliseconds;
 
@@ -693,6 +794,47 @@
     /// </summary>
     private bool IsSightReadingExerciseInProgress =>
         sightReadingExerciseCoordinator.Phase == SightReadingExercisePhase.Active;
+
+    private bool IsExerciseMetronomeLocked =>
+        sightReadingExerciseCoordinator.Phase == SightReadingExercisePhase.Active &&
+        SightReadingLabels.IsTimingGraded(sightReadingExerciseCoordinator.RunMode);
+
+    private bool CanToggleManualMetronome => CanToggleMetronome(
+        AudioSession.IsInitialized,
+        sightReadingExerciseCoordinator.Phase,
+        sightReadingExerciseCoordinator.RunMode,
+        ScorePlaybackSession.IsActive);
+
+    private bool CanConfigureManualMetronome => CanToggleManualMetronome && !Metronome.IsRunning;
+
+    private bool CanChangeManualMetronomeSound => CanToggleManualMetronome;
+
+    private IReadOnlyList<ManualMetronomeGroupingOption> ManualMetronomeGroupingOptions =>
+        displayTimeSignature.BeatNoteValue == new NoteValue(8)
+            ? displayTimeSignature.Numerator switch
+            {
+                5 => FiveEightGroupings,
+                7 => SevenEightGroupings,
+                _ => [],
+            }
+            : [];
+
+    private string SelectedManualMetronomeGrouping => ManualMetronomeGroupingOptions
+        .FirstOrDefault(grouping => grouping.Value == manualMetronomeGrouping)
+        ?.Value ?? ManualMetronomeGroupingOptions.FirstOrDefault()?.Value ?? string.Empty;
+
+    private IReadOnlyList<int>? ManualMetronomeGroupLengths => ManualMetronomeGroupingOptions
+        .FirstOrDefault(grouping => grouping.Value == SelectedManualMetronomeGrouping)
+        ?.GroupLengths;
+
+    internal static bool CanToggleMetronome(
+        bool isAudioInitialized,
+        SightReadingExercisePhase phase,
+        NoteReadingMode mode,
+        bool isScorePlaybackActive = false) =>
+        isAudioInitialized &&
+        !isScorePlaybackActive &&
+        !(phase == SightReadingExercisePhase.Active && SightReadingLabels.IsTimingGraded(mode));
 
     /// <summary>
     /// While the exercise is in progress, the exercise's own opt-in
@@ -1354,14 +1496,28 @@
         await AbortPracticeAsync(updateStatus: false);
         await visualizationTicker.StopAsync();
         await playbackTicker.StopAsync();
+        await StopExerciseClickAsync();
+        if (Metronome.IsRunning)
+        {
+            await StopMetronomeAsync();
+        }
+
         ResetNoteReadingSession();
         ResetScoreWindowPair();
-        await ScorePlaybackSession.StartAsync(score);
+        TimeSpan playbackAnchor = await AudioSession.GetCurrentTimeAsync() + BrowserSchedulingLead;
+        await ScorePlaybackSession.StartAsync(score, playbackAnchor);
+        if (playScoreWithClick && ScorePlaybackSession.IsActive)
+        {
+            await ExerciseClick.StartAsync(score, playbackAnchor);
+        }
+
         displayTimeSignature = score.TimeSignature;
         displayTempo = score.Tempo;
         RefreshCanvasScene(await AudioSession.GetCurrentTimeAsync());
         playbackTicker.Start(TickScorePlaybackAsync, CanvasRefreshInterval);
-        audioStatus = $"Playing {score.Title}, {SelectedMeasureRangeLabel}.";
+        audioStatus = playScoreWithClick
+            ? $"Playing {score.Title}, {SelectedMeasureRangeLabel}, with click."
+            : $"Playing {score.Title}, {SelectedMeasureRangeLabel}.";
     }
 
     private async Task PlayRandomMeasureAsync()
@@ -1446,7 +1602,10 @@
                 await RefreshNotationVisibilityAsync();
                 break;
             case SightReadingExerciseAction.SetClickWhilePlaying setClickWhilePlaying:
-                sightReadingExerciseCoordinator.SetClickWhilePlaying(setClickWhilePlaying.Value);
+                if (!IsExerciseMetronomeLocked)
+                {
+                    sightReadingExerciseCoordinator.SetClickWhilePlaying(setClickWhilePlaying.Value);
+                }
                 break;
             case SightReadingExerciseAction.SetCoachHints setCoachHints:
                 sightReadingExerciseCoordinator.SetCoachHints(setCoachHints.Value);
@@ -1661,7 +1820,7 @@
         await ExerciseClick.StartAsync(sightReadingExerciseCoordinator.Score!);
         sightReadingExerciseCoordinator.StartCountIn(Metronome.Grid!.Anchor);
         RefreshCanvasScene(currentTime);
-        audioStatus = $"Count-in: {sightReadingExerciseCoordinator.CountInTicksDue}…";
+        audioStatus = $"Count-in: {sightReadingExerciseCoordinator.GetCountInTicksDue(Metronome.Grid.Anchor)}…";
         sightReadingCountInTicker.Start(TickSightReadingCountInAsync, CanvasRefreshInterval);
     }
 
@@ -1729,8 +1888,8 @@
             return false;
         }
 
-        bool didComplete = sightReadingExerciseCoordinator.TryCompleteCountIn(onTimeTolerance);
         TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync(cancellationToken);
+        bool didComplete = sightReadingExerciseCoordinator.TryCompleteCountIn(currentTime, onTimeTolerance);
         RefreshCanvasScene(currentTime);
         if (didComplete)
         {
@@ -1743,7 +1902,7 @@
         }
         else
         {
-            audioStatus = $"Count-in: {sightReadingExerciseCoordinator.CountInTicksDue}…";
+            audioStatus = $"Count-in: {sightReadingExerciseCoordinator.GetCountInTicksDue(currentTime)}…";
         }
 
         await InvokeAsync(StateHasChanged);
@@ -1792,6 +1951,9 @@
         await practiceCoordinator.StartAsync(
             score,
             new GradingOptions { OnTimeTolerance = onTimeTolerance });
+        TimeSpan countInStart = practiceCoordinator.PracticeAnchor -
+            MusicalTime.BeatsToDuration(score.TimeSignature.Numerator, score.Tempo);
+        await ExerciseClick.StartAsync(score, countInStart);
         practiceTicker.Start(TickPracticeAsync, CanvasRefreshInterval);
         RefreshCanvasScene(currentTime);
         audioStatus = "Practice count-in started.";
@@ -1810,6 +1972,7 @@
     private async Task StopScorePlaybackAsync()
     {
         await playbackTicker.StopAsync();
+        await StopExerciseClickAsync();
         scheduledKeyboardNotes = [];
         scoreCursorState = null;
         secondaryScoreCursorState = null;
@@ -2006,12 +2169,58 @@
 
     private Task SelectTempoAsync(ChangeEventArgs eventArgs)
     {
+        manualTapTempoTracker.Reset();
         int beatsPerMinute = ParseClampedInteger(
             eventArgs,
             (int)displayTempo.BeatsPerMinute,
             MinimumTempoBeatsPerMinute,
             MaximumTempoBeatsPerMinute);
         return ApplyTimingAsync(displayTimeSignature, new Tempo(beatsPerMinute));
+    }
+
+    private async Task SelectManualMetronomeVolume(ChangeEventArgs eventArgs)
+    {
+        if (double.TryParse(eventArgs.Value?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out double volume))
+        {
+            manualMetronomeVolume = Math.Clamp(volume, 0, 1);
+            await UpdateManualMetronomeSoundAsync();
+        }
+    }
+
+    private async Task SelectManualMetronomeTimbre(ChangeEventArgs eventArgs)
+    {
+        if (Enum.TryParse(eventArgs.Value?.ToString(), ignoreCase: true, out MetronomeTimbre timbre))
+        {
+            manualMetronomeTimbre = timbre;
+            await UpdateManualMetronomeSoundAsync();
+        }
+    }
+
+    private ValueTask UpdateManualMetronomeSoundAsync() =>
+        CanChangeManualMetronomeSound
+            ? Metronome.SetSoundAsync(manualMetronomeVolume, manualMetronomeTimbre)
+            : ValueTask.CompletedTask;
+
+    private void SelectManualMetronomeGrouping(ChangeEventArgs eventArgs) =>
+        manualMetronomeGrouping = eventArgs.Value?.ToString() ?? manualMetronomeGrouping;
+
+    private async Task TapManualTempoAsync()
+    {
+        if (!CanConfigureManualMetronome)
+        {
+            return;
+        }
+
+        int? tappedTempo = manualTapTempoTracker.Register(await AudioSession.GetCurrentTimeAsync());
+        if (!tappedTempo.HasValue)
+        {
+            audioStatus = $"Tap {manualTapTempoTracker.TapCount} of 4 to set the tempo.";
+            return;
+        }
+
+        await ApplyTimingAsync(displayTimeSignature, new Tempo(tappedTempo.Value));
+        manualTapTempoTracker.Reset();
+        audioStatus = $"Tempo set to {tappedTempo.Value} BPM from your taps.";
     }
 
     private async Task SelectOnTimeToleranceAsync(ChangeEventArgs eventArgs)
@@ -2033,6 +2242,18 @@
 
     private async Task ToggleMetronomeAsync()
     {
+        if (ScorePlaybackSession.IsActive)
+        {
+            audioStatus = "Score playback controls the metronome until playback finishes.";
+            return;
+        }
+
+        if (IsExerciseMetronomeLocked)
+        {
+            audioStatus = "The timing exercise controls the metronome until the run is complete.";
+            return;
+        }
+
         if (Metronome.IsRunning)
         {
             await StopMetronomeAsync();
@@ -2048,7 +2269,15 @@
     private async Task StartMetronomeAsync()
     {
         tempoFeedbackTracker.Reset();
-        await Metronome.StartAsync(displayTimeSignature, displayTempo);
+        await Metronome.StartAsync(
+            displayTimeSignature,
+            displayTempo,
+            options: new MetronomeOptions
+            {
+                Volume = manualMetronomeVolume,
+                Timbre = manualMetronomeTimbre,
+                GroupLengths = ManualMetronomeGroupLengths,
+            });
     }
 
     private async Task StopMetronomeAsync()
@@ -2769,6 +2998,7 @@
 
         if (!ScorePlaybackSession.IsActive)
         {
+            await StopExerciseClickAsync();
             scoreCursorState = null;
             secondaryScoreCursorState = null;
             RefreshCanvasScene(currentTime);
@@ -2791,6 +3021,12 @@
         PracticeSessionState stateBeforeUpdate = practiceCoordinator.State;
         int countInTicksBeforeUpdate = practiceCoordinator.CountInTicksDue;
         await practiceCoordinator.UpdateAsync(cancellationToken);
+        if (stateBeforeUpdate == PracticeSessionState.CountingIn &&
+            practiceCoordinator.State == PracticeSessionState.Running)
+        {
+            await StopExerciseClickAsync();
+        }
+
         double? cursorBeats = practiceCoordinator.State is
             PracticeSessionState.Running or PracticeSessionState.Finished
                 ? practiceCoordinator.CursorBeats
@@ -3402,4 +3638,9 @@
             midiInputState.ActiveNoteCount,
             scheduledKeyboardNotes.Count > 0);
     }
+
+    private sealed record ManualMetronomeGroupingOption(
+        string Value,
+        string Label,
+        IReadOnlyList<int> GroupLengths);
 }

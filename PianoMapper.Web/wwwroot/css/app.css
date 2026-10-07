@@ -88,6 +88,10 @@ p {
 
 .timing-metronome-card {
     margin-bottom: 0.65rem;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at 86% 10%, rgb(101 232 240 / 10%), transparent 26rem),
+        rgb(27 21 52 / 88%);
 }
 
 .control-card,
@@ -498,6 +502,117 @@ select option {
     gap: 0.6rem;
 }
 
+.timing-metronome-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(18rem, 0.9fr);
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+}
+
+.timing-section {
+    display: grid;
+    gap: 0.8rem;
+    align-content: start;
+    padding: 0.95rem;
+    border: 1px solid #51436c;
+    border-radius: 0.7rem;
+    background: rgb(20 15 42 / 62%);
+}
+
+.manual-metronome-section {
+    border-color: #625384;
+    background: linear-gradient(145deg, rgb(43 33 78 / 78%), rgb(20 15 42 / 72%));
+}
+
+.timing-section-heading {
+    display: grid;
+    gap: 0.2rem;
+}
+
+.timing-section-kicker {
+    color: #65e8f0;
+    font-size: 0.68rem;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.timing-section-heading p,
+.timing-section-note,
+.metronome-actions p {
+    margin: 0;
+    color: #b9accf;
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
+.timing-section-note {
+    padding-top: 0.1rem;
+}
+
+.manual-metronome-section .metronome-controls {
+    min-height: 3.75rem;
+    margin: 0;
+    padding: 0.6rem 0.7rem;
+    border: 1px solid rgb(101 232 240 / 28%);
+    border-radius: 0.6rem;
+    background: rgb(7 28 43 / 35%);
+}
+
+.manual-metronome-section .metronome-toggle {
+    min-width: 9.75rem;
+    background: linear-gradient(135deg, #bd338f, #7147b8);
+}
+
+.manual-metronome-section .metronome-toggle:hover:not(:disabled) {
+    background: linear-gradient(135deg, #d946a9, #8455d2);
+}
+
+.metronome-options {
+    padding-top: 0.8rem;
+    border-top: 1px solid rgb(101 232 240 / 18%);
+}
+
+.metronome-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem 0.85rem;
+    align-items: center;
+}
+
+.metronome-actions button {
+    flex: 0 0 auto;
+    min-width: 9.75rem;
+}
+
+.metronome-actions button span {
+    color: #ded1eb;
+    font-variant-numeric: tabular-nums;
+}
+
+.metronome-actions p {
+    flex: 1 1 12rem;
+}
+
+.timing-ownership {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.65rem;
+    align-items: baseline;
+    margin-top: 0.75rem;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid rgb(251 200 109 / 45%);
+    border-radius: 0.6rem;
+    background: rgb(105 75 23 / 20%);
+    color: #ded1eb;
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
+.timing-ownership strong {
+    color: #fbc86d;
+}
+
 .timing-field {
     display: grid;
     gap: 0.4rem;
@@ -612,6 +727,85 @@ select option {
     flex: 0 0 auto;
 }
 
+.metronome-beat {
+    min-width: 5.75rem;
+    color: #b9accf;
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.metronome-beacon {
+    --metronome-beat-progress: 0;
+    position: relative;
+    display: grid;
+    place-content: center;
+    width: 4rem;
+    aspect-ratio: 1;
+    overflow: hidden;
+    border: 1px solid #65547e;
+    border-radius: 50%;
+    background: conic-gradient(
+        from -90deg,
+        #65e8f0 calc(var(--metronome-beat-progress) * 1turn),
+        #2b2144 0);
+    box-shadow: inset 0 0 0 0.32rem #17112d;
+    color: #f7eafa;
+    line-height: 1;
+    transition: border-color 90ms ease, box-shadow 90ms ease, transform 90ms ease;
+}
+
+.metronome-beacon::before {
+    position: absolute;
+    inset: 0.38rem;
+    border-radius: inherit;
+    background: #17112d;
+    content: "";
+}
+
+.metronome-beacon-label,
+.metronome-beacon-count {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+}
+
+.metronome-beacon-label {
+    margin-bottom: 0.18rem;
+    color: #b9accf;
+    font-size: 0.58rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.metronome-beacon-count {
+    margin-top: -0.05rem;
+    font-size: 1.1rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+
+.metronome-beacon-separator {
+    margin: 0 0.06rem;
+    color: #827396;
+}
+
+.metronome-beacon.metronome-pulse-active {
+    border-color: #65e8f0;
+    box-shadow: 0 0 1.15rem rgb(101 232 240 / 45%), inset 0 0 0 0.32rem #17112d;
+    transform: scale(1.07);
+}
+
+.metronome-beacon.metronome-pulse-active.metronome-pulse-downbeat {
+    border-color: #fbc86d;
+    background: conic-gradient(
+        from -90deg,
+        #fbc86d calc(var(--metronome-beat-progress) * 1turn),
+        #2b2144 0);
+    box-shadow: 0 0 1.3rem rgb(251 200 109 / 55%), inset 0 0 0 0.32rem #17112d;
+    transform: scale(1.12);
+}
+
 .tempo-feedback {
     display: flex;
     flex-wrap: wrap;
@@ -625,23 +819,58 @@ select option {
 }
 
 .metronome-pulse {
-    width: 0.75rem;
-    height: 0.75rem;
+    position: relative;
+    width: 0.9rem;
+    height: 0.9rem;
+    border: 2px solid #65547e;
     border-radius: 50%;
-    background: #65547e;
-    transition: background-color 60ms ease, box-shadow 60ms ease, transform 60ms ease;
+    background: #2b2144;
+    transition: background-color 90ms ease, border-color 90ms ease, box-shadow 90ms ease, transform 90ms ease;
 }
 
-.metronome-pulse-active {
+.metronome-pulse::after {
+    position: absolute;
+    inset: -0.45rem;
+    border: 1px solid currentcolor;
+    border-radius: inherit;
+    content: "";
+    opacity: 0;
+}
+
+.metronome-pulse.metronome-pulse-active {
     background: #65e8f0;
+    border-color: #65e8f0;
     box-shadow: 0 0 0.75rem rgb(101 232 240 / 70%);
     transform: scale(1.35);
 }
 
-.metronome-pulse-active.metronome-pulse-downbeat {
+.metronome-pulse.metronome-pulse-active::after {
+    animation: metronome-ripple 300ms ease-out;
+}
+
+.metronome-pulse.metronome-pulse-active.metronome-pulse-downbeat {
     background: #fbc86d;
+    border-color: #fbc86d;
     box-shadow: 0 0 0.9rem rgb(250 204 21 / 80%);
     transform: scale(1.65);
+}
+
+@keyframes metronome-ripple {
+    from {
+        opacity: 0.9;
+        transform: scale(0.55);
+    }
+
+    to {
+        opacity: 0;
+        transform: scale(1.35);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .metronome-pulse.metronome-pulse-active::after {
+        animation: none;
+    }
 }
 
 .tempo-feedback-chip {
@@ -1530,6 +1759,10 @@ input[type="file"]::file-selector-button:hover {
     .control-card-wide {
         grid-column: auto;
     }
+
+    .timing-metronome-layout {
+        grid-template-columns: 1fr;
+    }
 }
 
 @media (max-width: 48rem) {
@@ -1560,6 +1793,24 @@ input[type="file"]::file-selector-button:hover {
 }
 
 @media (max-width: 32rem) {
+    .timing-section {
+        padding: 0.8rem;
+    }
+
+    .timing-metronome-layout {
+        gap: 0.6rem;
+    }
+
+    .timing-ownership {
+        grid-template-columns: 1fr;
+        gap: 0.2rem;
+    }
+
+    .manual-metronome-section .metronome-toggle,
+    .metronome-actions button {
+        width: 100%;
+    }
+
     .exercise-playing-options {
         grid-template-columns: 1fr;
     }

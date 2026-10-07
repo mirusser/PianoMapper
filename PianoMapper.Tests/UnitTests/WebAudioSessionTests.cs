@@ -188,7 +188,7 @@ public sealed class WebAudioSessionTests
     }
 
     [Fact]
-    public async Task MetronomeCommands_InitializedSession_StartsAndStopsWithGridValues()
+    public async Task MetronomeCommands_InitializedSession_StartsStopsAndChangesSound()
     {
         var calls = new List<string>();
         var module = new RecordingJsModule(calls, new AudioClockAnchor(1000, 2));
@@ -200,13 +200,17 @@ public sealed class WebAudioSessionTests
             TimeSpan.FromSeconds(12.05),
             TimeSpan.FromSeconds(0.5),
             6,
-            3);
+            [0, 3],
+            1,
+            MetronomeTimbre.Sine);
+        await session.SetMetronomeSoundAsync(0.3, MetronomeTimbre.Triangle);
         await session.StopMetronomeAsync();
 
         Assert.Contains("module:startMetronome", calls);
+        Assert.Contains("module:setMetronomeSound", calls);
         Assert.Contains("module:stopMetronome", calls);
-        // Deliberately updated for Task 8: the beat-group size (3 in 6/8) is now the fourth argument.
-        Assert.Equal([12.05, 0.5, 6, 3], module.Arguments["startMetronome"]);
+        Assert.Equal([12.05, 0.5, 6, new[] { 0, 3 }, 1d, "sine"], module.Arguments["startMetronome"]);
+        Assert.Equal([0.3d, "triangle"], module.Arguments["setMetronomeSound"]);
     }
 
     private sealed class RecordingJsRuntime(List<string> calls, IJSObjectReference module) : IJSRuntime
