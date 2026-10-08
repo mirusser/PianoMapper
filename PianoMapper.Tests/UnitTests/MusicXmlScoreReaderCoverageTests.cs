@@ -119,6 +119,13 @@ public sealed partial class MusicXmlScoreReaderTests
         Assert.Equal(
             [Staff.Treble, Staff.Bass],
             result.Score.Measures.SelectMany(measure => measure.Notes).Select(note => note.Staff).Distinct().Order());
+        Assert.Contains(
+            result.Score.Measures.SelectMany(measure => measure.Notes),
+            note => note.Beams.SequenceEqual(
+            [
+                new ScoreBeam(1, ScoreBeamKind.End),
+                new ScoreBeam(2, ScoreBeamKind.BackwardHook),
+            ]) && note.StemEndYInTenths == 60);
     }
 
     [Theory]

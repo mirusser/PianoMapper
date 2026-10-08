@@ -827,6 +827,39 @@ public sealed partial class MusicXmlScoreReaderTests
         Assert.Equal(expectedEndDirection, notes[1].StemDirection);
     }
 
+    [Theory]
+    [InlineData("forward hook", ScoreBeamKind.ForwardHook)]
+    [InlineData("backward hook", ScoreBeamKind.BackwardHook)]
+    public void Read_ShortNoteWithSecondaryHook_PreservesEveryBeamLevelAndStemEndpoint(
+        string hookValue,
+        ScoreBeamKind hookKind)
+    {
+        var score = ReadNotes($"""
+            <note>
+              <pitch><step>C</step><octave>4</octave></pitch>
+              <duration>1</duration><type>16th</type><stem default-y="18.5">up</stem>
+              <beam number="1">begin</beam><beam number="2">{hookValue}</beam>
+            </note>
+            <note>
+              <pitch><step>D</step><octave>4</octave></pitch>
+              <duration>2</duration><type>eighth</type><stem default-y="18.5">up</stem>
+              <beam number="1">end</beam>
+            </note>
+            """, divisions: 4);
+
+        var notes = Assert.Single(score.Measures).Notes;
+
+        Assert.Equal(BeamState.Begin, notes[0].BeamState);
+        Assert.Equal(
+            [
+                new ScoreBeam(1, ScoreBeamKind.Begin),
+                new ScoreBeam(2, hookKind),
+            ],
+            notes[0].Beams);
+        Assert.Equal(18.5, notes[0].StemEndYInTenths);
+        Assert.Equal([new ScoreBeam(1, ScoreBeamKind.End)], notes[1].Beams);
+    }
+
     [Fact]
     public void Read_BeamGroupWithConflictingStemDirections_ThrowsReadableError()
     {
@@ -940,14 +973,14 @@ public sealed partial class MusicXmlScoreReaderTests
         writer.Write(contents);
     }
 
-    private static Score ReadNotes(string notesXml)
+    private static Score ReadNotes(string notesXml, int divisions = 2)
     {
         string scoreXml = $$"""
             <score-partwise>
               <part-list><score-part id="P1"><part-name /></score-part></part-list>
               <part id="P1">
                 <measure number="1">
-                  <attributes><divisions>2</divisions></attributes>
+                  <attributes><divisions>{{divisions}}</divisions></attributes>
                   {{notesXml}}
                 </measure>
               </part>

@@ -468,6 +468,24 @@ public static class GrandStaffLayout
         return GrandStaffVerticalScale * (staffLines[1] - staffLines[0]);
     }
 
+    /// <summary>
+    /// Converts MusicXML's <c>stem/@default-y</c>, measured in tenths of an interline space from
+    /// the top staff line, into this renderer's separated grand-staff coordinate system.
+    /// </summary>
+    public static double? GetImportedStemEndY(ScoreNote note, Staff staff)
+    {
+        ArgumentNullException.ThrowIfNull(note);
+        if (note.StemEndYInTenths is not { } endYInTenths)
+        {
+            return null;
+        }
+
+        IReadOnlyList<float> staffLines = staff == Staff.Treble ? TrebleLineYs : BassLineYs;
+        double staffSpace = staffLines[1] - staffLines[0];
+        double y = staffLines[^1] + ((endYInTenths / 10) * staffSpace);
+        return SeparateStaffY(y, staff);
+    }
+
     public static double GetStaffBottomLineY(Staff staff) =>
         staff == Staff.Treble ? TrebleLineYs[0] : BassLineYs[0];
 
@@ -558,7 +576,8 @@ public static class GrandStaffLayout
                 }
                 else
                 {
-                    stemEndY = noteY + (layout.StemDirection == StemDirection.Up ? StemLength : -StemLength);
+                    stemEndY = GetImportedStemEndY(note, staff) ??
+                        noteY + (layout.StemDirection == StemDirection.Up ? StemLength : -StemLength);
                 }
 
                 minimumY = Math.Min(minimumY, stemEndY.Value - strokePadding);

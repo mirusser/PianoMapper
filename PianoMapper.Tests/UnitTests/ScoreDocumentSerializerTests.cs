@@ -35,7 +35,15 @@ public sealed class ScoreDocumentSerializerTests
                             Slur: new ScoreSlur(IsStart: true, Number: 2),
                             Arpeggio: ScoreArpeggio.Arpeggiate,
                             Glissando: new ScoreGlissando(IsStart: false, Number: 3, ScoreGlissandoKind.Slide),
-                            SoundingOctavesAboveNotated: 1),
+                            SoundingOctavesAboveNotated: 1)
+                        {
+                            Beams =
+                            [
+                                new ScoreBeam(1, ScoreBeamKind.Begin),
+                                new ScoreBeam(2, ScoreBeamKind.ForwardHook),
+                            ],
+                            StemEndYInTenths = 18.5,
+                        },
                         new ScoreNote(
                             new Pitch(NoteLetter.B, -1, 2),
                             new NoteValue(16),
@@ -68,6 +76,8 @@ public sealed class ScoreDocumentSerializerTests
         Assert.Equal(expected.Measures[0].Rests, actual.Measures[0].Rests);
         Assert.Equal(1.5, actual.Measures[0].LengthInBeats);
         Assert.Equal(1, actual.Measures[0].Notes[0].SoundingOctavesAboveNotated);
+        Assert.Equal(expected.Measures[0].Notes[0].Beams, actual.Measures[0].Notes[0].Beams);
+        Assert.Equal(18.5, actual.Measures[0].Notes[0].StemEndYInTenths);
         Assert.DoesNotContain("midiNumber", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("frequency", json, StringComparison.OrdinalIgnoreCase);
     }
@@ -120,6 +130,8 @@ public sealed class ScoreDocumentSerializerTests
         Assert.Null(note.Arpeggio);
         Assert.Null(note.Glissando);
         Assert.Equal(0, note.SoundingOctavesAboveNotated);
+        Assert.Empty(note.Beams);
+        Assert.Null(note.StemEndYInTenths);
         Assert.Null(Assert.Single(score.Measures).LengthInBeats);
     }
 

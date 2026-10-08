@@ -54,6 +54,9 @@ const noteHeadWidthInStaffSpaces = 1.2;
 const noteHeadHeightInStaffSpaces = 0.8;
 const ledgerLineWidthInStaffSpaces = 2;
 const noteHeadRotationRadians = -Math.PI / 8;
+// A stem is drawn slightly inside the rotated oval. This avoids the hairline gap that appears
+// when a vertical line starts at the unrotated horizontal radius rather than at the oval's ink.
+const stemAttachmentOverlapInStaffSpaces = 0.04;
 const stemLengthInStaffSpaces = 3;
 const flagControlWidthInStaffSpaces = 1.2;
 const flagControlHeightInStaffSpaces = 0.5;
@@ -1597,7 +1600,10 @@ function drawNote(
     let stemX = x;
     const stemGoesUp = note.stemDirection === stemDirectionUp;
     if (note.hasStem) {
-        stemX = x + (stemGoesUp ? noteHeadRadiusX : -noteHeadRadiusX);
+        stemX = x + ((stemGoesUp ? 1 : -1) * getStemAttachmentOffset(
+            noteHeadRadiusX,
+            noteHeadRadiusY,
+            staffSpace));
         stemEndY = Number.isFinite(note.stemEndY)
             ? mapY(note.stemEndY, height)
             : y + (stemGoesUp ? -1 : 1) * staffSpace * stemLengthInStaffSpaces;
@@ -1653,9 +1659,21 @@ function drawNote(
     }
 }
 
+function getStemAttachmentOffset(noteHeadRadiusX, noteHeadRadiusY, staffSpace) {
+    const sine = Math.sin(noteHeadRotationRadians);
+    const cosine = Math.cos(noteHeadRotationRadians);
+    const rotatedVerticalRadius = 1 / Math.sqrt(
+        ((cosine * cosine) / (noteHeadRadiusX * noteHeadRadiusX)) +
+        ((sine * sine) / (noteHeadRadiusY * noteHeadRadiusY)));
+    return Math.max(0, rotatedVerticalRadius - (staffSpace * stemAttachmentOverlapInStaffSpaces));
+}
+
 function drawBeam(context, beam, width, height, staffSpace, palette = darkGrandStaffPalette) {
     const stemGoesUp = beam.stemDirection === stemDirectionUp;
-    const stemXOffset = staffSpace * noteHeadWidthInStaffSpaces / 2 * (stemGoesUp ? 1 : -1);
+    const noteHeadRadiusX = staffSpace * noteHeadWidthInStaffSpaces / 2;
+    const noteHeadRadiusY = staffSpace * noteHeadHeightInStaffSpaces / 2;
+    const stemXOffset = getStemAttachmentOffset(noteHeadRadiusX, noteHeadRadiusY, staffSpace) *
+        (stemGoesUp ? 1 : -1);
     const beamSpacingDirection = stemGoesUp ? 1 : -1;
     const x0 = mapX(beam.x0, width) + stemXOffset;
     const x1 = mapX(beam.x1, width) + stemXOffset;
@@ -1664,8 +1682,9 @@ function drawBeam(context, beam, width, height, staffSpace, palette = darkGrandS
     context.strokeStyle = palette.beam;
     context.lineWidth = Math.max(3, staffSpace * 0.45);
     context.lineCap = "butt";
+    const beamLevel = Number.isInteger(beam.level) && beam.level > 0 ? beam.level : 0;
     for (let beamIndex = 0; beamIndex < beam.count; beamIndex++) {
-        const yOffset = beamIndex * staffSpace * 0.6 * beamSpacingDirection;
+        const yOffset = (beamLevel + beamIndex) * staffSpace * 0.6 * beamSpacingDirection;
         context.beginPath();
         context.moveTo(x0, y0 + yOffset);
         context.lineTo(x1, y1 + yOffset);

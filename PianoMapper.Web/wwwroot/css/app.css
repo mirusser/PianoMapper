@@ -699,9 +699,42 @@ select option {
 
 .exercise-progress {
     margin: 0.9rem 0 0;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid #51436c;
+    border-radius: 0.65rem;
+    background: linear-gradient(135deg, rgb(41 31 69 / 75%), rgb(23 17 45 / 90%));
+}
+
+.exercise-progress-summary {
+    margin: 0;
     color: #f7eafa;
     font-size: 0.9rem;
     font-weight: 700;
+}
+
+.exercise-progress-review {
+    margin-top: 0.75rem;
+    padding-top: 0.7rem;
+    border-top: 1px solid #51436c;
+}
+
+.exercise-progress-review h3 {
+    margin: 0;
+    color: #fbc86d;
+    font-size: 0.86rem;
+}
+
+.exercise-review-list {
+    display: grid;
+    gap: 0.3rem;
+    margin: 0.5rem 0 0;
+    padding-left: 1.2rem;
+    color: #ded1eb;
+    font-size: 0.86rem;
+}
+
+.exercise-progress-review .control-note {
+    margin: 0.5rem 0 0;
 }
 
 .exercise-inline-actions {
@@ -1271,7 +1304,7 @@ input[type="file"]::file-selector-button:hover {
 }
 
 .legend-light {
-    color: #475569;
+    color: #fff;
 }
 
 .legend-light .legend-mark-expected {

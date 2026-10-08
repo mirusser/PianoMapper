@@ -55,6 +55,10 @@ internal static class GrandStaffSceneBuilder
     // Y-sized quantity reused as an X quantity here previously rendered roughly 5-6x too wide.
     // Re-tune only by measuring a real render again, not by recomputing from Y or from a formula.
     private const double ChordNoteheadDisplacement = 0.016;
+    // A partial secondary beam is one and a half notehead widths long at the score canvas's
+    // normal horizontal scale. This is an X-axis measurement: scene X and staff-space Y do not
+    // scale alike on a responsive canvas.
+    private const double BeamHookLength = 0.024;
     // Minimum visual gap a displaced chord notehead must keep from its nearest same-staff
     // neighbor — see the clamp in ApplyChordLayout.
     private const double MinimumOnsetClearance = ChordNoteheadDisplacement * 0.15;
@@ -399,6 +403,9 @@ internal static class GrandStaffSceneBuilder
             int labelRowIndex = labelRowIndexes[visibleNoteIndex];
             bool hasStem = !suppressChordStem && layout.HasStem;
             StemDirection stemDirection = isBeamed ? beamOverride.Direction : chordDirectionOverride ?? layout.StemDirection;
+            double? renderedStemEndY = isBeamed
+                ? beamOverride.StemEndY
+                : GrandStaffLayout.GetImportedStemEndY(note, layout.Position.Staff);
             renderedNotes.Add(new GrandStaffNote(
                 note.Pitch.ToString(),
                 layout.X,
@@ -411,7 +418,7 @@ internal static class GrandStaffSceneBuilder
                 layout.HasDot,
                 FlagCount: suppressChordStem ? 0 : (isBeamed ? layout.FlagCount - beamOverride.BeamCount : layout.FlagCount),
                 verdict,
-                StemEndY: isBeamed ? beamOverride.StemEndY : null,
+                StemEndY: renderedStemEndY,
                 LabelY: showNoteLabels && annotationRows.LabelY is { } labelY
                     ? labelY - (labelRowIndex * annotationRows.EffectiveLabelRowSeparation)
                     : null,
@@ -462,7 +469,7 @@ internal static class GrandStaffSceneBuilder
                 glyphs.Add(new GrandStaffGlyph(
                     fermata == ScoreFermata.Upright ? "𝄐" : "𝄑",
                     layout.X,
-                    GrandStaffLayout.GetFermataY(fermata, noteY, layout, isBeamed ? beamOverride.StemEndY : null),
+                    GrandStaffLayout.GetFermataY(fermata, noteY, layout, renderedStemEndY),
                     GrandStaffGlyphKind.Fermata,
                     GrandStaffLayout.FermataHeightInStaffSpaces
                         * GrandStaffLayout.GetRenderedStaffSpace(layout.Position.Staff)));
@@ -470,8 +477,7 @@ internal static class GrandStaffSceneBuilder
 
             // Articulations, ornaments and the accidental mark all sit above the note; a note with several stacks them
             // upward, in that order, rather than drawing them on top of each other.
-            double? beamStemEndY = isBeamed ? beamOverride.StemEndY : null;
-            double pointGlyphY = GrandStaffLayout.GetPointGlyphY(noteY, layout, beamStemEndY);
+            double pointGlyphY = GrandStaffLayout.GetPointGlyphY(noteY, layout, renderedStemEndY);
             double renderedStaffSpace = GrandStaffLayout.GetRenderedStaffSpace(layout.Position.Staff);
             int stackedMarkCount = 0;
             double NextPointGlyphY() => pointGlyphY + (stackedMarkCount++ * MarkStackStepInStaffSpaces * renderedStaffSpace);
@@ -1823,21 +1829,91 @@ internal static class GrandStaffSceneBuilder
         var beams = new List<GrandStaffBeam>();
         foreach (var measureStaff in notes.GroupBy(item => (item.Note.MeasureIndex, item.Note.Staff)))
         {
-            var currentGroup = new List<(ScoreNote Note, ScoreNoteLayout Layout)>();
-            foreach (var item in measureStaff.OrderBy(item => item.Note.BeatOffset))
+            var orderedNotes = measureStaff.OrderBy(item => item.Note.BeatOffset).ToArray();
+            if (orderedNotes.Any(item => item.Note.Beams.Count > 0))
             {
-                switch (item.Note.BeamState)
+                BuildExplicitBeams(orderedNotes, beams, beamOverrides, glyphs);
+            }
+            else
+            {
+                BuildLegacyBeams(orderedNotes, beams, beamOverrides, glyphs);
+            }
+        }
+
+        return beams;
+    }
+
+    private static void BuildLegacyBeams(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> notes,
+        ICollection<GrandStaffBeam> beams,
+        IDictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)> beamOverrides,
+        ICollection<GrandStaffGlyph> glyphs)
+    {
+        var currentGroup = new List<(ScoreNote Note, ScoreNoteLayout Layout)>();
+        foreach (var item in notes)
+        {
+            switch (item.Note.BeamState)
+            {
+                case BeamState.Begin:
+                    currentGroup.Clear();
+                    currentGroup.Add(item);
+                    break;
+                case BeamState.Continue when currentGroup.Count > 0:
+                    currentGroup.Add(item);
+                    break;
+                case BeamState.End when currentGroup.Count > 0:
+                    currentGroup.Add(item);
+                    int beamCount = currentGroup.Min(candidate => candidate.Layout.FlagCount);
+                    AddPrimaryBeam(currentGroup, beamCount, beams, beamOverrides, glyphs);
+                    currentGroup.Clear();
+                    break;
+                default:
+                    currentGroup.Clear();
+                    break;
+            }
+        }
+    }
+
+    private static void BuildExplicitBeams(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> notes,
+        ICollection<GrandStaffBeam> beams,
+        IDictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)> beamOverrides,
+        ICollection<GrandStaffGlyph> glyphs)
+    {
+        int highestBeamLevel = notes.Max(item => item.Note.Beams.Count == 0
+            ? 0
+            : Math.Min(item.Layout.FlagCount, item.Note.Beams.Max(beam => beam.Number)));
+        for (int beamLevel = 1; beamLevel <= highestBeamLevel; beamLevel++)
+        {
+            var currentGroup = new List<(ScoreNote Note, ScoreNoteLayout Layout)>();
+            foreach (var item in notes)
+            {
+                ScoreBeamKind? kind = GetBeamKind(item.Note, beamLevel);
+                switch (kind)
                 {
-                    case BeamState.Begin:
+                    case ScoreBeamKind.Begin:
                         currentGroup.Clear();
                         currentGroup.Add(item);
                         break;
-                    case BeamState.Continue when currentGroup.Count > 0:
+                    case ScoreBeamKind.Continue when currentGroup.Count > 0:
                         currentGroup.Add(item);
                         break;
-                    case BeamState.End when currentGroup.Count > 0:
+                    case ScoreBeamKind.End when currentGroup.Count > 0:
                         currentGroup.Add(item);
-                        AddBeam(currentGroup, beams, beamOverrides, glyphs);
+                        if (beamLevel == 1)
+                        {
+                            AddPrimaryBeam(currentGroup, 1, beams, beamOverrides, glyphs);
+                        }
+                        else
+                        {
+                            AddSecondaryBeam(currentGroup, beamLevel, beams, beamOverrides);
+                        }
+
+                        currentGroup.Clear();
+                        break;
+                    case ScoreBeamKind.ForwardHook:
+                    case ScoreBeamKind.BackwardHook:
+                        AddBeamHook(item, beamLevel, kind.Value, beams, beamOverrides);
                         currentGroup.Clear();
                         break;
                     default:
@@ -1846,12 +1922,14 @@ internal static class GrandStaffSceneBuilder
                 }
             }
         }
-
-        return beams;
     }
 
-    private static void AddBeam(
+    private static ScoreBeamKind? GetBeamKind(ScoreNote note, int beamLevel) =>
+        note.Beams.FirstOrDefault(beam => beam.Number == beamLevel)?.Kind;
+
+    private static void AddPrimaryBeam(
         IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> group,
+        int beamCount,
         ICollection<GrandStaffBeam> beams,
         IDictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)> beamOverrides,
         ICollection<GrandStaffGlyph> glyphs)
@@ -1861,29 +1939,17 @@ internal static class GrandStaffSceneBuilder
             return;
         }
 
-        int beamCount = group.Min(item => item.Layout.FlagCount);
         if (beamCount == 0)
         {
             return;
         }
 
         Staff staff = group[0].Layout.Position.Staff;
-        var staffLines = staff == Staff.Treble ? GrandStaffLayout.TrebleLineYs : GrandStaffLayout.BassLineYs;
-        double averageY = group.Average(item => item.Layout.Position.Y);
-        var automaticDirection = averageY < staffLines[2] ? StemDirection.Up : StemDirection.Down;
-        var explicitDirections = group
-            .Select(item => item.Note.StemDirection)
-            .OfType<ScoreStemDirection>()
-            .Distinct()
-            .ToArray();
-        var direction = explicitDirections.Length == 1
-            ? group.First(item => item.Note.StemDirection == explicitDirections[0]).Layout.StemDirection
-            : automaticDirection;
-        double stemOffset = direction == StemDirection.Up ? GrandStaffLayout.StemLength : -GrandStaffLayout.StemLength;
+        StemDirection direction = ResolveBeamDirection(group);
         double x0 = group[0].Layout.X;
         double x1 = group[^1].Layout.X;
-        double y0 = GrandStaffLayout.SeparateStaffY(group[0].Layout.Position.Y, staff) + stemOffset;
-        double y1 = GrandStaffLayout.SeparateStaffY(group[^1].Layout.Position.Y, staff) + stemOffset;
+        double y0 = GetStemEndY(group[0].Note, group[0].Layout, direction);
+        double y1 = GetStemEndY(group[^1].Note, group[^1].Layout, direction);
         beams.Add(new GrandStaffBeam(x0, y0, x1, y1, beamCount, direction));
 
         foreach (var item in group)
@@ -1895,6 +1961,107 @@ internal static class GrandStaffSceneBuilder
 
         AddTupletGlyph(group, staff, x0, x1, y0, y1, direction, glyphs);
     }
+
+    private static void AddSecondaryBeam(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> group,
+        int beamLevel,
+        ICollection<GrandStaffBeam> beams,
+        IDictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)> beamOverrides)
+    {
+        if (group.Count < 2 || group.Any(item => !beamOverrides.ContainsKey(item.Note)))
+        {
+            return;
+        }
+
+        var firstOverride = beamOverrides[group[0].Note];
+        var lastOverride = beamOverrides[group[^1].Note];
+        beams.Add(new GrandStaffBeam(
+            X0: group[0].Layout.X,
+            Y0: firstOverride.StemEndY,
+            X1: group[^1].Layout.X,
+            Y1: lastOverride.StemEndY,
+            Count: 1,
+            StemDirection: firstOverride.Direction,
+            Level: beamLevel - 1));
+        foreach (var item in group)
+        {
+            var beamOverride = beamOverrides[item.Note];
+            beamOverrides[item.Note] = (
+                beamOverride.Direction,
+                beamOverride.StemEndY,
+                Math.Max(beamOverride.BeamCount, beamLevel));
+        }
+    }
+
+    private static void AddBeamHook(
+        (ScoreNote Note, ScoreNoteLayout Layout) item,
+        int beamLevel,
+        ScoreBeamKind kind,
+        ICollection<GrandStaffBeam> beams,
+        IDictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)> beamOverrides)
+    {
+        if (!beamOverrides.TryGetValue(item.Note, out var beamOverride))
+        {
+            return;
+        }
+
+        double x1 = item.Layout.X + (kind == ScoreBeamKind.ForwardHook ? BeamHookLength : -BeamHookLength);
+        double y1 = GetBeamHookEndY(item.Layout.X, x1, beamOverride, beams);
+        beams.Add(new GrandStaffBeam(
+            X0: item.Layout.X,
+            Y0: beamOverride.StemEndY,
+            X1: x1,
+            Y1: y1,
+            Count: 1,
+            StemDirection: beamOverride.Direction,
+            Level: beamLevel - 1));
+        beamOverrides[item.Note] = (
+            beamOverride.Direction,
+            beamOverride.StemEndY,
+            Math.Max(beamOverride.BeamCount, beamLevel));
+    }
+
+    private static double GetBeamHookEndY(
+        double hookStartX,
+        double hookEndX,
+        (StemDirection Direction, double StemEndY, int BeamCount) beamOverride,
+        IEnumerable<GrandStaffBeam> beams)
+    {
+        GrandStaffBeam? primaryBeam = beams.FirstOrDefault(beam =>
+            beam.Level == 0 &&
+            beam.StemDirection == beamOverride.Direction &&
+            hookStartX >= Math.Min(beam.X0, beam.X1) &&
+            hookStartX <= Math.Max(beam.X0, beam.X1));
+        if (primaryBeam is null || primaryBeam.X0 == primaryBeam.X1)
+        {
+            return beamOverride.StemEndY;
+        }
+
+        double primarySlope = (primaryBeam.Y1 - primaryBeam.Y0) / (primaryBeam.X1 - primaryBeam.X0);
+        return beamOverride.StemEndY + ((hookEndX - hookStartX) * primarySlope);
+    }
+
+    private static StemDirection ResolveBeamDirection(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> group)
+    {
+        Staff staff = group[0].Layout.Position.Staff;
+        var staffLines = staff == Staff.Treble ? GrandStaffLayout.TrebleLineYs : GrandStaffLayout.BassLineYs;
+        double averageY = group.Average(item => item.Layout.Position.Y);
+        StemDirection automaticDirection = averageY < staffLines[2] ? StemDirection.Up : StemDirection.Down;
+        ScoreStemDirection[] explicitDirections = group
+            .Select(item => item.Note.StemDirection)
+            .OfType<ScoreStemDirection>()
+            .Distinct()
+            .ToArray();
+        return explicitDirections.Length == 1
+            ? group.First(item => item.Note.StemDirection == explicitDirections[0]).Layout.StemDirection
+            : automaticDirection;
+    }
+
+    private static double GetStemEndY(ScoreNote note, ScoreNoteLayout layout, StemDirection direction) =>
+        GrandStaffLayout.GetImportedStemEndY(note, layout.Position.Staff) ??
+        GrandStaffLayout.SeparateStaffY(layout.Position.Y, layout.Position.Staff) +
+            (direction == StemDirection.Up ? GrandStaffLayout.StemLength : -GrandStaffLayout.StemLength);
 
     /// <summary>
     /// A beamed group whose members share one non-identity tuplet ratio (e.g. a triplet) gets a

@@ -88,7 +88,9 @@ internal static class ScoreDocumentSerializer
             note.Glissando is null
                 ? null
                 : new ScoreGlissandoDocument(note.Glissando.IsStart, note.Glissando.Number, note.Glissando.Kind),
-            note.SoundingOctavesAboveNotated);
+            note.SoundingOctavesAboveNotated,
+            note.Beams.Select(beam => new ScoreBeamDocument(beam.Number, beam.Kind)).ToArray(),
+            note.StemEndYInTenths);
 
     private static ScoreDirectionDocument ToDocument(ScoreDirection direction) =>
         new(direction.Kind, direction.BeatOffset, direction.Staff, direction.Text, direction.IsBelow, direction.Number);
@@ -168,7 +170,11 @@ internal static class ScoreDocumentSerializer
             note.Glissando is null
                 ? null
                 : new ScoreGlissando(note.Glissando.IsStart, note.Glissando.Number, note.Glissando.Kind),
-            note.SoundingOctavesAboveNotated);
+            note.SoundingOctavesAboveNotated)
+        {
+            Beams = note.Beams?.Select(beam => new ScoreBeam(beam.Number, beam.Kind)).ToArray() ?? [],
+            StemEndYInTenths = note.StemEndYInTenths,
+        };
 
     private static ScoreRest FromDocument(ScoreRestDocument rest) =>
         new(
@@ -219,7 +225,9 @@ internal static class ScoreDocumentSerializer
         ScoreSlurDocument? Slur = null,
         ScoreArpeggio? Arpeggio = null,
         ScoreGlissandoDocument? Glissando = null,
-        int SoundingOctavesAboveNotated = 0);
+        int SoundingOctavesAboveNotated = 0,
+        IReadOnlyList<ScoreBeamDocument>? Beams = null,
+        double? StemEndYInTenths = null);
 
     private sealed record ScoreRestDocument(
         NoteValueDocument NoteValue,
@@ -239,6 +247,8 @@ internal static class ScoreDocumentSerializer
     private sealed record ScoreFingeringDocument(
         int Number,
         ScoreFingeringPlacement? Placement);
+
+    private sealed record ScoreBeamDocument(int Number, ScoreBeamKind Kind);
 
     private sealed record ScoreBarlineDocument(
         ScoreBarlineStyle Style = ScoreBarlineStyle.Regular,

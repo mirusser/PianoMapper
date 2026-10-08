@@ -16,6 +16,7 @@ public sealed partial class MusicXmlScoreReader
     private const string ChordElementName = "chord";
     private const string CompressedMusicXmlExtension = ".mxl";
     private const string ContainerEntryName = "META-INF/container.xml";
+    private const string DefaultYAttributeName = "default-y";
     private const string DotElementName = "dot";
     private const string DirectionTypeElementName = "direction-type";
     private const string DurationElementName = "duration";
@@ -26,6 +27,7 @@ public sealed partial class MusicXmlScoreReader
     private const string FingeringElementName = "fingering";
     private const string NormalNotesElementName = "normal-notes";
     private const string NotationsElementName = "notations";
+    private const string NumberAttributeName = "number";
     private const string OrnamentsElementName = "ornaments";
     private const string OctaveShiftElementName = "octave-shift";
     private const string PitchElementName = "pitch";
@@ -448,12 +450,13 @@ public sealed partial class MusicXmlScoreReader
         }
         else if (restElement is not null)
         {
-            _ = ParseStemDirection(noteElement);
+            _ = ParseStem(noteElement);
             rests.Add(new ScoreRest(noteValue, measureIndex, beatOffset, staff, isMeasureRest));
         }
         else
         {
-            ScoreStemDirection? stemDirection = ParseStemDirection(noteElement);
+            var stem = ParseStem(noteElement);
+            IReadOnlyList<ScoreBeam> beams = ParseBeams(noteElement);
             var pitchElement = RequiredChild(noteElement, PitchElementName);
             Pitch soundingPitch = ParsePitch(pitchElement);
             notes.Add(new ScoreNote(
@@ -464,8 +467,8 @@ public sealed partial class MusicXmlScoreReader
                 staff,
                 TiesToNext: HasTieStart(noteElement),
                 IsChordContinuation: isChord,
-                BeamState: ParseBeamState(noteElement),
-                StemDirection: stemDirection,
+                BeamState: GetPrimaryBeamState(beams),
+                StemDirection: stem.Direction,
                 Fingering: ParseFingering(noteElement, warnings),
                 Accidental: ParseAccidental(noteElement, warnings),
                 Fermata: ParseFermata(noteElement),
@@ -475,7 +478,11 @@ public sealed partial class MusicXmlScoreReader
                 Slur: ParseSlur(noteElement),
                 Arpeggio: ParseArpeggio(noteElement),
                 Glissando: ParseGlissando(noteElement),
-                SoundingOctavesAboveNotated: soundingOctavesAboveNotated));
+                SoundingOctavesAboveNotated: soundingOctavesAboveNotated)
+            {
+                Beams = beams,
+                StemEndYInTenths = stem.EndYInTenths,
+            });
         }
 
         if (!isChord)
@@ -672,7 +679,7 @@ public sealed partial class MusicXmlScoreReader
 
     /// <summary>
     /// Reads a start/stop-pairing notation's <c>number</c> attribute, defaulting to 1 when absent
-    /// (MusicXML's own default), the same way <see cref="ParseBeamState"/> treats a missing beam
+    /// (MusicXML's own default), the same way <see cref="ParseBeams"/> treats a missing beam
     /// <c>number</c> as "1".
     /// </summary>
     private static int ParsePairingNumber(XElement element, string elementName)
@@ -851,37 +858,72 @@ public sealed partial class MusicXmlScoreReader
         return new ScoreFingering(number, placement);
     }
 
-    private static BeamState ParseBeamState(XElement noteElement)
+    private static IReadOnlyList<ScoreBeam> ParseBeams(XElement noteElement)
     {
-        var beam = noteElement
+        ScoreBeam[] beams = noteElement
             .Elements()
-            .FirstOrDefault(element =>
-                element.Name.LocalName == BeamElementName &&
-                (element.Attribute("number")?.Value is null or "1"));
-        if (beam is null)
+            .Where(element => element.Name.LocalName == BeamElementName)
+            .Select(ParseBeam)
+            .OrderBy(beam => beam.Number)
+            .ToArray();
+        if (beams.GroupBy(beam => beam.Number).Any(group => group.Count() > 1))
         {
-            return BeamState.None;
+            throw new InvalidDataException("A MusicXML note cannot contain multiple <beam> elements at one level.");
         }
 
-        return beam.Value.Trim() switch
+        return beams;
+    }
+
+    private static ScoreBeam ParseBeam(XElement beamElement)
+    {
+        int number = beamElement.Attribute(NumberAttributeName) is { Value: { } numberText }
+            ? ParseBeamNumber(numberText)
+            : 1;
+        ScoreBeamKind kind = beamElement.Value.Trim() switch
         {
-            "begin" => BeamState.Begin,
-            "continue" => BeamState.Continue,
-            "end" => BeamState.End,
+            "begin" => ScoreBeamKind.Begin,
+            "continue" => ScoreBeamKind.Continue,
+            "end" => ScoreBeamKind.End,
+            "forward hook" => ScoreBeamKind.ForwardHook,
+            "backward hook" => ScoreBeamKind.BackwardHook,
             var value => throw new InvalidDataException($"Invalid MusicXML beam value '{value}'."),
+        };
+        return new ScoreBeam(number, kind);
+    }
+
+    private static int ParseBeamNumber(string value)
+    {
+        if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out int number) ||
+            number is < 1 or > 8)
+        {
+            throw new InvalidDataException($"Invalid MusicXML beam number '{value}': expected a value from 1 through 8.");
+        }
+
+        return number;
+    }
+
+    private static BeamState GetPrimaryBeamState(IReadOnlyList<ScoreBeam> beams)
+    {
+        ScoreBeam? primaryBeam = beams.FirstOrDefault(beam => beam.Number == 1);
+        return primaryBeam?.Kind switch
+        {
+            ScoreBeamKind.Begin => BeamState.Begin,
+            ScoreBeamKind.Continue => BeamState.Continue,
+            ScoreBeamKind.End => BeamState.End,
+            _ => BeamState.None,
         };
     }
 
-    private static ScoreStemDirection? ParseStemDirection(XElement noteElement)
+    private static StemNotation ParseStem(XElement noteElement)
     {
         var stem = FindChild(noteElement, StemElementName);
         if (stem is null)
         {
-            return null;
+            return new StemNotation(null, null);
         }
 
         string value = stem.Value.Trim();
-        return value switch
+        ScoreStemDirection direction = value switch
         {
             "up" => ScoreStemDirection.Up,
             "down" => ScoreStemDirection.Down,
@@ -889,6 +931,21 @@ public sealed partial class MusicXmlScoreReader
                 $"Unsupported MusicXML <{StemElementName}> value '{value}'."),
             _ => throw new InvalidDataException($"Invalid MusicXML <{StemElementName}> value '{value}'."),
         };
+        double? endYInTenths = stem.Attribute(DefaultYAttributeName) is { Value: { } defaultYText }
+            ? ParseStemEndYInTenths(defaultYText)
+            : null;
+        return new StemNotation(direction, endYInTenths);
+    }
+
+    private static double ParseStemEndYInTenths(string value)
+    {
+        if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double endYInTenths) ||
+            !double.IsFinite(endYInTenths))
+        {
+            throw new InvalidDataException($"Invalid MusicXML <{StemElementName}> {DefaultYAttributeName} '{value}'.");
+        }
+
+        return endYInTenths;
     }
 
     private static void ValidateBeamStemDirections(IEnumerable<ScoreNote> notes)
@@ -1082,6 +1139,8 @@ public sealed partial class MusicXmlScoreReader
 
         return value;
     }
+
+    private sealed record StemNotation(ScoreStemDirection? Direction, double? EndYInTenths);
 
     private static NotSupportedException Unsupported(string elementName) =>
         new($"Unsupported MusicXML element <{elementName}>.");

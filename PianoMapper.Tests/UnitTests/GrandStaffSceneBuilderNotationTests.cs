@@ -1,4 +1,5 @@
 using PianoMapper.Music;
+using PianoMapper.Rendering;
 using PianoMapper.Web.Rendering;
 
 namespace PianoMapper.Tests.UnitTests;
@@ -153,5 +154,65 @@ public sealed partial class GrandStaffSceneBuilderTests
         var beam = Assert.Single(scene.Beams);
         Assert.Equal(3, beam.Count);
         Assert.All(scene.Notes, note => Assert.Equal(0, note.FlagCount));
+    }
+
+    [Theory]
+    [InlineData(ScoreBeamKind.ForwardHook, true)]
+    [InlineData(ScoreBeamKind.BackwardHook, false)]
+    public void BuildScore_SecondaryBeamHook_DrawsHookAndSuppressesTheFlag(
+        ScoreBeamKind hookKind,
+        bool extendsForward)
+    {
+        ScoreNote[] notes =
+        [
+            new(new Pitch(NoteLetter.C, 0, 4), new NoteValue(16), 0, 0, Staff.Treble, BeamState: BeamState.Begin)
+            {
+                Beams =
+                [
+                    new ScoreBeam(1, ScoreBeamKind.Begin),
+                    new ScoreBeam(2, hookKind),
+                ],
+            },
+            new(new Pitch(NoteLetter.D, 0, 4), new NoteValue(8), 0, 0.5, Staff.Treble, BeamState: BeamState.End)
+            {
+                Beams = [new ScoreBeam(1, ScoreBeamKind.End)],
+            },
+        ];
+
+        var scene = GrandStaffSceneBuilder.BuildScore(ScoreWithNotes(notes), firstVisibleMeasure: 0);
+
+        var primaryBeam = Assert.Single(scene.Beams, beam => beam.Level == 0 && beam.Count == 1);
+        var hook = Assert.Single(
+            scene.Beams,
+            beam => beam.Level == 1 && beam.Count == 1 && (beam.X1 > beam.X0) == extendsForward);
+        double primarySlope = (primaryBeam.Y1 - primaryBeam.Y0) / (primaryBeam.X1 - primaryBeam.X0);
+        double hookSlope = (hook.Y1 - hook.Y0) / (hook.X1 - hook.X0);
+        Assert.Equal(primarySlope, hookSlope, precision: 6);
+        Assert.Equal(0, scene.Notes.Single(note => note.Label == "C4").FlagCount);
+    }
+
+    [Fact]
+    public void BuildScore_ImportedStemEndY_UsesTheMusicXmlStemEndpoint()
+    {
+        var note = new ScoreNote(
+            new Pitch(NoteLetter.C, 0, 4),
+            new NoteValue(4),
+            0,
+            0,
+            Staff.Treble,
+            StemDirection: ScoreStemDirection.Up)
+        {
+            StemEndYInTenths = 18.5,
+        };
+
+        var scene = GrandStaffSceneBuilder.BuildScore(ScoreWithNotes([note]), firstVisibleMeasure: 0);
+
+        var rendered = Assert.Single(scene.Notes);
+        double expectedStemEndY = GrandStaffLayout.SeparateStaffY(
+            GrandStaffLayout.TrebleLineYs[^1] +
+            (1.85 * (GrandStaffLayout.TrebleLineYs[1] - GrandStaffLayout.TrebleLineYs[0])),
+            Staff.Treble);
+        Assert.NotNull(rendered.StemEndY);
+        Assert.Equal(expectedStemEndY, rendered.StemEndY.Value, precision: 6);
     }
 }

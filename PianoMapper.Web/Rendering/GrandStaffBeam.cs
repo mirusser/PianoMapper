@@ -8,4 +8,5 @@ public sealed record GrandStaffBeam(
     double X1,
     double Y1,
     int Count,
-    StemDirection StemDirection);
+    StemDirection StemDirection,
+    int Level = 0);

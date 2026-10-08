@@ -232,7 +232,8 @@
         }
         @if (Presentation.IsActive)
         {
-            <p class="exercise-progress" role="status">
+            <section class="exercise-progress" aria-label="Exercise progress">
+                <p class="exercise-progress-summary" role="status">
                 @if (Presentation.IsComplete)
                 {
                     <span>
@@ -261,7 +262,24 @@
                         }
                     </span>
                 }
-            </p>
+                </p>
+                @if (Presentation.ReviewMistakes is { Lines.Count: > 0 } reviewMistakes)
+                {
+                    <div class="exercise-progress-review" aria-labelledby="exercise-review-heading">
+                        <h3 id="exercise-review-heading">Mistakes to look at</h3>
+                        <ul class="exercise-review-list">
+                            @foreach (ExerciseReviewLine reviewLine in reviewMistakes.Lines)
+                            {
+                                <li>@ExerciseReviewBuilder.Describe(reviewLine)</li>
+                            }
+                        </ul>
+                        @if (reviewMistakes.MoreCount > 0)
+                        {
+                            <p class="control-note">and @reviewMistakes.MoreCount more</p>
+                        }
+                    </div>
+                }
+            </section>
         }
         @if (Presentation.AutoNextSecondsRemaining is not null)
         {
@@ -280,22 +298,6 @@
                     Next measures <kbd>]</kbd>
                 </button>
             </div>
-        }
-        @if (Presentation.ReviewMistakes is { Lines.Count: > 0 } reviewMistakes)
-        {
-            <section class="exercise-review" aria-labelledby="exercise-review-heading">
-                <h3 id="exercise-review-heading">Mistakes to look at</h3>
-                <ul class="exercise-review-list">
-                    @foreach (ExerciseReviewLine reviewLine in reviewMistakes.Lines)
-                    {
-                        <li>@ExerciseReviewBuilder.Describe(reviewLine)</li>
-                    }
-                </ul>
-                @if (reviewMistakes.MoreCount > 0)
-                {
-                    <p class="control-note">and @reviewMistakes.MoreCount more</p>
-                }
-            </section>
         }
         <p class="control-note" role="status">
             @InputReadinessMessage

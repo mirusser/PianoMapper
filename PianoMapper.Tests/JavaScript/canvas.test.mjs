@@ -1071,6 +1071,22 @@ test("grand staff draws score beams", () => {
     assert.equal(context.strokeCalls, 1);
 });
 
+test("grand staff offsets a secondary beam from its primary", () => {
+    const renderBeam = (level) => renderGrandStaffScene({
+        kind: 0,
+        lines: [],
+        glyphs: [],
+        notes: [],
+        beams: [{ x0: -0.5, y0: 0.2, x1: 0.5, y1: 0.3, count: 1, stemDirection: 0, level }],
+        shouldClipNotesAtClefs: false,
+    });
+
+    const primary = renderBeam(0).lineSegments[0];
+    const secondary = renderBeam(1).lineSegments[0];
+
+    assert.ok(Math.abs((secondary.y - primary.y) - 6.6) < 0.000001);
+});
+
 test("grand staff draws compact angled noteheads", () => {
     const context = renderGrandStaffScene({
         kind: 0,
@@ -1094,6 +1110,93 @@ test("grand staff draws compact angled noteheads", () => {
     assert.equal(ellipse[2], 6.6);
     assert.equal(ellipse[3], 4.4);
     assert.equal(ellipse[4], -Math.PI / 8);
+});
+
+test("grand staff stem overlaps the rotated notehead at its attachment", () => {
+    const context = renderGrandStaffScene({
+        kind: 0,
+        lines: [],
+        glyphs: [],
+        notes: [{
+            x: 0,
+            y: 0,
+            isActive: false,
+            isFilled: true,
+            hasStem: true,
+            stemDirection: 0,
+            hasDot: false,
+            flagCount: 0,
+            label: "C4",
+        }],
+        beams: [],
+        shouldClipNotesAtClefs: false,
+    });
+
+    const [noteX, , noteHeadRadiusX] = context.ellipseCalls[0];
+    const stem = context.lineSegments.at(-1);
+
+    // A vertical stem starts inside the ink of a rotated notehead rather than at its unrotated bounding edge.
+    assert.ok(stem.x - noteX < noteHeadRadiusX * 0.86,
+        `stem offset ${stem.x - noteX} does not overlap the rotated notehead`);
+});
+
+test("grand staff beam ends attach to the same point as their stems", () => {
+    const context = renderGrandStaffScene({
+        kind: 0,
+        lines: [],
+        glyphs: [],
+        notes: [{
+            x: -0.5,
+            y: 0,
+            isActive: false,
+            isFilled: true,
+            hasStem: true,
+            stemDirection: 0,
+            hasDot: false,
+            flagCount: 0,
+            label: "C4",
+        }],
+        beams: [{ x0: -0.5, y0: -0.2, x1: 0.2, y1: -0.2, count: 1, stemDirection: 0 }],
+        shouldClipNotesAtClefs: false,
+    });
+
+    const [beam] = context.lineSegments;
+    const stem = context.lineSegments.at(-1);
+
+    assert.equal(beam.x, stem.x);
+});
+
+test("grand staff eighth and sixteenth flags begin at the stem end", () => {
+    const renderShortNote = (flagCount, stemDirection) => renderGrandStaffScene({
+        kind: 0,
+        lines: [],
+        glyphs: [],
+        notes: [{
+            x: 0,
+            y: 0,
+            isActive: false,
+            isFilled: true,
+            hasStem: true,
+            stemEndY: -0.3,
+            stemDirection,
+            hasDot: false,
+            flagCount,
+            label: "C4",
+        }],
+        beams: [],
+        shouldClipNotesAtClefs: false,
+    });
+
+    for (const stemDirection of [0, 1]) {
+        for (const flagCount of [1, 2]) {
+            const context = renderShortNote(flagCount, stemDirection);
+            const stem = context.lineSegments.at(-1);
+
+            assert.equal(context.curveCalls.length, flagCount);
+            assert.equal(context.curveCalls[0].x, stem.x);
+            assert.equal(context.curveCalls[0].y, stem.y1);
+        }
+    }
 });
 
 test("grand staff keeps a dotted stem-up note's dot clear of its stem", () => {
