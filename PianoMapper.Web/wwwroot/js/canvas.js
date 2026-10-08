@@ -16,6 +16,8 @@ export const cursorLineKind = 3; // GrandStaffLineKind.Cursor
 export const beatLineKind = 4; // GrandStaffLineKind.Beat
 export const glissandoLineKind = 5; // GrandStaffLineKind.Glissando
 export const octaveShiftLineKind = 6; // GrandStaffLineKind.OctaveShift
+export const braceLineKind = 7; // GrandStaffLineKind.Brace
+export const finalBarlineKind = 8; // GrandStaffLineKind.FinalBarline
 export const clefGlyphKind = 0; // PianoMapper.Web.Rendering.GrandStaffGlyphKind.Clef
 export const accidentalGlyphKind = 1; // GrandStaffGlyphKind.Accidental
 export const octaveShiftNumeralGlyphKind = 9; // GrandStaffGlyphKind.OctaveShiftNumeral
@@ -121,6 +123,12 @@ const arpeggioMarkBracketTickWidthInStaffSpaces = 0.35;
 const octaveShiftDashLengthInStaffSpaces = 0.7;
 const octaveShiftDashGapInStaffSpaces = 0.45;
 const staffLineWidth = 1.5;
+const finalBarlineWidth = staffLineWidth * 2;
+const grandStaffBraceGlyph = "{";
+// Measure a large glyph so rounding in font metrics is not magnified across the staff height.
+const grandStaffBraceMeasurementFontSize = 256;
+const grandStaffBraceFontSize = 44;
+const grandStaffBraceGapPixels = 5;
 const spectrumReleaseClearMilliseconds = 120;
 const scoreNoteHitRadiusPixels = 12;
 const plotLeftMargin = 44;
@@ -160,7 +168,7 @@ const lightGrandStaffPalette = {
     band: "transparent",
     barline: "#111827",
     beam: "#111827",
-    beatLine: "#111827",
+    beatLine: "#9ca3af",
     clefGlyph: "#111827",
     cursor: "#dc2626",
     fingering: "#111827",
@@ -1475,19 +1483,26 @@ function drawBand(context, band, width, height, palette = darkGrandStaffPalette)
 }
 
 function drawLine(context, line, width, height, staffSpace, palette = darkGrandStaffPalette) {
+    if (line.kind === braceLineKind) {
+        drawGrandStaffBrace(context, line, width, height, palette);
+        return;
+    }
+
     context.strokeStyle = line.kind === cursorLineKind
         ? palette.cursor
         : line.kind === beatLineKind
             ? palette.beatLine
-            : line.kind === barlineKind
+            : line.kind === barlineKind || line.kind === finalBarlineKind
             ? palette.barline
             : line.kind === staffLineKind
                 ? palette.staffLine
                 : line.kind === glissandoLineKind
                     ? palette.glissando
                     : line.kind === octaveShiftLineKind ? palette.octaveShift : palette.ledgerLine;
-    context.lineWidth = line.kind === staffLineKind
-        ? staffLineWidth
+    context.lineWidth = line.kind === finalBarlineKind
+        ? finalBarlineWidth
+        : line.kind === staffLineKind
+            ? staffLineWidth
         : line.kind === cursorLineKind
             ? 2
             : line.kind === beatLineKind
@@ -1514,6 +1529,32 @@ function drawLine(context, line, width, height, staffSpace, palette = darkGrandS
     if (line.kind === octaveShiftLineKind) {
         context.setLineDash([]);
     }
+}
+
+function drawGrandStaffBrace(context, line, width, height, palette = darkGrandStaffPalette) {
+    const x = mapX(line.x0, width);
+    const y0 = mapY(line.y0, height);
+    const y1 = mapY(line.y1, height);
+    const top = Math.min(y0, y1);
+    const bottom = Math.max(y0, y1);
+    context.save();
+    // Text bounds depend on the baseline and alignment; measure with the same settings used to draw.
+    context.textAlign = "left";
+    context.textBaseline = "alphabetic";
+    context.font = `${grandStaffBraceMeasurementFontSize}px Georgia, 'Times New Roman', serif`;
+    const metrics = context.measureText(grandStaffBraceGlyph);
+    const glyphHeight = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
+    if (!(glyphHeight > 0)) {
+        context.restore();
+        return;
+    }
+
+    const horizontalScale = grandStaffBraceFontSize / grandStaffBraceMeasurementFontSize;
+    context.translate(x - grandStaffBraceGapPixels - (metrics.actualBoundingBoxRight * horizontalScale), top);
+    context.scale(horizontalScale, (bottom - top) / glyphHeight);
+    context.fillStyle = palette.staffLine;
+    context.fillText(grandStaffBraceGlyph, 0, metrics.actualBoundingBoxAscent);
+    context.restore();
 }
 
 function drawGlyph(context, glyph, width, height, palette = darkGrandStaffPalette) {

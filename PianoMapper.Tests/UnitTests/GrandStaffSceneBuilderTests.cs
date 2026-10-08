@@ -118,7 +118,9 @@ public sealed partial class GrandStaffSceneBuilderTests
         Assert.All(scene.Notes, note => Assert.True(note.HasDot));
         Assert.All(scene.Notes, note => Assert.Equal(1, note.FlagCount));
         Assert.Single(scene.Glyphs, glyph => glyph.Kind == GrandStaffGlyphKind.Accidental);
-        Assert.Equal(5, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Barline));
+        Assert.Equal(
+            4,
+            scene.Lines.Count(line => line.Kind is GrandStaffLineKind.Barline or GrandStaffLineKind.FinalBarline));
     }
 
     [Fact]
@@ -2244,7 +2246,7 @@ public sealed partial class GrandStaffSceneBuilderTests
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
         var barlineXs = scene.Lines
-            .Where(line => line.Kind == GrandStaffLineKind.Barline)
+            .Where(line => line.Kind is GrandStaffLineKind.Barline or GrandStaffLineKind.FinalBarline)
             .Select(line => line.X0)
             .ToArray();
         double finalBoundaryX = GrandStaffLayout.GetScoreBarlineXs(0, score.Measures.Count)[^1];
@@ -2840,21 +2842,82 @@ public sealed partial class GrandStaffSceneBuilderTests
             new TimeSignature(4, new NoteValue(4)),
             new Tempo(120));
 
-        Assert.Equal(8, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Barline));
+        Assert.Equal(7, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Barline));
         Assert.Equal(15, scene.Lines.Count(line => line.Kind == GrandStaffLineKind.Beat));
         var cursor = Assert.Single(scene.Lines, line => line.Kind == GrandStaffLineKind.Cursor);
         Assert.Equal(GrandStaffLayout.ScoreX0, cursor.X0, 6);
     }
 
     [Fact]
-    public void Build_EmptyTimeline_AddsStartingBarlineAndEndingDoubleBarline()
+    public void Build_EmptyTimeline_AddsStartingAndMeasureBarlinesWithoutAnEndingDoubleBarline()
     {
         var scene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero);
 
         var staffLine = scene.Lines.First(line => line.Kind == GrandStaffLineKind.Staff);
         var barlines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Barline).ToArray();
         Assert.Single(barlines, line => line.X0 == staffLine.X0);
-        Assert.Equal(2, barlines.Count(line => line.X0 > staffLine.X1 - 0.02 && line.X0 <= staffLine.X1));
+        Assert.Single(barlines, line => line.X0 > staffLine.X1 - 0.02 && line.X0 <= staffLine.X1);
+    }
+
+    [Fact]
+    public void Build_EmptyTimeline_DrawsBraceConnectingBothStaves()
+    {
+        var scene = GrandStaffSceneBuilder.Build([], TimeSpan.Zero);
+
+        var brace = Assert.Single(scene.Lines, line => line.Kind == GrandStaffLineKind.Brace);
+        var staffLines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Staff).ToArray();
+        Assert.Equal(staffLines.Min(line => line.X0), brace.X0);
+        Assert.Equal(staffLines.Min(line => line.Y0), Math.Min(brace.Y0, brace.Y1));
+        Assert.Equal(staffLines.Max(line => line.Y0), Math.Max(brace.Y0, brace.Y1));
+    }
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(1, 2)]
+    public void BuildScore_VisibleWindow_UsesDoubleBarlineOnlyAtScoresEnd(
+        int firstVisibleMeasure,
+        int expectedRightEdgeBarlineCount)
+    {
+        var score = CreateScore(measureCount: 2);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(
+            score,
+            firstVisibleMeasure,
+            visibleMeasureCount: 1);
+        double staffRightEdge = scene.Lines.First(line => line.Kind == GrandStaffLineKind.Staff).X1;
+
+        var endingBarlines = scene.Lines
+            .Where(line =>
+                (line.Kind is GrandStaffLineKind.Barline or GrandStaffLineKind.FinalBarline) &&
+                line.X0 > staffRightEdge - 0.02 &&
+                line.X0 <= staffRightEdge)
+            .ToArray();
+        Assert.Equal(expectedRightEdgeBarlineCount, endingBarlines.Length);
+        if (expectedRightEdgeBarlineCount == 2)
+        {
+            Assert.Single(endingBarlines, line => line.Kind == GrandStaffLineKind.FinalBarline);
+        }
+        else
+        {
+            Assert.DoesNotContain(endingBarlines, line => line.Kind == GrandStaffLineKind.FinalBarline);
+        }
+    }
+
+    [Fact]
+    public void BuildScore_ShortFinalWindow_PlacesDoubleBarlineAtTheScoresActualEnd()
+    {
+        var score = CreateScore(measureCount: 2);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        double finalBarlineX = GrandStaffLayout.GetScoreBarlineXs(score, firstVisibleMeasure: 0).Last();
+        var barlines = scene.Lines
+            .Where(line => line.Kind is GrandStaffLineKind.Barline or GrandStaffLineKind.FinalBarline)
+            .ToArray();
+        Assert.Equal(2, barlines.Count(line => line.X0 > finalBarlineX - 0.02 && line.X0 <= finalBarlineX));
+        Assert.Single(barlines, line => line.Kind == GrandStaffLineKind.FinalBarline);
+        double staffRightEdge = scene.Lines.First(line => line.Kind == GrandStaffLineKind.Staff).X1;
+        Assert.DoesNotContain(barlines, line => line.X0 > staffRightEdge - 0.02);
     }
 
     [Fact]

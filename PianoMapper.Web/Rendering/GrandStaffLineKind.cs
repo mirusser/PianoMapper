@@ -9,4 +9,6 @@ public enum GrandStaffLineKind
     Beat,
     Glissando,
     OctaveShift,
+    Brace,
+    FinalBarline,
 }

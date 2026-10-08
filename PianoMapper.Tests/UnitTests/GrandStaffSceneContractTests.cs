@@ -30,6 +30,8 @@ public sealed class GrandStaffSceneContractTests
         Assert.Equal(4, (int)GrandStaffLineKind.Beat);
         Assert.Equal(5, (int)GrandStaffLineKind.Glissando);
         Assert.Equal(6, (int)GrandStaffLineKind.OctaveShift);
+        Assert.Equal(7, (int)GrandStaffLineKind.Brace);
+        Assert.Equal(8, (int)GrandStaffLineKind.FinalBarline);
     }
 
     [Fact]

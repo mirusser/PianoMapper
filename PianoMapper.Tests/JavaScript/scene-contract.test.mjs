@@ -10,9 +10,11 @@ import test from "node:test";
 import {
     accidentalGlyphKind,
     barlineKind,
+    braceLineKind,
     beatLineKind,
     clefGlyphKind,
     cursorLineKind,
+    finalBarlineKind,
     glissandoLineKind,
     grandStaffSceneKind,
     ledgerLineKind,
@@ -43,6 +45,8 @@ test("line kind constants match GrandStaffLineKind ordinals", () => {
     assert.equal(beatLineKind, 4);
     assert.equal(glissandoLineKind, 5);
     assert.equal(octaveShiftLineKind, 6);
+    assert.equal(braceLineKind, 7);
+    assert.equal(finalBarlineKind, 8);
 });
 
 test("clef glyph kind constant matches GrandStaffGlyphKind.Clef ordinal", () => {

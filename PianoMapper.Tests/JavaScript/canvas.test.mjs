@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+    barlineKind,
+    beatLineKind,
+    braceLineKind,
     dispose,
+    finalBarlineKind,
     glissandoLineKind,
     hitTestScoreNote,
     initialize,
@@ -54,6 +58,8 @@ class FakeCanvasContext {
     rectCalls = [];
     roundRectCalls = [];
     lineDashCalls = [];
+    scaleCalls = [];
+    translateCalls = [];
     pathStart = undefined;
     currentPath = undefined;
     // Real Canvas2D measureText returns different bounding boxes per character/font — a "flat"
@@ -86,8 +92,13 @@ class FakeCanvasContext {
         };
     }
     save() { }
-    translate() { }
+    translate(...args) {
+        this.translateCalls.push(args);
+    }
     rotate() { }
+    scale(...args) {
+        this.scaleCalls.push(args);
+    }
     restore() { }
     beginPath() {
         this.pathStart = undefined;
@@ -102,7 +113,13 @@ class FakeCanvasContext {
     }
     lineTo(x, y) {
         if (this.pathStart) {
-            const segment = { ...this.pathStart, x1: x, y1: y, strokeStyle: this.strokeStyle };
+            const segment = {
+                ...this.pathStart,
+                x1: x,
+                y1: y,
+                strokeStyle: this.strokeStyle,
+                lineWidth: this.lineWidth,
+            };
             this.lineSegments.push(segment);
             this.operations.push({ kind: "line", segment });
         }
@@ -335,17 +352,24 @@ test("light score mode renders static notation black and active notes high contr
     const scene = createEditableScoreScene([
         { x: 0, y: 0.2, isActive: true, isFilled: true, stemDirection: 0 },
     ]);
+    scene.lines.push(
+        { x0: -0.5, y0: 0.5, x1: -0.5, y1: -0.5, kind: barlineKind },
+        { x0: 0.5, y0: 0.5, x1: 0.5, y1: -0.5, kind: beatLineKind });
 
     try {
         render(canvas, scene, false, false);
 
         const scoreLayer = harness.scoreLayers.at(-1);
+        assert.equal(scoreLayer.context.lineSegments[2].strokeStyle, "#64748b");
+        assert.equal(scoreLayer.context.lineSegments[3].strokeStyle, "#334155");
         const lightRenderStart = scoreLayer.context.lineSegments.length;
         const lightFillStart = scoreLayer.context.fillRects.length;
         render(canvas, scene, false, false, undefined, true);
 
         assert.equal(scoreLayer.context.fillRects[lightFillStart].fillStyle, "#fff");
         assert.equal(scoreLayer.context.lineSegments[lightRenderStart].strokeStyle, "#111827");
+        assert.equal(scoreLayer.context.lineSegments[lightRenderStart + 2].strokeStyle, "#111827");
+        assert.equal(scoreLayer.context.lineSegments[lightRenderStart + 3].strokeStyle, "#9ca3af");
         assert.equal(scoreLayer.context.ellipseStyles.at(-1), "#0369a1");
     } finally {
         await harness.dispose();
@@ -798,6 +822,50 @@ function renderGrandStaffScene(scene, width = 640, height = 240, metricsByText =
         }
     }, { width, height });
 }
+
+for (const width of [320, 640, 1400]) {
+    test(`grand-staff brace fits the staff height with a fixed gap at width ${width}`, () => {
+        const metrics = {
+            actualBoundingBoxAscent: 190,
+            actualBoundingBoxDescent: 50,
+            actualBoundingBoxRight: 99,
+        };
+        const context = renderGrandStaffScene({
+            kind: 0,
+            lines: [{ x0: -0.92, y0: 0.5, x1: -0.92, y1: -0.5, kind: braceLineKind }],
+            glyphs: [],
+            notes: [],
+            shouldClipNotesAtClefs: false,
+        }, width, 240, { "{": metrics });
+
+        assert.equal(context.fillTextCalls.length, 1);
+        const [glyph, glyphX, baseline] = context.fillTextCalls[0].args;
+        assert.equal(glyph, "{");
+        const [translateX, translateY] = context.translateCalls[0];
+        const [scaleX, scaleY] = context.scaleCalls[0];
+        const inkTop = translateY + (baseline - metrics.actualBoundingBoxAscent) * scaleY;
+        const inkBottom = translateY + (baseline + metrics.actualBoundingBoxDescent) * scaleY;
+        const inkRight = translateX + (glyphX + metrics.actualBoundingBoxRight) * scaleX;
+        const staffX = 18 + 0.04 * (width - 36);
+
+        assert.equal(inkTop, 69);
+        assert.equal(inkBottom, 171);
+        assert.ok(Math.abs(staffX - inkRight - 5) < 0.001, "brace stays five pixels from the staff");
+    });
+}
+
+test("final barline draws with a heavier stroke", () => {
+    const context = renderGrandStaffScene({
+        kind: 0,
+        lines: [{ x0: 0.8, y0: 0.5, x1: 0.8, y1: -0.5, kind: finalBarlineKind }],
+        glyphs: [],
+        notes: [],
+        shouldClipNotesAtClefs: false,
+    });
+
+    assert.equal(context.lineSegments.length, 1);
+    assert.equal(context.lineSegments[0].lineWidth, 3);
+});
 
 test("grand staff drawing caches its static layer until the scene or size changes", () => {
     withCanvasMocks(({ createdCanvases, resizeCallbacks }) => {

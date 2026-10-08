@@ -344,20 +344,30 @@ internal static class GrandStaffSceneBuilder
         var reviewMarkGroups = new Dictionary<(Staff Staff, double OnsetBeats), int>();
 
         var (barlineY0, barlineY1) = GetCursorLineYBounds();
-        lines.AddRange(GrandStaffLayout.GetScoreBarlineXs(score, clampedMeasure, visibleMeasureCount)
-            .Where(x => x < GrandStaffLayout.ScoreX1)
-            .Select((x, boundary) =>
+        IReadOnlyList<float> barlineXs = GrandStaffLayout.GetScoreBarlineXs(score, clampedMeasure, visibleMeasureCount);
+        for (int boundary = 0; boundary < barlineXs.Count; boundary++)
+        {
+            double barlineX = boundary == 0 && clampedMeasure < score.Measures.Count
+                ? barlineXs[boundary] - OpeningBarlineLead
+                : barlineXs[boundary];
+            bool isEndingBarline = boundary == barlineXs.Count - 1 && lastMeasureIndexExclusive == score.Measures.Count;
+            if (isEndingBarline)
             {
-                double barlineX = boundary == 0 && clampedMeasure < score.Measures.Count
-                    ? x - OpeningBarlineLead
-                    : x;
-                return new GrandStaffLine(
-                    barlineX,
+                lines.Add(new GrandStaffLine(
+                    barlineX - EndingBarlineGap,
                     barlineY0,
-                    barlineX,
+                    barlineX - EndingBarlineGap,
                     barlineY1,
-                    GrandStaffLineKind.Barline);
-            }));
+                    GrandStaffLineKind.Barline));
+            }
+
+            lines.Add(new GrandStaffLine(
+                barlineX,
+                barlineY0,
+                barlineX,
+                barlineY1,
+                isEndingBarline ? GrandStaffLineKind.FinalBarline : GrandStaffLineKind.Barline));
+        }
 
         for (int visibleNoteIndex = 0; visibleNoteIndex < visibleNotes.Count; visibleNoteIndex++)
         {
@@ -1758,13 +1768,8 @@ internal static class GrandStaffSceneBuilder
             .ToList();
         var (barlineY0, barlineY1) = GetCursorLineYBounds();
         lines.Add(new GrandStaffLine(StaffX0, barlineY0, StaffX0, barlineY1, GrandStaffLineKind.Barline));
-        lines.Add(new GrandStaffLine(
-            StaffX1 - EndingBarlineGap,
-            barlineY0,
-            StaffX1 - EndingBarlineGap,
-            barlineY1,
-            GrandStaffLineKind.Barline));
-        lines.Add(new GrandStaffLine(StaffX1, barlineY0, StaffX1, barlineY1, GrandStaffLineKind.Barline));
+        // The canvas places the brace's visible right edge a fixed pixel gap before this staff boundary.
+        lines.Add(new GrandStaffLine(StaffX0, barlineY0, StaffX0, barlineY1, GrandStaffLineKind.Brace));
         return lines;
     }
 
@@ -1782,12 +1787,6 @@ internal static class GrandStaffSceneBuilder
             tempo,
             firstVisibleMeasure))
         {
-            if (gridLine.Kind == GridLineKind.Barline && gridLine.X >= GrandStaffLayout.ScoreX1)
-            {
-                // Skip: CreateStaffLines() already draws the ending double barline at ScoreX1.
-                continue;
-            }
-
             var kind = gridLine.Kind switch
             {
                 GridLineKind.Barline => GrandStaffLineKind.Barline,
