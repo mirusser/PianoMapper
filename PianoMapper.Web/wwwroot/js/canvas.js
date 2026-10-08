@@ -1,4 +1,5 @@
 import { getAnalyserNode, getCurrentTime, isAudioActive } from "./audio.js";
+import { grandStaffBraceAspect, grandStaffBraceOutline } from "./grand-staff-brace.js";
 
 const canvases = new Map();
 
@@ -124,10 +125,6 @@ const octaveShiftDashLengthInStaffSpaces = 0.7;
 const octaveShiftDashGapInStaffSpaces = 0.45;
 const staffLineWidth = 1.5;
 const finalBarlineWidth = staffLineWidth * 2;
-const grandStaffBraceGlyph = "{";
-// Measure a large glyph so rounding in font metrics is not magnified across the staff height.
-const grandStaffBraceMeasurementFontSize = 256;
-const grandStaffBraceFontSize = 44;
 const grandStaffBraceGapPixels = 5;
 const spectrumReleaseClearMilliseconds = 120;
 const scoreNoteHitRadiusPixels = 12;
@@ -1536,24 +1533,22 @@ function drawGrandStaffBrace(context, line, width, height, palette = darkGrandSt
     const y0 = mapY(line.y0, height);
     const y1 = mapY(line.y1, height);
     const top = Math.min(y0, y1);
-    const bottom = Math.max(y0, y1);
+    const braceHeight = Math.max(y0, y1) - top;
+    const left = x - grandStaffBraceGapPixels - (braceHeight * grandStaffBraceAspect);
     context.save();
-    // Text bounds depend on the baseline and alignment; measure with the same settings used to draw.
-    context.textAlign = "left";
-    context.textBaseline = "alphabetic";
-    context.font = `${grandStaffBraceMeasurementFontSize}px Georgia, 'Times New Roman', serif`;
-    const metrics = context.measureText(grandStaffBraceGlyph);
-    const glyphHeight = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
-    if (!(glyphHeight > 0)) {
-        context.restore();
-        return;
-    }
-
-    const horizontalScale = grandStaffBraceFontSize / grandStaffBraceMeasurementFontSize;
-    context.translate(x - grandStaffBraceGapPixels - (metrics.actualBoundingBoxRight * horizontalScale), top);
-    context.scale(horizontalScale, (bottom - top) / glyphHeight);
     context.fillStyle = palette.staffLine;
-    context.fillText(grandStaffBraceGlyph, 0, metrics.actualBoundingBoxAscent);
+    context.beginPath();
+    for (let i = 0; i < grandStaffBraceOutline.length; i += 2) {
+        const pointX = left + (grandStaffBraceOutline[i] * braceHeight);
+        const pointY = top + (grandStaffBraceOutline[i + 1] * braceHeight);
+        if (i === 0) {
+            context.moveTo(pointX, pointY);
+        } else {
+            context.lineTo(pointX, pointY);
+        }
+    }
+    context.closePath();
+    context.fill();
     context.restore();
 }
 

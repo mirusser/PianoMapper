@@ -69,6 +69,48 @@ public sealed class ScoreNoteAddressResolverTests
                 new ScoreNoteAddress(measureIndex, noteIndex)));
     }
 
+    [Fact]
+    public void TryResolveSourceAddress_RebarredSelectedNote_ReturnsTheNoteAddressInTheSourceScore()
+    {
+        var source = CreateScore(
+            [
+                new ScoreMeasure(
+                    [new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 3, Staff.Treble)],
+                    []),
+                new ScoreMeasure(
+                    [
+                        new ScoreNote(new Pitch(NoteLetter.D, 0, 4), new NoteValue(4), 1, 0, Staff.Treble),
+                        new ScoreNote(new Pitch(NoteLetter.E, 0, 4), new NoteValue(4), 1, 1, Staff.Treble),
+                    ],
+                    []),
+            ]);
+        Score loaded = ScoreTiming.Apply(source, new TimeSignature(3, new NoteValue(4)), source.Tempo);
+
+        // In the 3/4 display the second measure holds C, D and E; the second visible note is the D that the source
+        // keeps as the first note of its second measure.
+        ScoreFingeringNoteAddress? address = ScoreNoteAddressResolver.TryResolveSourceAddress(
+            loaded,
+            source,
+            selectedFirstMeasure: 1,
+            new ScoreNoteAddress(0, 1));
+
+        Assert.Equal(new ScoreFingeringNoteAddress(1, 0), address);
+    }
+
+    [Theory]
+    [InlineData(2, 0)]
+    [InlineData(0, 1)]
+    public void TryResolveSourceAddress_AddressOutsideTheScore_ReturnsNull(int measureIndex, int noteIndex)
+    {
+        var score = CreateScore([CreateMeasure(0, NoteLetter.C)]);
+
+        Assert.Null(ScoreNoteAddressResolver.TryResolveSourceAddress(
+            score,
+            score,
+            selectedFirstMeasure: 0,
+            new ScoreNoteAddress(measureIndex, noteIndex)));
+    }
+
     private static Score CreateScore(IReadOnlyList<ScoreMeasure> measures) =>
         new(
             "Addresses",

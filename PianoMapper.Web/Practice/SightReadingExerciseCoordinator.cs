@@ -17,6 +17,7 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     private long? autoNextStartTimestamp;
     private NoteReadingMode runMode;
     private ExercisePacing runPacing;
+    private ScoreFingeringProfile fingeringProfile = ScoreFingeringProfile.Default;
 
     internal Staff Staff { get; private set; } = Staff.Treble;
 
@@ -283,6 +284,12 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
 
     internal void SetStaff(Staff staff) => Staff = staff;
 
+    internal void SetFingeringProfile(ScoreFingeringProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        fingeringProfile = profile;
+    }
+
     internal void SetPresetId(SightReadingPresetId presetId) => PresetId = presetId;
 
     internal void SetPromptCountOption(int promptCount) => PromptCountOption = promptCount;
@@ -512,7 +519,9 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
             IntervalSteps,
             EffectiveHandsTogether);
         Score composed = SightReadingExerciseComposer.Compose(options, random, BuildNoteWeights(mastery));
-        Score = ScoreFingeringGenerator.Generate(composed);
+        Score = ScoreFingeringGenerator.Generate(
+            composed,
+            new ScoreFingeringGenerationOptions(fingeringProfile));
         StartRun(timingTolerance);
         IsCountingIn = false;
     }
@@ -676,7 +685,9 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
                 Score!,
                 missedPromptGroups.SelectMany(group => group).ToArray())
             : SightReadingExerciseComposer.ComposeFromMissedPrompts(Score!, missedPromptGroups);
-        Score = ScoreFingeringGenerator.Generate(missedScore);
+        Score = ScoreFingeringGenerator.Generate(
+            missedScore,
+            new ScoreFingeringGenerationOptions(fingeringProfile));
         StartRun(timingTolerance);
         return true;
     }

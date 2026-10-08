@@ -1,4 +1,6 @@
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
 
 namespace PianoMapper.Server.Omr;
@@ -6,6 +8,13 @@ namespace PianoMapper.Server.Omr;
 internal static class ScoreImagePreprocessor
 {
     private const int ClearedEdgeWidthPixels = 2;
+
+    // Score uploads are PNG or JPEG only. Registering just those decoders keeps ImageSharp's other
+    // decoders (TIFF in particular, see the NuGetAuditSuppress entries in the csproj) unreachable
+    // from uploaded content, which is sniffed by magic bytes rather than trusted by file extension.
+    private static readonly Configuration DecoderConfiguration = new(
+        new PngConfigurationModule(),
+        new JpegConfigurationModule());
 
     internal static async Task PrepareAsync(
         Stream source,
@@ -18,7 +27,7 @@ internal static class ScoreImagePreprocessor
         Image<Rgba32> image;
         try
         {
-            image = await Image.LoadAsync<Rgba32>(source, cancellationToken).ConfigureAwait(false);
+            image = await Image.LoadAsync<Rgba32>(DecoderConfiguration, source, cancellationToken).ConfigureAwait(false);
         }
         catch (UnknownImageFormatException exception)
         {

@@ -253,8 +253,56 @@
                                             @onclick="RegenerateAllFingeringsAsync">
                                         @(isFingeringGenerating ? "Generating fingerings…" : "Regenerate all fingerings")
                                     </button>
+                                    <button type="button"
+                                            disabled="@(isFingeringGenerating || !fingeringSession.HasLocks)"
+                                            title="Preserve the fingerings locked in this session"
+                                            @onclick="RegenerateLockedFingeringsAsync">
+                                        Regenerate preserving locked fingerings
+                                    </button>
                                 }
                             </div>
+                            <details class="learning-disclosure">
+                                <summary>Fingering reach profile</summary>
+                                <div class="fingering-editor">
+                                    <p class="control-note">Set the 1–5 span for each hand in white-key centre spacings. C4–D5 is 8 spacings; it is an upper-reach reference, not a measured comfort setting. The comfortable span can be at most the maximum, which is the widest stretch the fingering will use for keys held together.</p>
+                                    <label class="timing-field">
+                                        <span>Right hand comfortable 1–5 span</span>
+                                        <input type="number" min="@FingeringProfileSettings.MinimumReach" max="@FingeringProfileSettings.MaximumReach" step="0.1" @bind:get="FormatReach(fingeringProfileSettings.RightComfortable)" @bind:set="text => SetFingeringReachAsync(Staff.Treble, isMaximum: false, text: text)" @bind:event="onchange" />
+                                    </label>
+                                    <label class="timing-field">
+                                        <span>Right hand maximum 1–5 span</span>
+                                        <input type="number" min="@FingeringProfileSettings.MinimumReach" max="@FingeringProfileSettings.MaximumReach" step="0.1" @bind:get="FormatReach(fingeringProfileSettings.RightMaximum)" @bind:set="text => SetFingeringReachAsync(Staff.Treble, isMaximum: true, text: text)" @bind:event="onchange" />
+                                    </label>
+                                    <label class="timing-field">
+                                        <span>Left hand comfortable 1–5 span</span>
+                                        <input type="number" min="@FingeringProfileSettings.MinimumReach" max="@FingeringProfileSettings.MaximumReach" step="0.1" @bind:get="FormatReach(fingeringProfileSettings.LeftComfortable)" @bind:set="text => SetFingeringReachAsync(Staff.Bass, isMaximum: false, text: text)" @bind:event="onchange" />
+                                    </label>
+                                    <label class="timing-field">
+                                        <span>Left hand maximum 1–5 span</span>
+                                        <input type="number" min="@FingeringProfileSettings.MinimumReach" max="@FingeringProfileSettings.MaximumReach" step="0.1" @bind:get="FormatReach(fingeringProfileSettings.LeftMaximum)" @bind:set="text => SetFingeringReachAsync(Staff.Bass, isMaximum: true, text: text)" @bind:event="onchange" />
+                                    </label>
+                                </div>
+                            </details>
+                            @if (fingeringSession.Alternatives.Count > 1)
+                            {
+                                <div class="fingering-editor" aria-label="Fingering alternatives">
+                                    <span class="control-group-label" id="fingering-alternatives-heading">Fingering alternatives</span>
+                                    <div class="controls" role="group" aria-labelledby="fingering-alternatives-heading">
+                                        @for (int alternativeIndex = 0; alternativeIndex < fingeringSession.Alternatives.Count; alternativeIndex++)
+                                        {
+                                            int selectedAlternativeIndex = alternativeIndex;
+                                            <button class="@(fingeringSession.SelectedAlternativeIndex == alternativeIndex ? "button-primary" : null)"
+                                                    type="button"
+                                                    aria-pressed="@(fingeringSession.SelectedAlternativeIndex == alternativeIndex ? "true" : "false")"
+                                                    disabled="@isFingeringGenerating"
+                                                    @onclick="() => ApplyFingeringAlternativeAsync(selectedAlternativeIndex)">
+                                                @(alternativeIndex == 0 ? "Preferred" : $"Alternative {alternativeIndex + 1}")
+                                            </button>
+                                        }
+                                    </div>
+                                    <p class="control-note" role="status">@fingeringSession.Alternatives[fingeringSession.SelectedAlternativeIndex].Explanation</p>
+                                </div>
+                            }
                             @if (isFingeringEditing)
                             {
                                 <div class="fingering-editor" aria-label="Fingering editor">
@@ -266,7 +314,7 @@
                                             @foreach (var option in GetVisibleFingeringNotes())
                                             {
                                                 <option value="@FormatScoreNoteAddress(option.Address)">
-                                                    @FormatFingeringNote(option.Address, option.Note)
+                                                    @FormatFingeringNote(option.Address, option.Note)@(IsFingeringLocked(option.Address) ? " (locked)" : string.Empty)
                                                 </option>
                                             }
                                         </select>
@@ -289,6 +337,11 @@
                                                     disabled="@(SelectedFingeringNumber is null)"
                                                     @onclick="() => SetSelectedFingeringAsync(null)">
                                                 Remove
+                                            </button>
+                                            <button type="button"
+                                                    disabled="@(SelectedFingeringNumber is null)"
+                                                    @onclick="ToggleSelectedFingeringLock">
+                                                @(IsSelectedFingeringLocked ? "Unlock fingering" : "Lock fingering")
                                             </button>
                                         </div>
                                     </div>
@@ -587,6 +640,7 @@
     // before that: screenshot-verified against a real dense score, 20 already renders as an
     // illegible blob. 12 was chosen from that same visual check, not the arithmetic alone.
     private const int MaximumVisibleMeasureCount = 12;
+    private const int MaximumFingeringAlternatives = 3;
     private const int MinimumTempoBeatsPerMinute = 30;
     private const int MaximumTempoBeatsPerMinute = 300;
     private const int StrictToleranceMilliseconds = 30;
@@ -679,6 +733,9 @@
     private int visibleMeasureCount = GrandStaffLayout.DefaultVisibleMeasureCount;
     private bool isFingeringEditing;
     private bool isFingeringGenerating;
+    private readonly ScoreFingeringSession fingeringSession = new();
+    private BrowserFingeringProfileStore fingeringProfileStore = null!;
+    private FingeringProfileSettings fingeringProfileSettings = FingeringProfileSettings.Default;
     private NoteReadingMode idleNoteReadingMode = NoteReadingMode.PitchAndOrder;
     private TimeSignature displayTimeSignature = new(4, new NoteValue(4));
     private Tempo displayTempo = new(120);
@@ -920,6 +977,12 @@
 
     private int? SelectedFingeringNumber => SelectedFingeringNote?.Fingering?.Number;
 
+    private ScoreFingeringNoteAddress? SelectedFingeringLockAddress =>
+        selectedScoreNoteAddress is { } address ? ResolveFingeringLockAddress(address) : null;
+
+    private bool IsSelectedFingeringLocked => SelectedFingeringLockAddress is { } address &&
+        fingeringSession.IsLocked(address);
+
     private Staff? SelectedHand => SelectedFingeringNote?.Staff;
 
     private ScoreNote? SelectedFingeringNote =>
@@ -929,7 +992,8 @@
 
     private string FingeringEditStatus =>
         selectedScoreNoteAddress is { } address && SelectedFingeringNote is { } note
-            ? $"Selected {FormatFingeringNote(address, note)}. Current fingering: {note.Fingering?.Number.ToString(CultureInfo.InvariantCulture) ?? "none"}."
+            ? $"Selected {FormatFingeringNote(address, note)}. Current fingering: {note.Fingering?.Number.ToString(CultureInfo.InvariantCulture) ?? "none"}." +
+                (IsSelectedFingeringLocked ? " This fingering is locked for this session." : string.Empty)
             : "Select a note on either grand-staff row, or choose one from the list.";
 
     private string? PrimaryScoreRangeLabel => FormatScoreRowRange(scoreWindowPair?.UpperFirstMeasure);
@@ -1012,6 +1076,18 @@
     private static string FormatScoreNoteAddress(ScoreNoteAddress address) =>
         $"{address.MeasureIndex.ToString(CultureInfo.InvariantCulture)}:{address.NoteIndex.ToString(CultureInfo.InvariantCulture)}";
 
+    /// <summary>
+    /// A lock is addressed in the imported score that generation reads, which can bar differently from the displayed
+    /// score, so the displayed note is mapped through its position in score order.
+    /// </summary>
+    private ScoreFingeringNoteAddress? ResolveFingeringLockAddress(ScoreNoteAddress address) =>
+        loadedScore is { } displayedScore && importedScore is { } sourceScore
+            ? ScoreNoteAddressResolver.TryResolveSourceAddress(displayedScore, sourceScore, selectedFirstMeasure, address)
+            : null;
+
+    private bool IsFingeringLocked(ScoreNoteAddress address) =>
+        ResolveFingeringLockAddress(address) is { } lockAddress && fingeringSession.IsLocked(lockAddress);
+
     private bool TryGetSelectedScoreNote(ScoreNoteAddress address, out ScoreNote? note)
     {
         note = null;
@@ -1070,6 +1146,7 @@
             sightReadingExerciseCoordinator,
             ExerciseClick);
         sightReadingHistoryStore = new BrowserSightReadingHistoryStore(JS);
+        fingeringProfileStore = new BrowserFingeringProfileStore(JS);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -1080,6 +1157,7 @@
         }
 
         sightReadingHistory = await sightReadingHistoryStore.LoadAsync();
+        ApplyFingeringProfile(await fingeringProfileStore.LoadAsync());
         RefreshSightReadingInsights();
         StateHasChanged();
         await TryAutoConnectMidiAsync();
@@ -1362,6 +1440,7 @@
             await StopMetronomeAsync();
         }
 
+        fingeringSession.Clear();
         importedScore = score;
         loadedScore = score;
         selectedFirstMeasure = 0;
@@ -1414,6 +1493,7 @@
         await DiscardSightReadingExerciseAsync();
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
+        fingeringSession.Clear();
         importedScore = null;
         loadedScore = null;
         selectedScore = null;
@@ -1707,10 +1787,14 @@
     {
         TimeSpan currentTime = await PrepareSightReadingExerciseTransitionAsync();
         showPianoRoll = false;
-        sightReadingExerciseCoordinator.Generate(
+        if (!TryGenerateSightReadingExercise(() => sightReadingExerciseCoordinator.Generate(
             Random.Shared,
             onTimeTolerance,
-            sightReadingHistory.ComputeNoteMasteryWeakestFirst());
+            sightReadingHistory.ComputeNoteMasteryWeakestFirst())))
+        {
+            return;
+        }
+
         ResetScoreWindowPair();
         await FinishSightReadingTransitionAsync(
             currentTime,
@@ -1725,11 +1809,15 @@
     {
         TimeSpan currentTime = await PrepareSightReadingExerciseTransitionAsync();
         showPianoRoll = false;
-        sightReadingExerciseCoordinator.GenerateRecommended(
+        if (!TryGenerateSightReadingExercise(() => sightReadingExerciseCoordinator.GenerateRecommended(
             Random.Shared,
             onTimeTolerance,
             sightReadingLadder.Recommended,
-            sightReadingHistory.ComputeNoteMasteryWeakestFirst());
+            sightReadingHistory.ComputeNoteMasteryWeakestFirst())))
+        {
+            return;
+        }
+
         ResetScoreWindowPair();
         await FinishSightReadingTransitionAsync(
             currentTime,
@@ -1746,7 +1834,12 @@
 
         TimeSpan currentTime = await PrepareSightReadingExerciseTransitionAsync();
         showPianoRoll = false;
-        sightReadingExerciseCoordinator.GenerateWeaknessDrill(Random.Shared, onTimeTolerance, sightReadingWeakNotes);
+        if (!TryGenerateSightReadingExercise(() =>
+            sightReadingExerciseCoordinator.GenerateWeaknessDrill(Random.Shared, onTimeTolerance, sightReadingWeakNotes)))
+        {
+            return;
+        }
+
         ResetScoreWindowPair();
         await FinishSightReadingTransitionAsync(
             currentTime,
@@ -1776,11 +1869,33 @@
         }
 
         TimeSpan currentTime = await PrepareSightReadingExerciseTransitionAsync();
-        sightReadingExerciseCoordinator.RetryMissed(onTimeTolerance);
+        if (!TryGenerateSightReadingExercise(() => sightReadingExerciseCoordinator.RetryMissed(onTimeTolerance)))
+        {
+            return;
+        }
+
         ResetScoreWindowPair();
         await FinishSightReadingTransitionAsync(
             currentTime,
             "Retrying the notes you missed. Play the highlighted note.");
+    }
+
+    /// <summary>
+    /// Runs one exercise generation. When the selected fingering reach profile cannot finger the exercise, the current
+    /// exercise is left as it was and the learner is told why, instead of the failure escaping the click handler.
+    /// </summary>
+    private bool TryGenerateSightReadingExercise(Action generate)
+    {
+        try
+        {
+            generate();
+            return true;
+        }
+        catch (ScoreFingeringGenerationException exception)
+        {
+            audioStatus = $"Could not generate the exercise with the current fingering reach profile: {exception.Message}";
+            return false;
+        }
     }
 
     /// <summary>
@@ -2428,6 +2543,33 @@
         RefreshCanvasScene(currentTime);
     }
 
+    // The reach boxes use @bind:get/@bind:set (not value= plus @onchange): only a binding tells Blazor that the typed text
+    // is the box's current state, so after a rejected edit, when the accepted value has not changed, it renders that
+    // value back instead of leaving the rejected text on screen.
+    private async Task SetFingeringReachAsync(Staff hand, bool isMaximum, string? text)
+    {
+        if (!fingeringProfileSettings.TryEditReach(hand, isMaximum, text, out FingeringProfileSettings settings, out string? rejection))
+        {
+            audioStatus = rejection;
+            return;
+        }
+
+        ApplyFingeringProfile(settings);
+        fingeringSession.ClearAlternatives();
+        await fingeringProfileStore.SaveAsync(settings);
+        audioStatus = fingeringProfileStore.IsStorageAvailable
+            ? "Updated the fingering reach profile."
+            : "Updated the fingering reach profile for this session. Browser storage is unavailable, so it will not be remembered.";
+    }
+
+    private void ApplyFingeringProfile(FingeringProfileSettings settings)
+    {
+        fingeringProfileSettings = settings;
+        sightReadingExerciseCoordinator.SetFingeringProfile(settings.ToProfile());
+    }
+
+    private static string FormatReach(double reach) => reach.ToString(CultureInfo.InvariantCulture);
+
     private void SelectVisibleScoreNote(ChangeEventArgs eventArgs)
     {
         string value = eventArgs.Value?.ToString() ?? string.Empty;
@@ -2469,9 +2611,27 @@
             address);
         Score editedScore = ScoreFingeringEditor.SetFingering(sourceScore, noteOrdinal, fingerNumber);
         await ApplyFingeringEditAsync(editedScore);
+        fingeringSession.ClearAlternatives();
+        if (SelectedFingeringLockAddress is { } lockAddress)
+        {
+            fingeringSession.FollowEdit(lockAddress, fingerNumber);
+        }
+
         audioStatus = fingerNumber is int number
             ? $"Set {selectedNote.Pitch} to finger {number}."
             : $"Removed fingering from {selectedNote.Pitch}.";
+    }
+
+    private void ToggleSelectedFingeringLock()
+    {
+        if (SelectedFingeringLockAddress is not { } address || SelectedFingeringNumber is not int fingerNumber)
+        {
+            return;
+        }
+
+        audioStatus = fingeringSession.ToggleLock(address, fingerNumber)
+            ? $"Locked the selected fingering to finger {fingerNumber} for this session."
+            : "Unlocked the selected fingering.";
     }
 
     private async Task SetSelectedHandAsync(Staff hand)
@@ -2492,11 +2652,16 @@
             address);
         Score editedScore = ScoreFingeringEditor.SetHand(sourceScore, noteOrdinal, hand);
         await ApplyFingeringEditAsync(editedScore);
+        fingeringSession.ClearAlternatives();
         string handName = hand == Staff.Treble ? "right" : "left";
         audioStatus = $"Assigned {selectedNote.Pitch} to the {handName} hand.";
     }
 
-    private async Task RegenerateAllFingeringsAsync()
+    private Task RegenerateAllFingeringsAsync() => RegenerateFingeringsAsync(preserveLocks: false);
+
+    private Task RegenerateLockedFingeringsAsync() => RegenerateFingeringsAsync(preserveLocks: true);
+
+    private async Task RegenerateFingeringsAsync(bool preserveLocks)
     {
         if (importedScore is not { } sourceScore || isFingeringGenerating)
         {
@@ -2505,7 +2670,11 @@
 
         bool confirmed = await JS.InvokeAsync<bool>(
             "confirm",
-            "Regenerate the finger number for every note? Existing finger numbers will be replaced. Hand assignments will be preserved.");
+            preserveLocks
+                ? "Regenerate the unlocked finger numbers? Session-locked fingerings and hand assignments will be preserved."
+                : fingeringSession.HasLocks
+                    ? "Regenerate the finger number for every note? Existing finger numbers and session locks will be replaced. Hand assignments will be preserved."
+                    : "Regenerate the finger number for every note? Existing finger numbers will be replaced. Hand assignments will be preserved.");
         if (!confirmed)
         {
             return;
@@ -2517,14 +2686,25 @@
         {
             await AbortPracticeAsync(updateStatus: false);
             await StopScorePlaybackAsync();
-            Score generatedScore = ScoreFingeringGenerator.Generate(sourceScore);
+            ScoreFingeringGenerationResult generation = ScoreFingeringGenerator.GenerateAlternatives(
+                sourceScore,
+                new ScoreFingeringGenerationOptions(
+                    fingeringProfileSettings.ToProfile(),
+                    preserveLocks ? fingeringSession.CreateLocks() : [],
+                    maximumAlternatives: MaximumFingeringAlternatives));
+            if (!preserveLocks)
+            {
+                fingeringSession.ClearLocks();
+            }
+
             showFingerings = true;
-            await ApplyFingeringEditAsync(generatedScore);
-            int noteCount = generatedScore.Measures.Sum(measure => measure.Notes.Count);
+            await ApplyFingeringEditAsync(generation.BestScore);
+            fingeringSession.ShowAlternatives(generation.Alternatives);
+            int noteCount = generation.BestScore.Measures.Sum(measure => measure.Notes.Count);
             string saveAction = loadedSavedScoreId.HasValue ? "Save changes" : "Save score";
             audioStatus = $"Generated fingering numbers for {noteCount} notes. Use {saveAction} to persist them.";
         }
-        catch (InvalidOperationException exception)
+        catch (ScoreFingeringGenerationException exception)
         {
             audioStatus = $"Could not generate fingerings: {exception.Message}";
         }
@@ -2532,6 +2712,23 @@
         {
             isFingeringGenerating = false;
         }
+    }
+
+    private async Task ApplyFingeringAlternativeAsync(int alternativeIndex)
+    {
+        if (alternativeIndex < 0 ||
+            alternativeIndex >= fingeringSession.Alternatives.Count ||
+            alternativeIndex == fingeringSession.SelectedAlternativeIndex ||
+            isFingeringGenerating)
+        {
+            return;
+        }
+
+        await AbortPracticeAsync(updateStatus: false);
+        await StopScorePlaybackAsync();
+        ScoreFingeringAlternative selectedAlternative = fingeringSession.SelectAlternative(alternativeIndex);
+        await ApplyFingeringEditAsync(selectedAlternative.Score);
+        audioStatus = $"Showing fingering alternative {alternativeIndex + 1}. Use Save changes to persist it.";
     }
 
     private async Task ApplyFingeringEditAsync(Score editedScore)

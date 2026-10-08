@@ -48,4 +48,29 @@ public sealed class ScoreImagePreprocessorTests
             File.Delete(outputPath);
         }
     }
+
+    [Fact]
+    public async Task PrepareAsync_TiffContent_ThrowsUndecodableFormat()
+    {
+        await using var source = new MemoryStream();
+        using (var image = new Image<Rgba32>(10, 10, new Rgba32(255, 255, 255)))
+        {
+            await image.SaveAsTiffAsync(source);
+        }
+
+        source.Position = 0;
+        string outputPath = Path.Combine(Path.GetTempPath(), $"pianomapper-test-{Guid.NewGuid():N}.png");
+        try
+        {
+            var exception = await Assert.ThrowsAsync<InvalidDataException>(
+                () => ScoreImagePreprocessor.PrepareAsync(source, outputPath, CancellationToken.None));
+
+            Assert.Equal("The score image format could not be decoded.", exception.Message);
+            Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
 }

@@ -26,6 +26,7 @@ import {
     dispose as disposeAudio,
     initialize as initializeAudio,
 } from "../../PianoMapper.Web/wwwroot/js/audio.js";
+import { grandStaffBraceAspect } from "../../PianoMapper.Web/wwwroot/js/grand-staff-brace.js";
 
 test("score cursor mapping fits five measures across the score width", () => {
     const fifthMeasureBoundary = mapAbsoluteBeatToScoreX(20, 4, 0);
@@ -48,6 +49,7 @@ class FakeCanvasContext {
     arcCalls = [];
     curveCalls = [];
     filledPathCalls = [];
+    fillCalls = [];
     fillRects = [];
     strokedPathCalls = [];
     fillTextCalls = [];
@@ -183,6 +185,7 @@ class FakeCanvasContext {
         }
     }
     fill() {
+        this.fillCalls.push({ fillStyle: this.fillStyle });
         if (this.currentPath?.bezierCurves.length > 0) {
             const filledPath = {
                 ...this.currentPath,
@@ -824,33 +827,30 @@ function renderGrandStaffScene(scene, width = 640, height = 240, metricsByText =
 }
 
 for (const width of [320, 640, 1400]) {
-    test(`grand-staff brace fits the staff height with a fixed gap at width ${width}`, () => {
-        const metrics = {
-            actualBoundingBoxAscent: 190,
-            actualBoundingBoxDescent: 50,
-            actualBoundingBoxRight: 99,
-        };
+    test(`grand-staff brace outline fits the staff height with a fixed gap at width ${width}`, () => {
         const context = renderGrandStaffScene({
             kind: 0,
             lines: [{ x0: -0.92, y0: 0.5, x1: -0.92, y1: -0.5, kind: braceLineKind }],
             glyphs: [],
             notes: [],
             shouldClipNotesAtClefs: false,
-        }, width, 240, { "{": metrics });
+        }, width, 240);
 
-        assert.equal(context.fillTextCalls.length, 1);
-        const [glyph, glyphX, baseline] = context.fillTextCalls[0].args;
-        assert.equal(glyph, "{");
-        const [translateX, translateY] = context.translateCalls[0];
-        const [scaleX, scaleY] = context.scaleCalls[0];
-        const inkTop = translateY + (baseline - metrics.actualBoundingBoxAscent) * scaleY;
-        const inkBottom = translateY + (baseline + metrics.actualBoundingBoxDescent) * scaleY;
-        const inkRight = translateX + (glyphX + metrics.actualBoundingBoxRight) * scaleX;
+        assert.equal(context.fillTextCalls.length, 0, "the brace is a filled outline, not a font glyph");
+        assert.equal(context.fillCalls.length, 1);
+        assert.equal(context.fillCalls[0].fillStyle, "#94a3b8");
+        const xs = context.lineSegments.flatMap(segment => [segment.x, segment.x1]);
+        const ys = context.lineSegments.flatMap(segment => [segment.y, segment.y1]);
+        const inkTop = Math.min(...ys);
+        const inkBottom = Math.max(...ys);
+        const inkLeft = Math.min(...xs);
+        const inkRight = Math.max(...xs);
         const staffX = 18 + 0.04 * (width - 36);
 
-        assert.equal(inkTop, 69);
-        assert.equal(inkBottom, 171);
+        assert.ok(Math.abs(inkTop - 69) < 0.001, "brace starts at the top staff line");
+        assert.ok(Math.abs(inkBottom - 171) < 0.001, "brace ends at the bottom staff line");
         assert.ok(Math.abs(staffX - inkRight - 5) < 0.001, "brace stays five pixels from the staff");
+        assert.ok(Math.abs((inkRight - inkLeft) - ((inkBottom - inkTop) * grandStaffBraceAspect)) < 0.001, "brace keeps the reference proportions");
     });
 }
 

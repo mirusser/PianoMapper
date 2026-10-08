@@ -212,6 +212,9 @@ public sealed class SightReadingExerciseCoordinatorTests
             $"(without mastery) on the same coordinator instance: neutral={neutralCount}, weighted={weightedCount}.");
     }
 
+    private static ScoreFingeringProfile CreateNarrowProfile() =>
+        ScoreFingeringProfile.CreateWithThumbToLittleFingerReach(new FingeringReach(0, 0), new FingeringReach(0, 0));
+
     private static NoteMastery WeakNote(Pitch pitch, Staff? staff, double weakness = 1.0) =>
         new(pitch, staff, AttemptCount: 10, CorrectFirstTryCount: 0, MedianResponseTime: null, WeaknessScore: weakness);
 
@@ -2140,6 +2143,48 @@ public sealed class SightReadingExerciseCoordinatorTests
         coordinator.Generate(new Random(2), Tolerance);
 
         Assert.False(coordinator.IsCountingIn);
+    }
+
+    [Fact]
+    public void Generate_ChordsWithTheSelectedProfileTooNarrow_ThrowsAndKeepsTheCurrentScore()
+    {
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+        coordinator.SetPresetId(SightReadingPresetId.Chords);
+        coordinator.SetPromptCountOption(4);
+        coordinator.Generate(new Random(6), Tolerance);
+        Score current = coordinator.Score!;
+        coordinator.SetFingeringProfile(CreateNarrowProfile());
+
+        Assert.Throws<ScoreFingeringGenerationException>(() => coordinator.Generate(new Random(7), Tolerance));
+
+        Assert.Same(current, coordinator.Score);
+    }
+
+    [Fact]
+    public void RetryMissed_ChordsWithTheSelectedProfileTooNarrow_UsesThatProfileAndKeepsTheCurrentScore()
+    {
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+        coordinator.SetPresetId(SightReadingPresetId.Chords);
+        coordinator.SetPromptCountOption(4);
+        coordinator.Generate(new Random(6), Tolerance);
+        Score current = coordinator.Score!;
+        var chordPrompts = current.Measures
+            .SelectMany(measure => measure.Notes)
+            .GroupBy(note => (note.MeasureIndex, note.BeatOffset))
+            .OrderBy(group => group.Key.MeasureIndex)
+            .ThenBy(group => group.Key.BeatOffset)
+            .Select(group => group.ToArray())
+            .ToArray();
+        coordinator.Session.Check(new Pitch(NoteLetter.A, 0, 6));
+        foreach (ScoreNote note in chordPrompts.SelectMany(chord => chord))
+        {
+            coordinator.Session.Check(note.Pitch);
+        }
+
+        coordinator.SetFingeringProfile(CreateNarrowProfile());
+
+        Assert.Throws<ScoreFingeringGenerationException>(() => coordinator.RetryMissed(Tolerance));
+        Assert.Same(current, coordinator.Score);
     }
 
     [Fact]
