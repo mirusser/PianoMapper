@@ -45,6 +45,11 @@ const minimumEnvelopeGain = 0.0001;
 const metronomeLookaheadSeconds = 0.2;
 const metronomeSchedulerIntervalMilliseconds = 25;
 const metronomeClickDurationSeconds = 0.04;
+// A click sent to the FP-10 is handed to the MIDI port this long before it is due: late enough that stopping the
+// metronome still cancels it, early enough that the port's own timestamp, not this page's timers, sets the beat.
+const metronomeMidiLeadMilliseconds = 40;
+const metronomeMidiDownbeatVelocity = 100;
+const metronomeDownbeatPeakGain = 0.55;
 const harmonics = [
     { multiplier: 1, gain: 0.72 },
     { multiplier: 2, gain: 0.2 },
@@ -283,7 +288,9 @@ export function stopMetronome() {
     for (const click of scheduledMetronomeClicks) {
         window.clearTimeout(click.pulseTimer);
         window.clearTimeout(click.pulseClearTimer);
-        if (audioContext && audioContext.state !== "closed") {
+        window.clearTimeout(click.midiSendTimer);
+        window.clearTimeout(click.midiEndTimer);
+        if (click.oscillator && audioContext && audioContext.state !== "closed") {
             const stopTime = audioContext.currentTime;
             click.envelope.gain.cancelScheduledValues(stopTime);
             click.envelope.gain.setValueAtTime(0.0001, stopTime);
@@ -324,11 +331,25 @@ function scheduleMetronomeClicks() {
 }
 
 function scheduleMetronomeClick(startTime, isDownbeat, isGroupStart = false, beatIndex = 0) {
+    // Downbeat strongest, a beat group's start (6/8: beats 1 and 4) in between, every other beat plainest.
+    const peakGain = (isDownbeat
+        ? metronomeDownbeatPeakGain
+        : isGroupStart ? 0.45 : 0.35) * metronomeVolume;
+    const frequency = isDownbeat ? 1760 : isGroupStart ? 1540 : 1320;
+    const click = { pulseTimer: undefined, pulseClearTimer: undefined };
+    scheduledMetronomeClicks.add(click);
+    click.pulseTimer = window.setTimeout(
+        () => pulseMetronome(click, isDownbeat, beatIndex),
+        Math.max(0, (startTime - audioContext.currentTime) * 1000));
+
+    // With the FP-10's own sound selected the click belongs on the FP-10 too, next to the notes it plays.
+    if (soundSource === externalMidiSoundSource && hasMidiOutput()) {
+        scheduleExternalMidiClick(click, startTime, frequency, peakGain);
+        return;
+    }
+
     const oscillator = audioContext.createOscillator();
     const envelope = audioContext.createGain();
-    // Downbeat strongest, a beat group's start (6/8: beats 1 and 4) in between, every other beat plainest.
-    const peakGain = (isDownbeat ? 0.55 : isGroupStart ? 0.45 : 0.35) * metronomeVolume;
-    const frequency = isDownbeat ? 1760 : isGroupStart ? 1540 : 1320;
     oscillator.type = metronomeTimbre;
     oscillator.frequency.setValueAtTime(frequency, startTime);
     envelope.gain.setValueAtTime(0.0001, startTime);
@@ -337,18 +358,40 @@ function scheduleMetronomeClick(startTime, isDownbeat, isGroupStart = false, bea
     oscillator.connect(envelope);
     envelope.connect(masterGain);
 
-    const click = { oscillator, envelope, pulseTimer: undefined, pulseClearTimer: undefined };
-    scheduledMetronomeClicks.add(click);
+    click.oscillator = oscillator;
+    click.envelope = envelope;
     oscillator.onended = () => {
         scheduledMetronomeClicks.delete(click);
         oscillator.disconnect();
         envelope.disconnect();
     };
-    click.pulseTimer = window.setTimeout(
-        () => pulseMetronome(click, isDownbeat, beatIndex),
-        Math.max(0, (startTime - audioContext.currentTime) * 1000));
     oscillator.start(startTime);
     oscillator.stop(startTime + metronomeClickDurationSeconds);
+}
+
+// The click as a short note on the FP-10, at the pitch and relative strength of the PC click. The timbre choice only
+// shapes the PC oscillator; the FP-10 plays its own piano tone.
+function scheduleExternalMidiClick(click, startTime, frequency, peakGain) {
+    const velocity = Math.round(
+        metronomeMidiDownbeatVelocity * Math.min(1, peakGain / metronomeDownbeatPeakGain));
+    const delayMilliseconds = Math.max(0, (startTime - audioContext.currentTime) * 1000);
+    if (velocity < 1) {
+        click.midiEndTimer = window.setTimeout(
+            () => scheduledMetronomeClicks.delete(click),
+            delayMilliseconds + (metronomeClickDurationSeconds * 1000));
+        return;
+    }
+
+    const midiNumber = frequencyToMidiNumber(frequency);
+    click.midiSendTimer = window.setTimeout(() => {
+        if (hasMidiOutput()) {
+            sendMidiNoteOn(midiNumber, velocity, toPerformanceTimestamp(startTime));
+            sendMidiNoteOff(midiNumber, toPerformanceTimestamp(startTime + metronomeClickDurationSeconds));
+        }
+    }, Math.max(0, delayMilliseconds - metronomeMidiLeadMilliseconds));
+    click.midiEndTimer = window.setTimeout(
+        () => scheduledMetronomeClicks.delete(click),
+        delayMilliseconds + (metronomeClickDurationSeconds * 1000));
 }
 
 function pulseMetronome(click, isDownbeat, beatIndex) {

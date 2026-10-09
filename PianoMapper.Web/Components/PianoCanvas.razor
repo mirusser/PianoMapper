@@ -68,6 +68,10 @@
             {
                 <div class="score-row-label">
                     <span>@PrimaryScoreRangeLabel</span>
+                    @if (TimingGauge is not null)
+                    {
+                        <TimingGauge State="@TimingGauge" />
+                    }
                     @if (PrimaryScoreRowStatus is not null)
                     {
                         <span class="score-row-status">@PrimaryScoreRowStatus</span>
@@ -351,6 +355,10 @@
 
     [Parameter]
     public int? AutoNextSecondsRemaining { get; set; }
+
+    /// <summary>The learner's latest note timings for a beat-graded wait-for-me exercise; null shows no gauge.</summary>
+    [Parameter]
+    public TimingGaugeState? TimingGauge { get; set; }
 
     [Parameter]
     public string? PrimaryScoreRangeLabel { get; set; }

@@ -908,9 +908,9 @@ public static class SightReadingExerciseComposer
 
     /// <summary>
     /// Picks the pitch sequence for one staff by the exercise's <see cref="SightReadingExerciseOptions.Motion"/>.
-    /// Presets with required groups (ledger lines) choose their notes themselves and always use
-    /// <see cref="SightReadingMotion.Random"/>, because a run of steps cannot be relied on to reach both ends of
-    /// the range; see <see cref="SupportsMotion"/>. <paramref name="measureSizes"/> is how many of the returned
+    /// Presets with required groups (ledger lines) compose a stepwise or same-interval line as one phrase per group,
+    /// see <see cref="ComposePhrases"/>, because a single run of steps cannot be relied on to reach both ends of the
+    /// range; see <see cref="SupportsMotion"/>. <paramref name="measureSizes"/> is how many of the returned
     /// pitches fall in each measure of this staff and <paramref name="measuresStartingWithTie"/> which measures begin
     /// with the continuation of a tie (only the accidentals preset needs the measure boundaries).
     /// </summary>
@@ -936,15 +936,25 @@ public static class SightReadingExerciseComposer
                 measuresStartingWithTie);
         }
 
-        if (presetPalette.RequiredGroups.Count == 0)
+        switch (options.Motion)
         {
-            switch (options.Motion)
-            {
-                case SightReadingMotion.Melodic:
-                    return ComposeMelodicPitches(presetPalette, pitchCount, random);
-                case SightReadingMotion.Intervallic:
-                    return ComposeIntervallicPitches(presetPalette, pitchCount, random, options.IntervalSteps);
-            }
+            case SightReadingMotion.Melodic:
+                return ComposePhrases(
+                    presetPalette,
+                    pitchCount,
+                    random,
+                    (length, starts) => ComposeMelodicPitches(presetPalette, length, random, starts));
+            case SightReadingMotion.Intervallic:
+                return ComposePhrases(
+                    presetPalette,
+                    pitchCount,
+                    random,
+                    (length, starts) => ComposeIntervallicPitches(
+                        presetPalette,
+                        length,
+                        random,
+                        options.IntervalSteps,
+                        starts));
         }
 
         return ComposeRandomPitches(presetPalette, pitchCount, random, noteWeights, staff, options.Strategy);
@@ -952,12 +962,45 @@ public static class SightReadingExerciseComposer
 
     /// <summary>
     /// Whether a range follows the exercise's <see cref="SightReadingExerciseOptions.Motion"/>: every range of plain
-    /// notes does. Chords (whole triads), ledger lines (each end of the range must appear) and accidentals (sharps and
-    /// flats with per-measure spelling rules) pick their own notes.
+    /// notes does, and so do ledger lines (see <see cref="ComposePhrases"/>). Chords (whole triads) and accidentals
+    /// (sharps and flats with per-measure spelling rules) pick their own notes.
     /// </summary>
     public static bool SupportsMotion(SightReadingPresetId presetId) =>
         presetId != SightReadingPresetId.Chords &&
-        BuildPresetPalette(Staff.Treble, presetId) is { RequiredGroups.Count: 0, AlteredPitches: null };
+        BuildPresetPalette(Staff.Treble, presetId) is { AlteredPitches: null };
+
+    /// <summary>
+    /// Composes a motion line with <paramref name="composePhrase"/>. A range without required groups is one phrase.
+    /// With required groups (ledger lines, one below the staff and one above) the line is one phrase per group, in
+    /// random order, each starting on a note of its group, so the line still reaches every group however short it
+    /// is; the move between two phrases is the line's only larger jump. <paramref name="composePhrase"/> gets the
+    /// phrase's length and the palette positions it must start on (null for any).
+    /// </summary>
+    private static Pitch[] ComposePhrases(
+        PresetPalette presetPalette,
+        int pitchCount,
+        Random random,
+        Func<int, int[]?, Pitch[]> composePhrase)
+    {
+        if (presetPalette.RequiredGroups.Count == 0)
+        {
+            return composePhrase(pitchCount, null);
+        }
+
+        IReadOnlyList<Pitch>[] groups = presetPalette.RequiredGroups.OrderBy(_ => random.Next()).ToArray();
+        int phraseCount = Math.Min(groups.Length, pitchCount);
+        var selected = new List<Pitch>(pitchCount);
+        for (int phrase = 0; phrase < phraseCount; phrase++)
+        {
+            int length = (pitchCount / phraseCount) + (phrase < pitchCount % phraseCount ? 1 : 0);
+            int[] starts = Enumerable.Range(0, presetPalette.Pitches.Count)
+                .Where(position => groups[phrase].Contains(presetPalette.Pitches[position]))
+                .ToArray();
+            selected.AddRange(composePhrase(length, starts));
+        }
+
+        return selected.ToArray();
+    }
 
     /// <summary>The chance that a melodic note simply repeats the one before.</summary>
     private const double MelodicRepeatChance = 0.25;
@@ -971,15 +1014,21 @@ public static class SightReadingExerciseComposer
     private const int MelodicSkipSteps = 2;
 
     /// <summary>
-    /// A melodic line over the palette: from a random start it keeps its direction most of the time, repeats a note
+    /// A melodic line over the palette: from a random start (one of <paramref name="startPositions"/> when given) it keeps its direction most of the time, repeats a note
     /// about a quarter of the time, now and then skips a third, and turns around at either end of the palette.
     /// Never reads mastery weights (they shape <see cref="SightReadingMotion.Random"/> picks only).
     /// </summary>
-    private static Pitch[] ComposeMelodicPitches(PresetPalette presetPalette, int pitchCount, Random random)
+    private static Pitch[] ComposeMelodicPitches(
+        PresetPalette presetPalette,
+        int pitchCount,
+        Random random,
+        int[]? startPositions)
     {
         IReadOnlyList<Pitch> palette = presetPalette.Pitches;
         var selected = new Pitch[pitchCount];
-        int position = random.Next(palette.Count);
+        int position = startPositions is null
+            ? random.Next(palette.Count)
+            : startPositions[random.Next(startPositions.Length)];
         int direction = random.Next(2) == 0 ? -1 : 1;
         selected[0] = palette[position];
         for (int index = 1; index < pitchCount; index++)
@@ -1008,21 +1057,25 @@ public static class SightReadingExerciseComposer
 
     /// <summary>
     /// A line whose every move is exactly <paramref name="intervalSteps"/> diatonic steps up or down, picking the
-    /// direction at random among those that stay inside the palette. It starts on a note that has such a move, and
-    /// the way it came is always a legal way back, so it never gets stuck.
+    /// direction at random among those that stay inside the palette. It starts on a note that has such a move (and,
+    /// when given, is one of <paramref name="startPositions"/>), and the way it came is always a legal way back, so it
+    /// never gets stuck.
     /// </summary>
     private static Pitch[] ComposeIntervallicPitches(
         PresetPalette presetPalette,
         int pitchCount,
         Random random,
-        int intervalSteps)
+        int intervalSteps,
+        int[]? startPositions)
     {
         IReadOnlyList<Pitch> palette = presetPalette.Pitches;
         int[] GetTargets(int position) => new[] { position - intervalSteps, position + intervalSteps }
             .Where(target => target >= 0 && target < palette.Count)
             .ToArray();
 
-        int[] starts = Enumerable.Range(0, palette.Count).Where(position => GetTargets(position).Length > 0).ToArray();
+        int[] starts = Enumerable.Range(0, palette.Count)
+            .Where(position => GetTargets(position).Length > 0 && (startPositions is null || startPositions.Contains(position)))
+            .ToArray();
         int current = starts[random.Next(starts.Length)];
         var selected = new Pitch[pitchCount];
         selected[0] = palette[current];

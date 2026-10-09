@@ -324,6 +324,148 @@ test("metronome accents the downbeat strongest and each beat group start in 6/8 
     }
 });
 
+test("metronome clicks play on the FP-10 as short notes, not through the PC speakers, while FP-10 sound is selected", async () => {
+    await withExternalMidiMetronome(async ({ sent, timers }) => {
+        createdClicks.length = 0;
+        startMetronome(2, 0.01, 6, [0, 3]);
+        timers.runAll();
+
+        // The same accents as the PC click (1760, 1320 and 1540 Hz are A6, E6 and G6), one short note per beat.
+        const noteOns = sent.filter(message => message.data[0] === 0x93);
+        assert.deepEqual(
+            noteOns.slice(0, 6).map(message => message.data.slice(1)),
+            [[93, 100], [88, 64], [88, 64], [91, 82], [88, 64], [88, 64]]);
+        assert.equal(createdClicks.length, 0);
+        assert.deepEqual(
+            sent.slice(0, 2).map(message => message.data),
+            [[0x93, 93, 100], [0x83, 93, 0]]);
+        assert.ok(sent.every(message => Number.isFinite(message.timestamp)));
+        assert.ok(sent[1].timestamp > sent[0].timestamp);
+
+        stopMetronome();
+    });
+});
+
+test("FP-10 metronome click velocity follows the metronome volume and volume zero stays silent", async () => {
+    await withExternalMidiMetronome(async ({ sent, timers }) => {
+        startMetronome(2, 0.5, 4, [0], 0.5);
+        timers.runAll();
+        stopMetronome();
+
+        assert.deepEqual(sent.map(message => message.data), [[0x93, 93, 50], [0x83, 93, 0]]);
+
+        sent.length = 0;
+        startMetronome(2, 0.5, 4, [0], 0);
+        timers.runAll();
+        stopMetronome();
+
+        assert.deepEqual(sent, []);
+    });
+});
+
+test("stopping the metronome cancels FP-10 clicks that have not been sent yet", async () => {
+    await withExternalMidiMetronome(async ({ sent, timers }) => {
+        startMetronome(2, 0.5, 4);
+        stopMetronome();
+        timers.runAll();
+
+        assert.deepEqual(sent, []);
+    });
+});
+
+test("metronome falls back to the PC click when the FP-10 output goes away", async () => {
+    await withExternalMidiMetronome(async ({ sent, output, timers }) => {
+        output.state = "disconnected";
+        createdClicks.length = 0;
+        startMetronome(2, 0.5, 4);
+        timers.runAll();
+        stopMetronome();
+
+        assert.deepEqual(sent, []);
+        assert.equal(createdClicks.length, 1);
+    });
+});
+
+async function withExternalMidiMetronome(run) {
+    const sent = [];
+    const output = {
+        id: "roland-output",
+        manufacturer: "Roland",
+        name: "Roland Digital Piano MIDI 1",
+        state: "connected",
+        send(data, timestamp) {
+            sent.push({ data: [...data], timestamp });
+        },
+        clear() {},
+    };
+    const access = {
+        inputs: new Map(),
+        outputs: new Map([[output.id, output]]),
+        onstatechange: null,
+    };
+    const timers = createFakeTimers();
+    const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: {
+            cookie: "pianomapper-sound-source=external-midi",
+            querySelector: () => null,
+            querySelectorAll: () => [],
+        },
+    });
+    Object.defineProperty(globalThis, "navigator", {
+        configurable: true,
+        value: { requestMIDIAccess: () => Promise.resolve(access) },
+    });
+    Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: {
+            AudioContext: FakeAudioContext,
+            clearInterval() {},
+            clearTimeout: timers.clear,
+            setInterval() {
+                return 1;
+            },
+            setTimeout: timers.set,
+        },
+    });
+
+    try {
+        await connect({ invokeMethodAsync: () => Promise.resolve() });
+        await initialize();
+        await run({ sent, output, timers });
+    } finally {
+        stopMetronome();
+        await disposeAudio();
+        disposeMidi();
+        restoreProperty("document", originalDocument);
+        restoreProperty("navigator", originalNavigator);
+        restoreProperty("window", originalWindow);
+    }
+}
+
+function createFakeTimers() {
+    const pending = new Map();
+    let nextId = 1;
+    return {
+        set(callback) {
+            pending.set(nextId, callback);
+            return nextId++;
+        },
+        clear(id) {
+            pending.delete(id);
+        },
+        runAll() {
+            for (const [id, callback] of [...pending]) {
+                pending.delete(id);
+                callback();
+            }
+        },
+    };
+}
+
 function createFakeIndicator() {
     const classes = new Set();
     const styles = new Map();

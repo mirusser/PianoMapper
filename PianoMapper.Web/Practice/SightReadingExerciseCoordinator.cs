@@ -9,8 +9,6 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     private readonly NoteReadingSession session = session ?? throw new ArgumentNullException(nameof(session));
     private readonly TimeProvider timeProvider = timeProvider ?? TimeProvider.System;
     private bool hasConsumedCurrentCompletionSummary;
-    private TimeSpan countInAudioClockOrigin;
-    private TimeSpan countInDuration;
     private int? chosenTempoPulsesPerMinute;
     private PlayAlongOutcome? playAlongOutcome;
     private TimeSpan playAlongElapsedTime;
@@ -59,9 +57,10 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     internal bool IsPitchSetupIgnored => Mode == NoteReadingMode.RhythmOnly;
 
     /// <summary>
-    /// Whether the exercise is graded on the beat, which is what gets a one-measure count-in and a click.
+    /// Whether the exercise is graded on the beat, which is what gives it a click anchored on the first key (or, for
+    /// play-along, a count-in) and lets it run play-along.
     /// </summary>
-    internal bool UsesCountIn => Mode.GetGradedAxes().HasFlag(GradedAxes.Onset);
+    internal bool IsOnsetGraded => Mode.GetGradedAxes().HasFlag(GradedAxes.Onset);
 
     /// <summary>
     /// A variable rhythm needs single notes on one staff, so a grand staff or chord exercise always plays fixed quarter
@@ -91,7 +90,7 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     internal int IntervalSteps { get; private set; } = SightReadingExerciseOptions.DefaultIntervalSteps;
 
     /// <summary>
-    /// Whether the chosen <see cref="Motion"/> can apply: rhythm only repeats one note, and chords and ledger lines pick
+    /// Whether the chosen <see cref="Motion"/> can apply: rhythm only repeats one note, and chords and accidentals pick
     /// their own notes. The panel disables the Pattern control and says so, instead of silently ignoring the choice.
     /// </summary>
     internal bool IsMotionAvailable =>
@@ -119,8 +118,8 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     internal bool RevealKeysWhileActive { get; private set; }
 
     /// <summary>
-    /// Keeps a click sounding through a timed exercise, not only during the count-in: after the count-in in rhythm
-    /// grading, and from the start in Pitch + hold (as a tempo reference). A durable exercise setting like the
+    /// Keeps a click sounding through a timed exercise: from the first key in beat-graded grading (that key is beat
+    /// one), and from the start in Pitch + hold (as a tempo reference). A durable exercise setting like the
     /// reveal flags, and on by default because a beginner needs the pulse; Generate/Retry/RetryMissed/End do not
     /// reset it.
     /// </summary>
@@ -166,7 +165,7 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     /// onset graded mode is chosen again). The exercise on screen keeps its own, see <see cref="RunPacing"/>.
     /// </summary>
     internal ExercisePacing EffectivePacing =>
-        Pacing == ExercisePacing.PlayAlong && UsesCountIn ? ExercisePacing.PlayAlong : ExercisePacing.WaitForMe;
+        Pacing == ExercisePacing.PlayAlong && IsOnsetGraded ? ExercisePacing.PlayAlong : ExercisePacing.WaitForMe;
 
     /// <summary>
     /// The pacing the exercise on screen was generated or retried with, which it keeps (running or in review)
@@ -268,19 +267,46 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
 
     internal bool IsActive => Phase != SightReadingExercisePhase.Inactive;
 
-    internal bool IsCountingIn { get; private set; }
-
     /// <summary>The persisted name of play-along pacing in history; wait-for-me is stored as no pacing at all.</summary>
     internal const string PlayAlongPacingName = "playAlong";
 
     /// <summary>
-    /// Whether the exercise's click should currently be sounding: always during the count-in, and otherwise only
-    /// while a timing-graded exercise is in progress with <see cref="ClickWhilePlaying"/> on. False once it
-    /// reaches review or ends.
+    /// Whether the exercise's click should be sounding: only while a timing-graded exercise is in progress with
+    /// <see cref="ClickWhilePlaying"/> on. False once it reaches review or ends. A beat-graded wait-for-me run has
+    /// no clock yet, so its click only starts once <see cref="RhythmAnchor"/> is set.
     /// </summary>
     internal bool ShouldClickSound =>
         Phase == SightReadingExercisePhase.Active &&
-        (IsCountingIn || (ClickWhilePlaying && SightReadingLabels.IsTimingGraded(RunMode)));
+        ClickWhilePlaying &&
+        SightReadingLabels.IsTimingGraded(RunMode);
+
+    /// <summary>
+    /// How far off the beat the learner's latest <paramref name="count"/> notes were, oldest first (positive is late),
+    /// for the timing gauge on the staff; null where there is no gauge: no exercise, a mode that does not grade the
+    /// beat, or play-along, whose moving cursor already shows it. Stays available in review so the gauge does not
+    /// vanish the moment the last note is played.
+    /// </summary>
+    internal IReadOnlyList<TimeSpan>? GetRecentOnsetDeviations(int count) =>
+        Phase != SightReadingExercisePhase.Inactive &&
+        RunPacing == ExercisePacing.WaitForMe &&
+        RunMode.GetGradedAxes().HasFlag(GradedAxes.Onset)
+            ? session.PromptResults
+                .Where(result => result.OnsetDeviation.HasValue)
+                .Select(result => result.OnsetDeviation!.Value)
+                .TakeLast(count)
+                .ToArray()
+            : null;
+
+    /// <summary>
+    /// The audio-clock time beat zero of the running wait-for-me exercise is graded against, which is also where its
+    /// click belongs: the learner's first correct key fixes it (that key is beat one, so reading time before it
+    /// never counts as lateness). Null until then, for modes that do not grade the beat, and for play-along, whose
+    /// practice engine owns its own clock.
+    /// </summary>
+    internal TimeSpan? RhythmAnchor =>
+        Phase == SightReadingExercisePhase.Active && RunPacing == ExercisePacing.WaitForMe
+            ? session.RhythmAnchor
+            : null;
 
     internal void SetStaff(Staff staff) => Staff = staff;
 
@@ -523,7 +549,6 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
             composed,
             new ScoreFingeringGenerationOptions(fingeringProfile));
         StartRun(timingTolerance);
-        IsCountingIn = false;
     }
 
     /// <summary>
@@ -565,70 +590,6 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
 
     private static double ToWeight(NoteMastery note) => 1.0 + (note.WeaknessScore * MaxAdaptiveWeightBonus);
 
-    /// <summary>
-    /// Starts a one-measure count-in anchored to <paramref name="currentAudioClockTime"/> (from
-    /// <c>AudioSession.GetCurrentTimeAsync</c>). While counting in, the session is intentionally *not* yet reset for
-    /// real grading — the caller must not route note input to it — so a note played during the count-in can't
-    /// accidentally seed the lazy rhythm anchor. Call <see cref="TryCompleteCountIn"/> with the same audio clock
-    /// once the measure has elapsed.
-    /// </summary>
-    internal void StartCountIn(TimeSpan currentAudioClockTime)
-    {
-        if (Score is null)
-        {
-            throw new InvalidOperationException("Generate an exercise before starting a count-in.");
-        }
-
-        countInAudioClockOrigin = currentAudioClockTime;
-        countInDuration = MusicalTime.BeatsToDuration(Score.TimeSignature.Numerator, Score.Tempo);
-        IsCountingIn = true;
-    }
-
-    /// <summary>
-    /// Which count-in beat (1-based, clamped to the time signature's numerator) is currently due, for status text
-    /// like "3… 2… 1…". The elapsed time comes from the Web Audio clock, the same clock that scheduled the click.
-    /// </summary>
-    internal int GetCountInTicksDue(TimeSpan currentAudioClockTime)
-    {
-        if (!IsCountingIn || Score is not { } score)
-        {
-            return 0;
-        }
-
-        TimeSpan elapsed = currentAudioClockTime - countInAudioClockOrigin;
-        if (elapsed < TimeSpan.Zero)
-        {
-            elapsed = TimeSpan.Zero;
-        }
-
-        double elapsedBeats = MusicalTime.DurationToBeats(elapsed, score.Tempo);
-        return Math.Clamp((int)Math.Floor(elapsedBeats) + 1, 0, score.TimeSignature.Numerator);
-    }
-
-    /// <summary>
-    /// Once a full measure has elapsed on <paramref name="currentAudioClockTime"/> since
-    /// <see cref="StartCountIn"/>, resets the session for real grading with the count-in's end as the explicit rhythm
-    /// anchor (see Task 15's <c>NoteReadingSession.Reset</c> overload) and returns <see langword="true"/>. Returns
-    /// <see langword="false"/> without side effects if not currently counting in, or if the measure hasn't elapsed yet
-    /// — safe to poll repeatedly from a ticker.
-    /// </summary>
-    internal bool TryCompleteCountIn(TimeSpan currentAudioClockTime, TimeSpan timingTolerance)
-    {
-        if (!IsCountingIn || currentAudioClockTime < countInAudioClockOrigin + countInDuration)
-        {
-            return false;
-        }
-
-        IsCountingIn = false;
-        TimeSpan explicitAnchor = countInAudioClockOrigin + countInDuration;
-        session.Reset(Score, runMode, timingTolerance, explicitAnchor);
-        ResetRunOutcome();
-        return true;
-    }
-
-    /// <summary>Stops a count-in in progress without starting real grading (e.g. the user clicked End or Retry).</summary>
-    internal void CancelCountIn() => IsCountingIn = false;
-
     internal bool Retry(TimeSpan timingTolerance)
     {
         if (Score is null)
@@ -637,7 +598,6 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
         }
 
         StartRun(timingTolerance);
-        IsCountingIn = false;
         return true;
     }
 
@@ -651,7 +611,6 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
         Score = null;
         session.Reset(null);
         ResetRunOutcome();
-        IsCountingIn = false;
         return true;
     }
 
@@ -680,7 +639,7 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
             .ToArray();
         // In an onset-graded mode the rhythm is part of what was missed, so the retry replays whole measures with
         // it; otherwise the missed notes are simply flattened into quarter notes as before.
-        Score missedScore = UsesCountIn
+        Score missedScore = IsOnsetGraded
             ? SightReadingExerciseComposer.ComposeFromMissedMeasures(
                 Score!,
                 missedPromptGroups.SelectMany(group => group).ToArray())

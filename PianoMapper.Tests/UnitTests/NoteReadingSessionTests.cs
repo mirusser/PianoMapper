@@ -1185,6 +1185,55 @@ public sealed class NoteReadingSessionTests
     }
 
     [Fact]
+    public void RhythmAnchor_WithoutExplicitAnchor_IsUnsetUntilTheFirstCorrectNoteThenIsBeatZeroOfThatNote()
+    {
+        var firstNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 1);
+        var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 2);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([firstNote, secondNote]),
+            NoteReadingMode.PitchAndRhythm,
+            TimeSpan.FromMilliseconds(60));
+        Assert.Null(session.RhythmAnchor);
+
+        session.Check(new Pitch(NoteLetter.G, 0, 4), TimeSpan.FromSeconds(9));
+        Assert.Null(session.RhythmAnchor);
+
+        session.Check(firstNote.Pitch, TimeSpan.FromSeconds(10));
+
+        // The first note sits one beat into the score, so beat zero is one beat (500 ms at 120 BPM) before it.
+        Assert.Equal(TimeSpan.FromSeconds(9.5), session.RhythmAnchor);
+    }
+
+    [Fact]
+    public void RhythmAnchor_WithExplicitAnchor_IsThatAnchor()
+    {
+        var note = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([note]),
+            NoteReadingMode.PitchAndRhythm,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+
+        Assert.Equal(TimeSpan.FromSeconds(10), session.RhythmAnchor);
+    }
+
+    [Fact]
+    public void RhythmAnchor_AfterAResetWithoutAnAnchor_IsUnsetAgain()
+    {
+        var note = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        Score score = CreateScore([note]);
+        var session = new NoteReadingSession();
+        session.Reset(score, NoteReadingMode.PitchAndRhythm, TimeSpan.FromMilliseconds(60));
+        session.Check(note.Pitch, TimeSpan.FromSeconds(10));
+
+        session.Reset(score, NoteReadingMode.PitchAndRhythm, TimeSpan.FromMilliseconds(60));
+
+        Assert.Null(session.RhythmAnchor);
+    }
+
+    [Fact]
     public void Reset_CalledAgainWithoutExplicitAnchor_ClearsPreviousExplicitAnchor()
     {
         var note = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
@@ -1517,6 +1566,62 @@ public sealed class NoteReadingSessionTests
         });
         Assert.Equal(TimeSpan.FromMilliseconds(-70), session.PromptResults[1].OnsetDeviation);
         Assert.Equal(Verdict.Early, session.Verdicts[secondNote]);
+    }
+
+    // 120 BPM: a beat is 500 ms, so the lost-beat limit (two beats) is 1000 ms either side of the expected onset.
+    [Theory]
+    [InlineData(1, 11_500, Verdict.Late, 1000, 10_000)]
+    [InlineData(1, 11_501, Verdict.Correct, 0, 11_001)]
+    [InlineData(4, 11_000, Verdict.Early, -1000, 10_000)]
+    [InlineData(4, 10_999, Verdict.Correct, 0, 8_999)]
+    public void Check_RhythmOnlyKeyBeyondTheLostBeatLimit_RestartsTheBeatInsteadOfGradingIt(
+        int secondNoteBeat,
+        int secondNoteMilliseconds,
+        Verdict expectedVerdict,
+        int expectedDeviationMilliseconds,
+        int expectedAnchorMilliseconds)
+    {
+        var firstNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: secondNoteBeat);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([firstNote, secondNote]),
+            NoteReadingMode.RhythmOnly,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+        session.Check(firstNote.Pitch, TimeSpan.FromSeconds(10));
+
+        NoteReadingSession.CheckResult second = session.Check(
+            secondNote.Pitch,
+            TimeSpan.FromMilliseconds(secondNoteMilliseconds));
+
+        Assert.Equal(expectedVerdict, second.Verdict);
+        Assert.Equal(TimeSpan.FromMilliseconds(expectedDeviationMilliseconds), session.PromptResults[1].OnsetDeviation);
+        Assert.Equal(TimeSpan.FromMilliseconds(expectedAnchorMilliseconds), session.RhythmAnchor);
+    }
+
+    [Fact]
+    public void Check_RhythmOnlyAfterALongPause_GradesLaterNotesAgainstTheRestartedBeat()
+    {
+        var firstNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 1);
+        var thirdNote = CreateNote(NoteLetter.E, measureIndex: 0, beatOffset: 2);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([firstNote, secondNote, thirdNote]),
+            NoteReadingMode.RhythmOnly,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+        session.Check(firstNote.Pitch, TimeSpan.FromSeconds(10));
+
+        // The learner stops for 13 s: the next key is beat one again, not 13 s late.
+        session.Check(secondNote.Pitch, TimeSpan.FromMilliseconds(23_500));
+        NoteReadingSession.CheckResult third = session.Check(thirdNote.Pitch, TimeSpan.FromMilliseconds(24_100));
+
+        Assert.Equal(Verdict.Late, third.Verdict);
+        Assert.Equal(TimeSpan.FromMilliseconds(100), session.PromptResults[2].OnsetDeviation);
+        Assert.Equal(1, session.TimingMistakeCount);
+        Assert.Equal(TimeSpan.Zero, session.PromptResults[1].OnsetDeviation);
     }
 
     [Fact]

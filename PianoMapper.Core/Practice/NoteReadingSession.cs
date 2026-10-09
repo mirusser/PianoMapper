@@ -16,6 +16,13 @@ public sealed class NoteReadingSession
     /// </summary>
     private const double ReleaseToleranceRatio = 0.25;
 
+    /// <summary>
+    /// How many beats off its expected onset a key can land and still be early or late. Further than that the learner
+    /// stopped (or lost the beat) rather than played the note off the beat, so the key restarts the beat instead of
+    /// being graded against a grid it can no longer follow: "13 s late" says nothing about timing.
+    /// </summary>
+    private const double LostBeatLimitBeats = 2;
+
     private readonly TimeProvider timeProvider;
     private readonly HashSet<int> matchedMidiNumbers = [];
     private readonly Dictionary<int, HoldAttempt> activeHolds = [];
@@ -47,6 +54,14 @@ public sealed class NoteReadingSession
     public IReadOnlySet<ScoreNote> ExpectedNotes => expectedNotes;
 
     public IReadOnlyList<NoteReadingPromptResult> PromptResults => promptResults;
+
+    /// <summary>
+    /// The audio-clock time beat zero of the score is graded against: the explicit anchor given to <c>Reset</c>, or,
+    /// without one, the moment the first correct attack of an onset-graded mode fixed it (that note's own time minus
+    /// its onset). Null until then, and for modes that do not grade onset unless an explicit anchor was given. A key
+    /// further than <see cref="LostBeatLimitBeats"/> off the grid moves it: that key becomes the beat it was played on.
+    /// </summary>
+    public TimeSpan? RhythmAnchor => rhythmAnchor;
 
     public double? CurrentOnsetBeats => stepIndex < steps.Count
         ? steps[stepIndex].OnsetBeats
@@ -83,7 +98,7 @@ public sealed class NoteReadingSession
 
     /// <param name="explicitRhythmAnchor">
     /// The audio-clock time, in the same time domain as the <c>eventTime</c> passed to <see cref="Check(Pitch, TimeSpan)"/>,
-    /// that beat zero of the score should be graded against (e.g. the instant a count-in ends). When supplied, the
+    /// that beat zero of the score should be graded against (e.g. a clock that something else owns). When supplied, the
     /// very first prompt's onset is graded as early/on-time/late against it, exactly like every later prompt. When
     /// omitted (the default), the existing lazy behavior is unchanged: the anchor is derived from the first played
     /// event's own time, so that first prompt always grades as on-time.
@@ -356,9 +371,15 @@ public sealed class NoteReadingSession
             return (Verdict.Correct, TimeSpan.Zero);
         }
 
-        rhythmAnchor ??= eventTime - MusicalTime.BeatsToDuration(step.OnsetBeats, scoreTempo);
-        TimeSpan expectedOnset = rhythmAnchor.Value + MusicalTime.BeatsToDuration(step.OnsetBeats, scoreTempo);
-        TimeSpan deviation = eventTime - expectedOnset;
+        TimeSpan onsetOffset = MusicalTime.BeatsToDuration(step.OnsetBeats, scoreTempo);
+        rhythmAnchor ??= eventTime - onsetOffset;
+        TimeSpan deviation = eventTime - (rhythmAnchor.Value + onsetOffset);
+        if (deviation.Duration() > MusicalTime.BeatsToDuration(LostBeatLimitBeats, scoreTempo))
+        {
+            rhythmAnchor = eventTime - onsetOffset;
+            return (Verdict.Correct, TimeSpan.Zero);
+        }
+
         if (deviation < -timingTolerance)
         {
             return (Verdict.Early, deviation);

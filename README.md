@@ -66,7 +66,7 @@ dotnet run --project PianoMapper/PianoMapper.csproj -- --score path/to/piece.mus
 3. Optionally select **Connect MIDI piano** and grant browser permission. For a Roland FP-10, use its square **USB COMPUTER** port with a data-capable USB cable.
 4. Load a score, press **Play**, or open the note-reading exercise panel and choose a mode.
 
-Browser MIDI requires HTTPS or localhost. The on-screen piano and optional computer-key input work without MIDI.
+Browser MIDI requires HTTPS or localhost. The on-screen piano and optional computer-key input work without MIDI. With the **FP-10** sound source selected, the metronome click is also sent to the keyboard as short high notes (the same accents as the PC click) instead of playing through the computer speakers.
 
 ## 🧠 Practice that grows with you
 
@@ -80,7 +80,7 @@ The exercise panel starts with simple reading and progressively introduces rhyth
 | **Pitch + hold** | Correct key and written duration |
 | **Pitch + hold + rhythm** | Pitch, onset, and duration together |
 
-Timed exercises include a one-measure metronome count-in, adjustable tempo, a beat indicator, and an optional continuing click. Their grading anchor owns the click while they run, so controls cannot re-phase it mid-exercise. **Wait for me** pauses until the correct key is found; **Play along** keeps time and records missed or extra notes. Score playback can optionally share the same click anchor. During a run, answer-revealing aids such as names, fingering, next-key highlighting, and coach hints are opt-in. Afterward, the review distinguishes pitch, timing, and missed-note issues and can generate a focused retry.
+Timed exercises include adjustable tempo, a beat indicator, and an optional continuing click. In **Wait for me**, nothing counts or clicks until you play: your first correct key is beat one, so reading time never counts as lateness, and the click starts on that note. A timing gauge above the staff pulses with the click, counts the beat, and shows how far off the beat your latest notes were. If you stop for more than two beats, the next key restarts the beat (and moves the click with it) instead of counting as seconds late. Their grading anchor owns the click while they run, so controls cannot re-phase it mid-exercise. **Wait for me** pauses until the correct key is found; **Play along** counts in one measure, keeps time and records missed or extra notes. Score playback can optionally share the same click anchor. During a run, answer-revealing aids such as names, fingering, next-key highlighting, and coach hints are opt-in. Afterward, the review distinguishes pitch, timing, and missed-note issues and can generate a focused retry.
 
 ## 🎼 Scores, notation, and fingering
 

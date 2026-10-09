@@ -60,7 +60,7 @@ internal static class SightReadingLabels
         {
             NoteReadingMode.PitchAndOrder => "self-paced",
             NoteReadingMode.PitchAndHold => "written duration",
-            NoteReadingMode.PitchHoldAndRhythm => "timed, with count-in",
+            NoteReadingMode.PitchHoldAndRhythm => "on the beat, held",
             NoteReadingMode.PitchAndRhythm => "on the beat",
             NoteReadingMode.RhythmOnly => "tap on any key",
             _ => null,
@@ -239,6 +239,18 @@ internal static class SightReadingLabels
     internal static bool IsTimingGraded(NoteReadingMode mode) =>
         Enum.IsDefined(mode) &&
         (mode.GetGradedAxes() & (GradedAxes.Onset | GradedAxes.Duration)) != GradedAxes.None;
+
+    /// <summary>A timing offset with its sign, e.g. "+120 ms" (late) or "−85 ms" (early), rounded to whole milliseconds.</summary>
+    internal static string SignedMilliseconds(TimeSpan deviation)
+    {
+        long milliseconds = (long)Math.Round(deviation.TotalMilliseconds, MidpointRounding.AwayFromZero);
+        return milliseconds switch
+        {
+            > 0 => $"+{milliseconds} ms",
+            < 0 => $"−{Math.Abs(milliseconds)} ms",
+            _ => "0 ms",
+        };
+    }
 
     /// <summary>The note that counts as one pulse: a quarter note, or a dotted quarter in 6/8.</summary>
     internal static string TempoUnit(SightReadingRhythmPreset rhythmPreset) =>

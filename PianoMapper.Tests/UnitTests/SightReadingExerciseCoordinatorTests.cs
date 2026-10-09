@@ -1009,24 +1009,15 @@ public sealed class SightReadingExerciseCoordinatorTests
     [Theory]
     [InlineData(true, true)]
     [InlineData(false, false)]
-    public void ShouldClickSound_RhythmMode_CountInAlwaysClicksThenFollowsTheSetting(
-        bool clickWhilePlaying,
-        bool expectedAfterCountIn)
+    public void ShouldClickSound_RhythmMode_FollowsTheClickSetting(bool clickWhilePlaying, bool expected)
     {
-        var timeProvider = new FakeTimeProvider();
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession(), timeProvider);
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
         coordinator.SetMode(NoteReadingMode.PitchHoldAndRhythm);
         coordinator.SetClickWhilePlaying(clickWhilePlaying);
         coordinator.SetTempoPulsesPerMinute(120);
         coordinator.Generate(new Random(1), Tolerance);
-        coordinator.StartCountIn(TimeSpan.FromSeconds(5));
 
-        Assert.True(coordinator.ShouldClickSound);
-
-        timeProvider.Advance(TimeSpan.FromSeconds(2));
-        Assert.True(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(7), Tolerance));
-
-        Assert.Equal(expectedAfterCountIn, coordinator.ShouldClickSound);
+        Assert.Equal(expected, coordinator.ShouldClickSound);
 
         coordinator.End();
         Assert.False(coordinator.ShouldClickSound);
@@ -1135,31 +1126,166 @@ public sealed class SightReadingExerciseCoordinatorTests
     [InlineData(NoteReadingMode.PitchAndRhythm, true)]
     [InlineData(NoteReadingMode.PitchHoldAndRhythm, true)]
     [InlineData(NoteReadingMode.RhythmOnly, true)]
-    public void UsesCountIn_OnlyOnsetGradedModes(NoteReadingMode mode, bool expected)
+    public void IsOnsetGraded_OnlyOnsetGradedModes(NoteReadingMode mode, bool expected)
     {
         var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
         coordinator.SetMode(mode);
 
-        Assert.Equal(expected, coordinator.UsesCountIn);
+        Assert.Equal(expected, coordinator.IsOnsetGraded);
+    }
+
+    [Theory]
+    [InlineData(NoteReadingMode.PitchAndRhythm)]
+    [InlineData(NoteReadingMode.PitchHoldAndRhythm)]
+    [InlineData(NoteReadingMode.RhythmOnly)]
+    public void Generate_OnsetGradedWaitForMe_HasNoClockUntilTheFirstKeyAnchorsBeatOne(NoteReadingMode mode)
+    {
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+        coordinator.SetMode(mode);
+        coordinator.SetTempoPulsesPerMinute(120);
+        coordinator.Generate(new Random(1), Tolerance);
+        Assert.Null(coordinator.RhythmAnchor);
+
+        // However long the learner took to find the first key, that key is beat one: it grades as on time and the
+        // click is anchored there.
+        ScoreNote[] notes = coordinator.Score!.Measures[0].Notes.ToArray();
+        NoteReadingSession.CheckResult first = coordinator.Session.Check(notes[0].Pitch, TimeSpan.FromSeconds(37));
+
+        Assert.Equal(Verdict.Correct, first.Verdict);
+        Assert.Equal(TimeSpan.FromSeconds(37), coordinator.RhythmAnchor);
+    }
+
+    [Theory]
+    [InlineData(NoteReadingMode.PitchAndOrder)]
+    [InlineData(NoteReadingMode.PitchAndHold)]
+    public void RhythmAnchor_ModesThatDoNotGradeOnset_StaysUnset(NoteReadingMode mode)
+    {
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+        coordinator.SetMode(mode);
+        coordinator.Generate(new Random(1), Tolerance);
+
+        coordinator.Session.Check(coordinator.Score!.Measures[0].Notes[0].Pitch, TimeSpan.FromSeconds(37));
+
+        Assert.Null(coordinator.RhythmAnchor);
+    }
+
+    [Fact]
+    public void RhythmAnchor_AfterRetry_IsUnsetAgainSoTheNextRunAnchorsOnItsOwnFirstKey()
+    {
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+        coordinator.SetMode(NoteReadingMode.RhythmOnly);
+        coordinator.Generate(new Random(1), Tolerance);
+        coordinator.Session.Check(coordinator.Score!.Measures[0].Notes[0].Pitch, TimeSpan.FromSeconds(10));
+        Assert.NotNull(coordinator.RhythmAnchor);
+
+        Assert.True(coordinator.Retry(Tolerance));
+
+        Assert.Null(coordinator.RhythmAnchor);
+    }
+
+    [Fact]
+    public void GetRecentOnsetDeviations_FirstKeyIsBeatOneAndLaterNotesAreSignedAgainstIt()
+    {
+        SightReadingExerciseCoordinator coordinator = CreateOnsetGradedWaitForMeCoordinator();
+        ScoreNote[] notes = coordinator.Score!.Measures[0].Notes.ToArray();
+        Assert.Empty(coordinator.GetRecentOnsetDeviations(count: 6)!);
+
+        // 120 pulses per minute: a quarter note every 500 ms from the first key.
+        coordinator.Session.Check(notes[0].Pitch, TimeSpan.FromSeconds(37));
+        coordinator.Session.Check(notes[1].Pitch, TimeSpan.FromSeconds(37.62));
+        coordinator.Session.Check(notes[2].Pitch, TimeSpan.FromSeconds(37.96));
+
+        Assert.Equal(
+            [TimeSpan.Zero, TimeSpan.FromMilliseconds(120), TimeSpan.FromMilliseconds(-40)],
+            coordinator.GetRecentOnsetDeviations(count: 6));
+    }
+
+    [Fact]
+    public void GetRecentOnsetDeviations_MoreNotesThanAskedFor_KeepsTheLatestOldestFirst()
+    {
+        SightReadingExerciseCoordinator coordinator = CreateOnsetGradedWaitForMeCoordinator();
+        ScoreNote[] notes = coordinator.Score!.Measures[0].Notes.ToArray();
+        coordinator.Session.Check(notes[0].Pitch, TimeSpan.FromSeconds(10));
+        coordinator.Session.Check(notes[1].Pitch, TimeSpan.FromSeconds(10.55));
+        coordinator.Session.Check(notes[2].Pitch, TimeSpan.FromSeconds(11.10));
+        coordinator.Session.Check(notes[3].Pitch, TimeSpan.FromSeconds(11.45));
+
+        Assert.Equal(
+            [TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(-50)],
+            coordinator.GetRecentOnsetDeviations(count: 2));
+    }
+
+    [Fact]
+    public void GetRecentOnsetDeviations_NoExerciseOrAfterEnd_IsNull()
+    {
+        SightReadingExerciseCoordinator coordinator = CreateOnsetGradedWaitForMeCoordinator();
+        coordinator.End();
+
+        Assert.Null(coordinator.GetRecentOnsetDeviations(count: 6));
+    }
+
+    [Theory]
+    [InlineData(NoteReadingMode.PitchAndOrder)]
+    [InlineData(NoteReadingMode.PitchAndHold)]
+    public void GetRecentOnsetDeviations_ModesThatDoNotGradeTheBeat_IsNull(NoteReadingMode mode)
+    {
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+        coordinator.SetMode(mode);
+        coordinator.Generate(new Random(1), Tolerance);
+
+        Assert.Null(coordinator.GetRecentOnsetDeviations(count: 6));
+    }
+
+    [Fact]
+    public void GetRecentOnsetDeviations_PlayAlongRun_IsNullBecauseItsCursorShowsTheBeat()
+    {
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+        coordinator.SetMode(NoteReadingMode.RhythmOnly);
+        coordinator.SetPacing(ExercisePacing.PlayAlong);
+        coordinator.Generate(new Random(1), Tolerance);
+
+        Assert.Null(coordinator.GetRecentOnsetDeviations(count: 6));
+    }
+
+    [Fact]
+    public void GetRecentOnsetDeviations_FinishedRun_KeepsTheGaugeForReview()
+    {
+        SightReadingExerciseCoordinator coordinator = CreateOnsetGradedWaitForMeCoordinator();
+        double beatSeconds = 0.5;
+        int index = 0;
+        foreach (ScoreNote note in coordinator.Score!.Measures.SelectMany(measure => measure.Notes))
+        {
+            coordinator.Session.Check(note.Pitch, TimeSpan.FromSeconds(10 + (index++ * beatSeconds)));
+        }
+
+        Assert.Equal(SightReadingExercisePhase.Review, coordinator.Phase);
+        Assert.NotNull(coordinator.GetRecentOnsetDeviations(count: 6));
+    }
+
+    [Fact]
+    public void RhythmAnchor_PlayAlongRun_IsUnsetBecauseThePracticeEngineOwnsThatClock()
+    {
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+        coordinator.SetMode(NoteReadingMode.RhythmOnly);
+        coordinator.SetPacing(ExercisePacing.PlayAlong);
+        coordinator.Generate(new Random(1), Tolerance);
+
+        coordinator.Session.Check(coordinator.Score!.Measures[0].Notes[0].Pitch, TimeSpan.FromSeconds(10));
+
+        Assert.Null(coordinator.RhythmAnchor);
     }
 
     [Theory]
     [InlineData(NoteReadingMode.PitchAndRhythm)]
     [InlineData(NoteReadingMode.RhythmOnly)]
-    public void ShouldClickSound_NewOnsetGradedModes_ClickThroughCountInThenFollowTheSetting(NoteReadingMode mode)
+    public void ShouldClickSound_NewOnsetGradedModes_FollowTheClickSetting(NoteReadingMode mode)
     {
-        var timeProvider = new FakeTimeProvider();
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession(), timeProvider);
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
         coordinator.SetMode(mode);
         coordinator.SetTempoPulsesPerMinute(120);
         coordinator.Generate(new Random(1), Tolerance);
-        coordinator.StartCountIn(TimeSpan.FromSeconds(5));
         Assert.True(coordinator.ShouldClickSound);
 
-        timeProvider.Advance(TimeSpan.FromSeconds(2));
-        Assert.True(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(7), Tolerance));
-
-        Assert.True(coordinator.ShouldClickSound);
         coordinator.SetClickWhilePlaying(false);
         Assert.False(coordinator.ShouldClickSound);
     }
@@ -1497,6 +1623,16 @@ public sealed class SightReadingExerciseCoordinatorTests
         Assert.Null(coordinator.GetCoachHint());
     }
 
+    private static SightReadingExerciseCoordinator CreateOnsetGradedWaitForMeCoordinator()
+    {
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+        coordinator.SetMode(NoteReadingMode.RhythmOnly);
+        coordinator.SetTempoPulsesPerMinute(120);
+        coordinator.SetPromptCountOption(8);
+        coordinator.Generate(new Random(1), Tolerance);
+        return coordinator;
+    }
+
     private static SightReadingExerciseCoordinator CreateWaitForMeCoordinator()
     {
         var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
@@ -1824,23 +1960,6 @@ public sealed class SightReadingExerciseCoordinatorTests
     }
 
     [Fact]
-    public void StartCountIn_WithChosenTempo_LastsOneMeasureAtThatTempo()
-    {
-        var timeProvider = new FakeTimeProvider();
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession(), timeProvider);
-        coordinator.SetMode(NoteReadingMode.PitchHoldAndRhythm);
-        coordinator.SetTempoPulsesPerMinute(60);
-        coordinator.Generate(new Random(1), Tolerance);
-        coordinator.StartCountIn(TimeSpan.FromSeconds(5));
-
-        timeProvider.Advance(TimeSpan.FromMilliseconds(3999));
-        Assert.False(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(8.999), Tolerance));
-
-        timeProvider.Advance(TimeSpan.FromMilliseconds(1));
-        Assert.True(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(9), Tolerance));
-    }
-
-    [Fact]
     public void SetRhythmPreset_ChangingThePulseUnit_ReturnsTheTempoToThePresetDefault()
     {
         var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
@@ -1963,186 +2082,6 @@ public sealed class SightReadingExerciseCoordinatorTests
         ScoreNote[] notes = coordinator.Score!.Measures.SelectMany(measure => measure.Notes).ToArray();
         Assert.Contains(notes, note => note.Staff == Staff.Treble);
         Assert.Contains(notes, note => note.Staff == Staff.Bass);
-    }
-
-    [Fact]
-    public void StartCountIn_WithoutGeneratedScore_Throws()
-    {
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
-
-        Assert.Throws<InvalidOperationException>(() => coordinator.StartCountIn(TimeSpan.Zero));
-    }
-
-    [Fact]
-    public void StartCountIn_AfterGenerate_SetsIsCountingIn()
-    {
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
-        coordinator.Generate(new Random(1), Tolerance);
-
-        coordinator.StartCountIn(TimeSpan.FromSeconds(5));
-
-        Assert.True(coordinator.IsCountingIn);
-    }
-
-    [Fact]
-    public void CountInTicksDue_BeforeAnyTimeElapses_IsOne()
-    {
-        var timeProvider = new FakeTimeProvider();
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession(), timeProvider);
-        coordinator.Generate(new Random(1), Tolerance);
-
-        coordinator.StartCountIn(TimeSpan.FromSeconds(5));
-
-        Assert.Equal(1, coordinator.GetCountInTicksDue(TimeSpan.FromSeconds(5)));
-    }
-
-    [Fact]
-    public void CountInTicksDue_AfterOneBeatElapses_IsTwo()
-    {
-        var timeProvider = new FakeTimeProvider();
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession(), timeProvider);
-        coordinator.SetTempoPulsesPerMinute(120);
-        coordinator.Generate(new Random(1), Tolerance);
-        coordinator.StartCountIn(TimeSpan.FromSeconds(5));
-
-        // The tempo is pinned to 120 BPM (the pre-Task-5 default): one quarter-note beat is 500 ms.
-        Assert.Equal(2, coordinator.GetCountInTicksDue(TimeSpan.FromSeconds(5.5)));
-    }
-
-    [Fact]
-    public void CountInTicksDue_NeverExceedsTimeSignatureNumerator()
-    {
-        var timeProvider = new FakeTimeProvider();
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession(), timeProvider);
-        coordinator.Generate(new Random(1), Tolerance);
-        coordinator.StartCountIn(TimeSpan.FromSeconds(5));
-
-        Assert.Equal(4, coordinator.GetCountInTicksDue(TimeSpan.FromSeconds(15)));
-    }
-
-    [Fact]
-    public void CountInTicksDue_WhenNotCountingIn_IsZero()
-    {
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
-        coordinator.Generate(new Random(1), Tolerance);
-
-        Assert.Equal(0, coordinator.GetCountInTicksDue(TimeSpan.Zero));
-    }
-
-    [Fact]
-    public void TryCompleteCountIn_BeforeOneMeasureElapses_ReturnsFalseAndStaysCountingIn()
-    {
-        var timeProvider = new FakeTimeProvider();
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession(), timeProvider);
-        coordinator.SetTempoPulsesPerMinute(120);
-        coordinator.Generate(new Random(1), Tolerance);
-        coordinator.StartCountIn(TimeSpan.FromSeconds(5));
-        timeProvider.Advance(TimeSpan.FromMilliseconds(1999));
-
-        bool didComplete = coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(6.999), Tolerance);
-
-        Assert.False(didComplete);
-        Assert.True(coordinator.IsCountingIn);
-    }
-
-    [Fact]
-    public void TryCompleteCountIn_AfterOneMeasureElapses_ResetsSessionWithComputedAnchor()
-    {
-        var timeProvider = new FakeTimeProvider();
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession(), timeProvider);
-        coordinator.SetMode(NoteReadingMode.PitchHoldAndRhythm);
-        coordinator.SetTempoPulsesPerMinute(120);
-        coordinator.Generate(new Random(1), Tolerance);
-        coordinator.StartCountIn(TimeSpan.FromSeconds(5));
-
-        // One 4/4 measure at 120 BPM is exactly 2 seconds; the anchor should land at 5s + 2s = 7s.
-        timeProvider.Advance(TimeSpan.FromSeconds(2));
-        bool didComplete = coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(7), Tolerance);
-
-        Assert.True(didComplete);
-        Assert.False(coordinator.IsCountingIn);
-        ScoreNote firstNote = coordinator.Score!.Measures[0].Notes[0];
-        NoteReadingSession.CheckResult onTimeResult = coordinator.Session.Check(
-            firstNote.Pitch,
-            TimeSpan.FromSeconds(7));
-        Assert.Equal(Verdict.Correct, onTimeResult.Verdict);
-    }
-
-    [Fact]
-    public void TryCompleteCountIn_UsesTheAudioClockRatherThanTheWallClock()
-    {
-        var timeProvider = new FakeTimeProvider();
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession(), timeProvider);
-        coordinator.SetMode(NoteReadingMode.PitchAndRhythm);
-        coordinator.SetTempoPulsesPerMinute(120);
-        coordinator.Generate(new Random(1), Tolerance);
-        coordinator.StartCountIn(TimeSpan.FromSeconds(5));
-
-        timeProvider.Advance(TimeSpan.FromSeconds(10));
-
-        Assert.False(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(6.999), Tolerance));
-        Assert.True(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(7), Tolerance));
-    }
-
-    [Fact]
-    public void TryCompleteCountIn_InCompoundMeter_UsesEighthNoteBeatUnitNotQuarterNoteTempo()
-    {
-        var timeProvider = new FakeTimeProvider();
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession(), timeProvider);
-        coordinator.SetMode(NoteReadingMode.PitchHoldAndRhythm);
-        coordinator.SetRhythmPreset(SightReadingRhythmPreset.Compound);
-        coordinator.Generate(new Random(1), Tolerance);
-        coordinator.StartCountIn(TimeSpan.FromSeconds(5));
-
-        // One 6/8 measure at "120" (eighth notes)/minute is 6 * 500 ms = 3 seconds, not the 4/4-style 2 seconds.
-        timeProvider.Advance(TimeSpan.FromSeconds(3));
-        bool didComplete = coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(8), Tolerance);
-
-        Assert.True(didComplete);
-        ScoreNote firstNote = coordinator.Score!.Measures[0].Notes[0];
-        NoteReadingSession.CheckResult onTimeResult = coordinator.Session.Check(
-            firstNote.Pitch,
-            TimeSpan.FromSeconds(8));
-        Assert.Equal(Verdict.Correct, onTimeResult.Verdict);
-    }
-
-    [Fact]
-    public void TryCompleteCountIn_WhenNotCountingIn_ReturnsFalse()
-    {
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
-        coordinator.Generate(new Random(1), Tolerance);
-
-        bool didComplete = coordinator.TryCompleteCountIn(TimeSpan.Zero, Tolerance);
-
-        Assert.False(didComplete);
-    }
-
-    [Fact]
-    public void CancelCountIn_StopsCountingInAndFurtherPollingCannotCompleteIt()
-    {
-        var timeProvider = new FakeTimeProvider();
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession(), timeProvider);
-        coordinator.Generate(new Random(1), Tolerance);
-        coordinator.StartCountIn(TimeSpan.FromSeconds(5));
-
-        coordinator.CancelCountIn();
-        timeProvider.Advance(TimeSpan.FromSeconds(10));
-        bool didComplete = coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(15), Tolerance);
-
-        Assert.False(coordinator.IsCountingIn);
-        Assert.False(didComplete);
-    }
-
-    [Fact]
-    public void Generate_WhileCountingIn_ClearsCountInState()
-    {
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
-        coordinator.Generate(new Random(1), Tolerance);
-        coordinator.StartCountIn(TimeSpan.FromSeconds(5));
-
-        coordinator.Generate(new Random(2), Tolerance);
-
-        Assert.False(coordinator.IsCountingIn);
     }
 
     [Fact]
@@ -2294,7 +2233,6 @@ public sealed class SightReadingExerciseCoordinatorTests
 
     [Theory]
     [InlineData(SightReadingPresetId.Chords, NoteReadingMode.PitchAndOrder)]
-    [InlineData(SightReadingPresetId.LedgerLines, NoteReadingMode.PitchAndOrder)]
     [InlineData(SightReadingPresetId.FiveNote, NoteReadingMode.RhythmOnly)]
     public void IsMotionAvailable_RangesAndModesThatPickTheirOwnNotes_FallBackToRandomOnPurpose(
         SightReadingPresetId presetId,
@@ -2310,10 +2248,13 @@ public sealed class SightReadingExerciseCoordinatorTests
         Assert.Equal(SightReadingMotion.Melodic, coordinator.Motion);
     }
 
-    [Fact]
-    public void IsMotionAvailable_PlainRange_KeepsTheChosenMotion()
+    [Theory]
+    [InlineData(SightReadingPresetId.FiveNote)]
+    [InlineData(SightReadingPresetId.LedgerLines)]
+    public void IsMotionAvailable_PlainRangeAndLedgerLines_KeepTheChosenMotion(SightReadingPresetId presetId)
     {
         var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+        coordinator.SetPresetId(presetId);
         coordinator.SetMotion(SightReadingMotion.Melodic);
 
         Assert.True(coordinator.IsMotionAvailable);
@@ -2527,29 +2468,6 @@ public sealed class SightReadingExerciseCoordinatorTests
             coordinator.Score!.Measures.SelectMany(measure => measure.Notes).Select(note => note.Staff).Order());
     }
 
-    [Theory]
-    [InlineData(SightReadingRhythmPreset.ThreeFour, 3.0)]
-    [InlineData(SightReadingRhythmPreset.TwoFour, 2.0)]
-    public void StartCountIn_SimpleMeterRhythm_LastsOneMeasureAtTheChosenTempo(
-        SightReadingRhythmPreset rhythmPreset,
-        double expectedSeconds)
-    {
-        var timeProvider = new FakeTimeProvider();
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession(), timeProvider);
-        coordinator.SetMode(NoteReadingMode.PitchAndRhythm);
-        coordinator.SetRhythmPreset(rhythmPreset);
-        coordinator.SetTempoPulsesPerMinute(60);
-        coordinator.Generate(new Random(1), Tolerance);
-        coordinator.StartCountIn(TimeSpan.FromSeconds(5));
-
-        timeProvider.Advance(TimeSpan.FromSeconds(expectedSeconds - 0.1));
-        Assert.False(coordinator.TryCompleteCountIn(
-            TimeSpan.FromSeconds(5 + expectedSeconds - 0.1),
-            Tolerance));
-        timeProvider.Advance(TimeSpan.FromSeconds(0.1));
-        Assert.True(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(5 + expectedSeconds), Tolerance));
-    }
-
     [Fact]
     public void SetRhythmPreset_BetweenQuarterPulsePresets_KeepsAChosenTempo()
     {
@@ -2630,14 +2548,10 @@ public sealed class SightReadingExerciseCoordinatorTests
     [Fact]
     public void SetMode_TimedWaitForMeRunInProgress_KeepsTheRunsClickPolicy()
     {
-        var timeProvider = new FakeTimeProvider();
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession(), timeProvider);
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
         coordinator.SetMode(NoteReadingMode.PitchAndRhythm);
         coordinator.SetTempoPulsesPerMinute(120);
         coordinator.Generate(new Random(1), Tolerance);
-        coordinator.StartCountIn(TimeSpan.FromSeconds(5));
-        timeProvider.Advance(TimeSpan.FromSeconds(2));
-        Assert.True(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(7), Tolerance));
         Assert.True(coordinator.ShouldClickSound);
 
         coordinator.SetMode(NoteReadingMode.PitchAndOrder);
@@ -2646,24 +2560,21 @@ public sealed class SightReadingExerciseCoordinatorTests
     }
 
     [Fact]
-    public void TryCompleteCountIn_ModeChangedDuringTheCountIn_GradesWithTheModeTheExerciseWasGeneratedWith()
+    public void Session_ModeChangedAfterGenerate_GradesWithTheModeTheExerciseWasGeneratedWith()
     {
-        var timeProvider = new FakeTimeProvider();
-        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession(), timeProvider);
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
         coordinator.SetMode(NoteReadingMode.PitchAndRhythm);
         coordinator.SetTempoPulsesPerMinute(120);
         coordinator.Generate(new Random(1), Tolerance);
-        coordinator.StartCountIn(TimeSpan.FromSeconds(5));
         coordinator.SetMode(NoteReadingMode.PitchAndOrder);
-        timeProvider.Advance(TimeSpan.FromSeconds(2));
 
-        Assert.True(coordinator.TryCompleteCountIn(TimeSpan.FromSeconds(7), Tolerance));
-
-        // The count-in ends at 7 s; 300 ms after that is late when the beat is graded and fine when it is not.
-        ScoreNote firstNote = coordinator.Score!.Measures[0].Notes[0];
+        // The first note fixes beat one wherever it lands; the next one is half a second later when played on time,
+        // so 300 ms past that is late when the beat is graded and fine when it is not.
+        ScoreNote[] notes = coordinator.Score!.Measures[0].Notes.ToArray();
+        coordinator.Session.Check(notes[0].Pitch, TimeSpan.FromSeconds(7));
         NoteReadingSession.CheckResult result = coordinator.Session.Check(
-            firstNote.Pitch,
-            TimeSpan.FromSeconds(7.3));
+            notes[1].Pitch,
+            TimeSpan.FromSeconds(7.8));
         Assert.Equal(Verdict.Late, result.Verdict);
     }
 

@@ -21,6 +21,8 @@ export const braceLineKind = 7; // GrandStaffLineKind.Brace
 export const finalBarlineKind = 8; // GrandStaffLineKind.FinalBarline
 export const clefGlyphKind = 0; // PianoMapper.Web.Rendering.GrandStaffGlyphKind.Clef
 export const accidentalGlyphKind = 1; // GrandStaffGlyphKind.Accidental
+export const keySignatureGlyphKind = 2; // GrandStaffGlyphKind.KeySignature
+export const timeSignatureGlyphKind = 3; // GrandStaffGlyphKind.TimeSignature
 export const octaveShiftNumeralGlyphKind = 9; // GrandStaffGlyphKind.OctaveShiftNumeral
 export const restGlyphKind = 10; // GrandStaffGlyphKind.Rest (drawn by the generic height-scaled glyph path)
 // Review marks are their own channel (GrandStaffNote.reviewMark), never a Verdict: do not index verdictColors with them.
@@ -1552,6 +1554,18 @@ function drawGrandStaffBrace(context, line, width, height, palette = darkGrandSt
     context.restore();
 }
 
+// Outline width that thickens a key-signature accidental, as a fraction of its font size.
+const keySignatureEmboldenInFontSizes = 0.035;
+
+// The music fonts' own digits are hairline-thin, so a time signature is drawn in a bold serif instead, the way an
+// engraved one reads (see docs/clefs/grand-staff.jpg). Not a display/Didone face: its hairline strokes, like the
+// diagonal of a 4, vanish at two staff spaces tall.
+function getGlyphFont(kind, fontSize) {
+    return kind === timeSignatureGlyphKind
+        ? `900 ${fontSize}px 'Noto Serif', Georgia, 'DejaVu Serif', serif`
+        : `${fontSize}px 'Noto Music', 'Bravura Text', serif`;
+}
+
 function drawGlyph(context, glyph, width, height, palette = darkGrandStaffPalette) {
     if (glyph.kind === accidentalGlyphKind) {
         context.fillStyle = Number.isInteger(glyph.verdict)
@@ -1565,7 +1579,7 @@ function drawGlyph(context, glyph, width, height, palette = darkGrandStaffPalett
     const y = mapY(glyph.y, height);
     if (glyph.height > 0) {
         const measurementFontSize = 100;
-        context.font = `${measurementFontSize}px 'Noto Music', 'Bravura Text', serif`;
+        context.font = getGlyphFont(glyph.kind, measurementFontSize);
         const measurement = context.measureText(glyph.text);
         const measuredHeight = measurement.actualBoundingBoxAscent + measurement.actualBoundingBoxDescent;
         // A visually "flat" character (a dash/underscore-shaped mark, centered near the
@@ -1581,12 +1595,23 @@ function drawGlyph(context, glyph, width, height, palette = darkGrandStaffPalett
         const minimumMeasuredHeight = measurementFontSize * 0.2;
         const targetHeight = mapHeight(glyph.height, height);
         const fontSize = measurementFontSize * targetHeight / Math.max(measuredHeight, minimumMeasuredHeight);
-        context.font = `${fontSize}px 'Noto Music', 'Bravura Text', serif`;
+        context.font = getGlyphFont(glyph.kind, fontSize);
 
         const metrics = context.measureText(glyph.text);
         context.textBaseline = "alphabetic";
         const baselineY = y + ((metrics.actualBoundingBoxAscent - metrics.actualBoundingBoxDescent) / 2);
         context.fillText(glyph.text, x, baselineY);
+        if (glyph.kind === keySignatureGlyphKind) {
+            // The music font has no bold face, and a requested one barely thickens its hairline accidentals, so
+            // thicken the engraved shape itself with an outline in the fill colour.
+            context.save();
+            context.strokeStyle = context.fillStyle;
+            context.lineWidth = fontSize * keySignatureEmboldenInFontSizes;
+            context.lineJoin = "round";
+            context.strokeText(glyph.text, x, baselineY);
+            context.restore();
+        }
+
         return x + metrics.actualBoundingBoxRight;
     }
 

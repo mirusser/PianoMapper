@@ -576,6 +576,7 @@
                      SecondaryLiveGrandStaffCursor="@secondaryLiveGrandStaffCursorState"
                      SecondaryScoreCursor="@secondaryScoreCursorState"
                      AutoNextSecondsRemaining="@ExercisePresentation.AutoNextSecondsRemaining"
+                     TimingGauge="@TimingGauge"
                      PrimaryScoreRangeLabel="@PrimaryScoreRangeLabel"
                      SecondaryScoreRangeLabel="@SecondaryScoreRangeLabel"
                      PrimaryScoreRowStatus="@PrimaryScoreRowStatus"
@@ -710,7 +711,6 @@
     private ExercisePlayAlongController playAlongController = null!;
     private readonly AsyncTicker practiceTicker = new();
     private readonly AsyncTicker visualizationTicker = new();
-    private readonly AsyncTicker sightReadingCountInTicker = new();
     private readonly AsyncTicker autoNextTicker = new();
     private string audioStatus = "Starting audio...";
     private string midiStatus = string.Empty;
@@ -742,6 +742,11 @@
     private (TimeSignature TimeSignature, Tempo Tempo)? timingBeforeSightReadingExercise;
     private TimeSpan onTimeTolerance = TimeSpan.FromMilliseconds(NormalToleranceMilliseconds);
 
+    private TimingGaugeState? TimingGauge =>
+        sightReadingExerciseCoordinator.GetRecentOnsetDeviations(TimingGaugeState.RecentNoteCount) is { } deviations
+            ? new TimingGaugeState(deviations, onTimeTolerance, ExerciseClick.IsRunning)
+            : null;
+
     private SightReadingExercisePresentation ExercisePresentation => new()
     {
         SelectedStaff = sightReadingExerciseCoordinator.Staff,
@@ -759,7 +764,7 @@
         TempoPulsesPerMinute = sightReadingExerciseCoordinator.TempoPulsesPerMinute,
         IsRhythmPresetLocked = sightReadingExerciseCoordinator.IsRhythmPresetLocked,
         Pacing = sightReadingExerciseCoordinator.EffectivePacing,
-        IsPacingAvailable = sightReadingExerciseCoordinator.UsesCountIn,
+        IsPacingAvailable = sightReadingExerciseCoordinator.IsOnsetGraded,
         IsPitchSetupIgnored = sightReadingExerciseCoordinator.IsPitchSetupIgnored,
         RevealNoteNamesWhileActive = sightReadingExerciseCoordinator.RevealNoteNamesWhileActive,
         RevealFingeringWhileActive = sightReadingExerciseCoordinator.RevealFingeringWhileActive,
@@ -968,8 +973,7 @@
         !showPianoRoll &&
         !isFingeringEditing &&
         practiceCoordinator.State == PracticeSessionState.Idle &&
-        !ScorePlaybackSession.IsActive &&
-        !sightReadingExerciseCoordinator.IsCountingIn;
+        !ScorePlaybackSession.IsActive;
 
     private string SelectedScoreNoteAddressValue => selectedScoreNoteAddress is { } address
         ? FormatScoreNoteAddress(address)
@@ -1760,8 +1764,6 @@
     {
         ExitFingeringEditMode();
         tempoFeedbackTracker.Reset();
-        await sightReadingCountInTicker.StopAsync();
-        sightReadingExerciseCoordinator.CancelCountIn();
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
         await visualizationTicker.StopAsync();
@@ -1900,9 +1902,9 @@
 
     /// <summary>
     /// Completes a Generate/Retry/RetryMissed transition: in Pitch-only or Hold mode the exercise is immediately
-    /// ready, exactly as before Task 16. In Rhythm mode it instead starts the exercise-owned metronome for one
-    /// full-measure count-in (requires initialized audio) before any input is graded — see
-    /// <see cref="TickSightReadingCountInAsync"/>.
+    /// ready. In a beat-graded wait-for-me mode nothing counts or clicks yet: the learner's first correct key is beat
+    /// one and starts the click on that instant (see <see cref="StartExerciseClickOnRhythmAnchorAsync"/>), so the time
+    /// spent reading the first measure is never lateness. A play-along run starts its own count-in instead.
     /// </summary>
     private async Task FinishSightReadingTransitionAsync(TimeSpan currentTime, string readyStatus)
     {
@@ -1913,7 +1915,7 @@
             return;
         }
 
-        if (!sightReadingExerciseCoordinator.UsesCountIn)
+        if (!sightReadingExerciseCoordinator.IsOnsetGraded)
         {
             if (sightReadingExerciseCoordinator.ShouldClickSound && AudioSession.IsInitialized)
             {
@@ -1928,15 +1930,27 @@
         if (!AudioSession.IsInitialized)
         {
             RefreshCanvasScene(currentTime);
-            audioStatus = "Rhythm mode needs audio enabled for the count-in. Enable audio, then generate again.";
+            audioStatus = "Rhythm mode needs audio enabled for the click. Enable audio, then generate again.";
             return;
         }
 
-        await ExerciseClick.StartAsync(sightReadingExerciseCoordinator.Score!);
-        sightReadingExerciseCoordinator.StartCountIn(Metronome.Grid!.Anchor);
         RefreshCanvasScene(currentTime);
-        audioStatus = $"Count-in: {sightReadingExerciseCoordinator.GetCountInTicksDue(Metronome.Grid.Anchor)}…";
-        sightReadingCountInTicker.Start(TickSightReadingCountInAsync, CanvasRefreshInterval);
+        audioStatus = "Rhythm exercise ready. Play the first note when you are ready: the click starts with it.";
+    }
+
+    /// <summary>
+    /// Starts the exercise click on the beat the learner's first correct key anchored, and moves it when the session
+    /// restarts the beat after a long pause. Its grid is the very anchor the session grades against, so the click and
+    /// the grading can never disagree; clicks that are already in the past when the click starts are skipped by the
+    /// scheduler.
+    /// </summary>
+    private async Task StartExerciseClickOnRhythmAnchorAsync()
+    {
+        if (sightReadingExerciseCoordinator is { ShouldClickSound: true, RhythmAnchor: { } anchor, Score: { } score } &&
+            !ExerciseClick.IsRunningOn(anchor))
+        {
+            await ExerciseClick.StartAsync(score, anchor);
+        }
     }
 
     /// <summary>
@@ -1994,34 +2008,6 @@
         }
 
         return isStillRunning;
-    }
-
-    private async Task<bool> TickSightReadingCountInAsync(CancellationToken cancellationToken)
-    {
-        if (!sightReadingExerciseCoordinator.IsCountingIn)
-        {
-            return false;
-        }
-
-        TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync(cancellationToken);
-        bool didComplete = sightReadingExerciseCoordinator.TryCompleteCountIn(currentTime, onTimeTolerance);
-        RefreshCanvasScene(currentTime);
-        if (didComplete)
-        {
-            if (!sightReadingExerciseCoordinator.ShouldClickSound)
-            {
-                await StopExerciseClickAsync();
-            }
-
-            audioStatus = "Rhythm exercise running. Play the highlighted note in time.";
-        }
-        else
-        {
-            audioStatus = $"Count-in: {sightReadingExerciseCoordinator.GetCountInTicksDue(currentTime)}…";
-        }
-
-        await InvokeAsync(StateHasChanged);
-        return !didComplete;
     }
 
     private async Task EndSightReadingExerciseAsync()
@@ -2895,26 +2881,14 @@
             await AbortPracticeAsync(eventTime);
         }
 
-        if (sightReadingExerciseCoordinator.IsCountingIn)
-        {
-            await sightReadingCountInTicker.StopAsync();
-            sightReadingExerciseCoordinator.CancelCountIn();
-            if (Metronome.IsRunning)
-            {
-                await StopMetronomeAsync();
-            }
-
-            audioStatus = "Rhythm count-in cancelled (focus lost). Generate a new exercise to try again.";
-            await InvokeAsync(StateHasChanged);
-        }
-        else if (ExerciseClick.IsRunning)
+        if (ExerciseClick.IsRunning)
         {
             await StopExerciseClickAsync();
             audioStatus = "Click stopped (focus lost). Retry the exercise to play with the click again.";
             await InvokeAsync(StateHasChanged);
         }
 
-        // Nobody is watching the countdown, and a timed exercise generated now would count in with nobody there.
+        // Nobody is watching the countdown, and a timed exercise generated now would run with nobody there.
         if (sightReadingExerciseCoordinator.AutoNextRemaining is not null)
         {
             sightReadingExerciseCoordinator.CancelAutoNext();
@@ -2926,7 +2900,6 @@
     public async ValueTask DisposeAsync()
     {
         await visualizationTicker.StopAsync();
-        await sightReadingCountInTicker.StopAsync();
         await autoNextTicker.StopAsync();
         await AbortPracticeAsync(updateStatus: false);
         await StopScorePlaybackAsync();
@@ -3072,12 +3045,13 @@
             command.Pitch!.Value,
             command.EventTime,
             velocity: command.Velocity);
-        tempoFeedbackTracker.Record(command.EventTime, Metronome.Grid, onTimeTolerance);
         if (IsIdleNoteCheckingActive)
         {
             NoteReadingSession.CheckResult result = noteReadingSession.Check(
                 command.Pitch.Value,
                 command.EventTime);
+            await StartExerciseClickOnRhythmAnchorAsync();
+            tempoFeedbackTracker.Record(command.EventTime, Metronome.Grid, onTimeTolerance);
             if (!result.IsCorrect && !result.IsComplete && command.Note is { } wrongNote)
             {
                 wrongScoreInputNotes.Add(wrongNote);
@@ -3088,6 +3062,7 @@
         }
         else
         {
+            tempoFeedbackTracker.Record(command.EventTime, Metronome.Grid, onTimeTolerance);
             audioStatus = $"Playing {command.Pitch}.";
         }
     }

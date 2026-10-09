@@ -2758,7 +2758,6 @@ public sealed class SightReadingExerciseComposerTests
 
     [Theory]
     [InlineData(SightReadingPresetId.Chords)]
-    [InlineData(SightReadingPresetId.LedgerLines)]
     public void Compose_MotionOnPresetsWithTheirOwnNoteChoice_IsIgnored(SightReadingPresetId preset)
     {
         Assert.False(SightReadingExerciseComposer.SupportsMotion(preset));
@@ -2776,8 +2775,114 @@ public sealed class SightReadingExerciseComposerTests
     [InlineData(SightReadingPresetId.OneOctave)]
     [InlineData(SightReadingPresetId.GMajor)]
     [InlineData(SightReadingPresetId.FMajor)]
-    public void SupportsMotion_PlainAndKeyRanges_IsTrue(SightReadingPresetId preset) =>
+    [InlineData(SightReadingPresetId.LedgerLines)]
+    public void SupportsMotion_PlainAndKeyRangesAndLedgerLines_IsTrue(SightReadingPresetId preset) =>
         Assert.True(SightReadingExerciseComposer.SupportsMotion(preset));
+
+    [Theory]
+    [InlineData(Staff.Treble, 4)]
+    [InlineData(Staff.Treble, 8)]
+    [InlineData(Staff.Treble, 16)]
+    [InlineData(Staff.Bass, 4)]
+    [InlineData(Staff.Bass, 8)]
+    [InlineData(Staff.Bass, 16)]
+    public void Compose_MelodicLedgerLines_ReachesBelowAndAboveTheStaffInTwoMelodicPhrases(Staff staff, int promptCount)
+    {
+        IReadOnlyList<Pitch> palette = SightReadingExerciseComposer.GetRangePitches(staff, SightReadingPresetId.LedgerLines);
+        (int staffBottom, int staffTop) = GetStaffLineIndexes(staff);
+
+        for (int seed = 0; seed < 100; seed++)
+        {
+            Pitch[] pitches = PitchesOf(SightReadingExerciseComposer.Compose(
+                MotionOptions(staff, SightReadingPresetId.LedgerLines, SightReadingMotion.Melodic, promptCount),
+                new Random(seed)));
+
+            Assert.Equal(promptCount, pitches.Length);
+            Assert.All(pitches, pitch => Assert.Contains(pitch, palette));
+            Assert.Contains(pitches, pitch => pitch.DiatonicIndex < staffBottom);
+            Assert.Contains(pitches, pitch => pitch.DiatonicIndex > staffTop);
+            // A melodic line moves by a step, a skip or a repeat; the one move between its two phrases may be larger.
+            Assert.InRange(
+                pitches.Zip(pitches.Skip(1)).Count(pair => Math.Abs(pair.First.DiatonicIndex - pair.Second.DiatonicIndex) > 2),
+                0,
+                1);
+        }
+    }
+
+    [Theory]
+    [InlineData(Staff.Treble, 1)]
+    [InlineData(Staff.Treble, 4)]
+    [InlineData(Staff.Bass, 2)]
+    [InlineData(Staff.Bass, 3)]
+    public void Compose_IntervallicLedgerLines_ReachesBelowAndAboveTheStaffWithOnlyThePhraseChangeBreakingTheInterval(
+        Staff staff,
+        int intervalSteps)
+    {
+        (int staffBottom, int staffTop) = GetStaffLineIndexes(staff);
+
+        for (int seed = 0; seed < 100; seed++)
+        {
+            Pitch[] pitches = PitchesOf(SightReadingExerciseComposer.Compose(
+                MotionOptions(
+                    staff,
+                    SightReadingPresetId.LedgerLines,
+                    SightReadingMotion.Intervallic,
+                    promptCount: 16,
+                    intervalSteps),
+                new Random(seed)));
+
+            Assert.Contains(pitches, pitch => pitch.DiatonicIndex < staffBottom);
+            Assert.Contains(pitches, pitch => pitch.DiatonicIndex > staffTop);
+            Assert.InRange(
+                pitches.Zip(pitches.Skip(1)).Count(pair =>
+                    Math.Abs(pair.First.DiatonicIndex - pair.Second.DiatonicIndex) != intervalSteps),
+                0,
+                1);
+        }
+    }
+
+    [Fact]
+    public void Compose_MelodicLedgerLinesOnAGrandStaff_ReachesBelowAndAboveEachStaff()
+    {
+        var options = new SightReadingExerciseOptions(
+            Staff.Treble,
+            SightReadingPresetId.LedgerLines,
+            PromptCount: 16,
+            NoteReadingMode.PitchAndOrder,
+            IsGrandStaff: true,
+            Motion: SightReadingMotion.Melodic);
+
+        for (int seed = 0; seed < 50; seed++)
+        {
+            Score score = SightReadingExerciseComposer.Compose(options, new Random(seed));
+
+            foreach (Staff staff in new[] { Staff.Treble, Staff.Bass })
+            {
+                (int staffBottom, int staffTop) = GetStaffLineIndexes(staff);
+                int[] indexes = score.Measures
+                    .SelectMany(measure => measure.Notes)
+                    .Where(note => note.Staff == staff)
+                    .Select(note => note.Pitch.DiatonicIndex)
+                    .ToArray();
+                Assert.Contains(indexes, index => index < staffBottom);
+                Assert.Contains(indexes, index => index > staffTop);
+            }
+        }
+    }
+
+    [Fact]
+    public void Compose_MelodicLedgerLines_StartsEitherPhraseFirst()
+    {
+        int staffBottom = GetStaffLineIndexes(Staff.Treble).Bottom;
+        bool[] startsBelow = Enumerable.Range(0, 100)
+            .Select(seed => PitchesOf(SightReadingExerciseComposer.Compose(
+                MotionOptions(Staff.Treble, SightReadingPresetId.LedgerLines, SightReadingMotion.Melodic, promptCount: 8),
+                new Random(seed)))[0].DiatonicIndex < staffBottom)
+            .ToArray();
+
+        Assert.Contains(true, startsBelow);
+        Assert.Contains(false, startsBelow);
+    }
 
     [Theory]
     [InlineData(SightReadingMotion.Melodic)]
@@ -3036,6 +3141,11 @@ public sealed class SightReadingExerciseComposerTests
             }
         }
     }
+
+    private static (int Bottom, int Top) GetStaffLineIndexes(Staff staff) =>
+        staff == Staff.Treble
+            ? (new Pitch(NoteLetter.E, 0, 4).DiatonicIndex, new Pitch(NoteLetter.F, 0, 5).DiatonicIndex)
+            : (new Pitch(NoteLetter.G, 0, 2).DiatonicIndex, new Pitch(NoteLetter.A, 0, 3).DiatonicIndex);
 
     /// <summary>Ledger lines a notehead needs: the staff's lines run from its bottom to top line, and every second step beyond them is one more.</summary>
     private static int CountLedgerLines(Pitch pitch, Staff staff)

@@ -1,0 +1,47 @@
+<div class="timing-gauge" role="img" aria-label="@AriaLabel" data-timing-gauge>
+    @if (State.IsClickRunning)
+    {
+        <span class="metronome-pulse" data-metronome-pulse aria-hidden="true"></span>
+        <span class="timing-gauge-beat-count" data-metronome-beat aria-hidden="true">Beat —</span>
+    }
+    <span class="timing-gauge-end" aria-hidden="true">early</span>
+    <span class="timing-gauge-track" aria-hidden="true">
+        <span class="timing-gauge-band" style="@BandStyle"></span>
+        <span class="timing-gauge-beat"></span>
+        @for (int index = 0; index < State.RecentDeviations.Count; index++)
+        {
+            TimeSpan deviation = State.RecentDeviations[index];
+            bool isLatest = index == State.RecentDeviations.Count - 1;
+            <span class="timing-gauge-dot @(isLatest ? "timing-gauge-dot-latest " + GetVerdictCssClass(deviation) : null)"
+                  style="left: @FormatPercent(TimingGaugeState.GetPosition(deviation))"></span>
+        }
+    </span>
+    <span class="timing-gauge-end" aria-hidden="true">late</span>
+    <span class="timing-gauge-readout @(State.Latest is { } latest ? GetVerdictCssClass(latest) : null)" aria-hidden="true">
+        @Readout
+    </span>
+</div>
+
+@code {
+    private string BandStyle =>
+        $"left: {FormatPercent(0.5 - State.OnTimeHalfWidth)}; width: {FormatPercent(State.OnTimeHalfWidth * 2)}";
+
+    private string Readout => State.Latest is { } latest ? State.Describe(latest) : "Waiting for your first note";
+
+    private string AriaLabel => State.Latest is { } latest
+        ? $"Timing of your last note: {State.Describe(latest)}"
+        : "Timing gauge: waiting for your first note";
+
+    private string GetVerdictCssClass(TimeSpan deviation) => State.Classify(deviation) switch
+    {
+        Verdict.Early => "verdict-early",
+        Verdict.Late => "verdict-late",
+        _ => "verdict-correct",
+    };
+
+    private static string FormatPercent(double fraction) =>
+        (fraction * 100).ToString("0.##", CultureInfo.InvariantCulture) + "%";
+
+    [Parameter, EditorRequired]
+    public TimingGaugeState State { get; set; } = null!;
+}

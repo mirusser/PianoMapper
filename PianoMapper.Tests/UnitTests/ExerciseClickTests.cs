@@ -39,6 +39,38 @@ public sealed class ExerciseClickTests
     }
 
     [Fact]
+    public async Task IsRunningOn_AnchorItStartedOn_IsTrueOnlyForThatAnchor()
+    {
+        var click = new ExerciseClick(new BrowserMetronome(new FakeMetronomeAudio()));
+        var anchor = TimeSpan.FromSeconds(42.5);
+
+        await click.StartAsync(CreateScore(new TimeSignature(4, new NoteValue(4)), new Tempo(90)), anchor);
+
+        Assert.True(click.IsRunningOn(anchor));
+        Assert.False(click.IsRunningOn(anchor + TimeSpan.FromMilliseconds(1)));
+    }
+
+    [Fact]
+    public void IsRunningOn_ClickNotStarted_IsFalse()
+    {
+        var click = new ExerciseClick(new BrowserMetronome(new FakeMetronomeAudio()));
+
+        Assert.False(click.IsRunningOn(TimeSpan.Zero));
+    }
+
+    [Fact]
+    public async Task IsRunningOn_ManualMetronomeAtTheSameAnchor_IsFalse()
+    {
+        var metronome = new BrowserMetronome(new FakeMetronomeAudio());
+        var click = new ExerciseClick(metronome);
+        var anchor = TimeSpan.FromSeconds(42.5);
+        await click.StartAsync(CreateScore(new TimeSignature(4, new NoteValue(4)), new Tempo(90)), anchor);
+        await metronome.StartAsync(new TimeSignature(4, new NoteValue(4)), new Tempo(90), anchor);
+
+        Assert.False(click.IsRunningOn(anchor));
+    }
+
+    [Fact]
     public async Task StopAsync_ClickItStarted_StopsTheMetronome()
     {
         var audio = new FakeMetronomeAudio();

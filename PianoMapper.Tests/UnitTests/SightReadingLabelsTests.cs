@@ -466,4 +466,13 @@ public sealed class SightReadingLabelsTests
             6,
             2,
             []);
+
+    [Theory]
+    [InlineData(0, "0 ms")]
+    [InlineData(120, "+120 ms")]
+    [InlineData(-85, "−85 ms")]
+    [InlineData(0.5, "+1 ms")]
+    [InlineData(-0.5, "−1 ms")]
+    public void SignedMilliseconds_RoundsAwayFromZeroAndKeepsTheSign(double milliseconds, string expected) =>
+        Assert.Equal(expected, SightReadingLabels.SignedMilliseconds(TimeSpan.FromMilliseconds(milliseconds)));
 }

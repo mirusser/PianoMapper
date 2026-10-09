@@ -11,7 +11,7 @@
         </span>
         <span class="tempo-feedback-stats">
             @Feedback.OnTimeCount/@Feedback.TotalCount on time · median
-            @FormatSignedMilliseconds(medianDeviation)
+            @SightReadingLabels.SignedMilliseconds(medianDeviation)
         </span>
     }
 </div>
@@ -28,21 +28,10 @@
     private static string FormatAlignment(BeatAlignment alignment) => alignment.Verdict switch
     {
         Verdict.Correct => "On time",
-        Verdict.Early => $"{FormatSignedMilliseconds(alignment.Deviation)} early",
-        Verdict.Late => $"{FormatSignedMilliseconds(alignment.Deviation)} late",
+        Verdict.Early => $"{SightReadingLabels.SignedMilliseconds(alignment.Deviation)} early",
+        Verdict.Late => $"{SightReadingLabels.SignedMilliseconds(alignment.Deviation)} late",
         _ => string.Empty,
     };
-
-    private static string FormatSignedMilliseconds(TimeSpan deviation)
-    {
-        long milliseconds = (long)Math.Round(deviation.TotalMilliseconds, MidpointRounding.AwayFromZero);
-        return milliseconds switch
-        {
-            > 0 => $"+{milliseconds} ms",
-            < 0 => $"−{Math.Abs(milliseconds)} ms",
-            _ => "0 ms",
-        };
-    }
 
     [Parameter, EditorRequired]
     public TempoFeedbackTracker Feedback { get; set; } = null!;
