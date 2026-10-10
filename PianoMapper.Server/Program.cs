@@ -1,4 +1,3 @@
-using Npgsql;
 using PianoMapper.Server.Assets;
 using PianoMapper.Server.Omr;
 using PianoMapper.Server.Persistence;
@@ -8,9 +7,9 @@ const string sourceNameHeader = "X-PianoMapper-Source-Name";
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = maximumImageSizeBytes);
-string scoreConnectionString = builder.Configuration.GetConnectionString(SavedScoreRepository.ConnectionStringName) ??
+string databaseConnectionString = builder.Configuration.GetConnectionString(PostgresDatabase.ConnectionStringName) ??
     throw new InvalidOperationException(
-        $"ConnectionStrings:{SavedScoreRepository.ConnectionStringName} must be configured.");
+        $"ConnectionStrings:{PostgresDatabase.ConnectionStringName} must be configured.");
 string audiverisExecutable = builder.Configuration["Omr:AudiverisExecutable"] ?? "audiveris";
 int timeoutSeconds = builder.Configuration.GetValue("Omr:TimeoutSeconds", 180);
 if (timeoutSeconds <= 0)
@@ -24,16 +23,15 @@ builder.Services.AddSingleton(new AudiverisOptions(
 builder.Services.AddSingleton<IAudiverisProcessRunner, AudiverisProcessRunner>();
 builder.Services.AddSingleton<IImageScoreConverter, AudiverisImageScoreConverter>();
 builder.Services.AddSingleton<AudiverisMusicXmlNormalizer>();
-builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(scoreConnectionString));
+builder.Services.AddSingleton(services => new PostgresDatabase(
+    databaseConnectionString,
+    services.GetRequiredService<ILogger<PostgresDatabase>>()));
 builder.Services.AddSingleton<SavedScoreRepository>();
+builder.Services.AddSingleton<ProgressSessionRepository>();
 builder.Services.Configure<StaticFileOptions>(options =>
     options.OnPrepareResponse = context => StaticAssetCachePolicy.Apply(context.Context));
 
 var app = builder.Build();
-
-await app.Services
-    .GetRequiredService<SavedScoreRepository>()
-    .InitializeAsync(app.Lifetime.ApplicationStopping);
 
 app.UseBlazorFrameworkFiles();
 app.UseStaticFiles();
@@ -83,7 +81,10 @@ app.MapPost("/api/score-images/convert", async (
     }
 });
 
-app.MapSavedScoreEndpoints();
+// The database is prepared on first use, not at startup, so every route that touches it answers 503 while it is down.
+var persistence = app.MapGroup(string.Empty).AddEndpointFilter<PersistenceErrorFilter>();
+persistence.MapSavedScoreEndpoints();
+persistence.MapProgressEndpoints();
 
 app.MapFallbackToFile("index.html");
 

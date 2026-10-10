@@ -146,6 +146,18 @@ public sealed class LevelProgressionTests
     }
 
     [Fact]
+    public void Evaluate_EntriesStoredBeforeSessionIds_StillCountTowardTheirLevel()
+    {
+        LevelProgressionReport report = LevelProgression.Evaluate(History(
+            Session(1, pitchCorrect: 8) with { SchemaVersion = SightReadingSessionSummary.DetailedSchemaVersion },
+            Session(2, pitchCorrect: 8) with { SchemaVersion = SightReadingSessionSummary.DetailedSchemaVersion },
+            Session(3, pitchCorrect: 8) with { SchemaVersion = SightReadingSessionSummary.DetailedSchemaVersion }));
+
+        Assert.Equal(LevelStatus.Passed, report.Levels[0].Status);
+        Assert.Equal(3, report.Levels[0].WindowSessionCount);
+    }
+
+    [Fact]
     public void Evaluate_TimedLevel_NeedsEightyPercentTimingCleanAsWellAsPitch()
     {
         ExerciseLevel timed = ExerciseLevelCatalog.Levels.First(level => level.Mode == NoteReadingMode.PitchAndRhythm);
@@ -177,6 +189,35 @@ public sealed class LevelProgressionTests
 
         Assert.NotEqual(LevelStatus.Passed, progress.Status);
         Assert.Equal(60, progress.AverageTimingCleanPercent);
+    }
+
+    [Fact]
+    public void Evaluate_RhythmOnlySessionsOnTheBassStaff_CountTowardTheRhythmOnlyLevel()
+    {
+        // Rhythm only plays every note on the staff's centre line without grading pitch, so the staff is cosmetic.
+        ExerciseLevel rhythmOnly = ExerciseLevelCatalog.Levels.First(level => level.Mode == NoteReadingMode.RhythmOnly);
+        SightReadingSessionSummary[] onBass = Enumerable.Range(1, 3)
+            .Select(index => TimedSession(rhythmOnly, index, pitchCorrect: 10, timingMistakes: 0, promptCount: 10, tempo: 60) with { Staff = Staff.Bass })
+            .ToArray();
+
+        LevelProgress progress = LevelProgression.Evaluate(History(onBass)).Levels.Single(level => level.Level == rhythmOnly);
+
+        Assert.Equal(LevelStatus.Passed, progress.Status);
+        Assert.Equal(3, progress.WindowSessionCount);
+    }
+
+    [Fact]
+    public void Evaluate_PitchAndRhythmSessionsOnTheBassStaff_DoNotCountTowardTheTrebleLevel()
+    {
+        ExerciseLevel pitchAndRhythm = ExerciseLevelCatalog.Levels.First(level => level.Mode == NoteReadingMode.PitchAndRhythm);
+        SightReadingSessionSummary[] onBass = Enumerable.Range(1, 3)
+            .Select(index => TimedSession(pitchAndRhythm, index, pitchCorrect: 10, timingMistakes: 0, promptCount: 10, tempo: 60) with { Staff = Staff.Bass })
+            .ToArray();
+
+        LevelProgress progress = LevelProgression.Evaluate(History(onBass)).Levels.Single(level => level.Level == pitchAndRhythm);
+
+        Assert.Equal(0, progress.WindowSessionCount);
+        Assert.NotEqual(LevelStatus.Passed, progress.Status);
     }
 
     [Fact]
@@ -410,6 +451,7 @@ public sealed class LevelProgressionTests
         string rhythmPreset = "Fixed") =>
         new(
             SightReadingSessionSummary.CurrentSchemaVersion,
+            Guid.NewGuid(),
             Start.AddHours(index),
             preset.ToString(),
             staff,

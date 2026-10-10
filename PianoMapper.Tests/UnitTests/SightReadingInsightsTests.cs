@@ -162,6 +162,39 @@ public sealed class SightReadingInsightsTests
     }
 
     [Fact]
+    public void Build_Trend_RhythmOnlySessionWithUnplayedNotes_CountsThemAgainstTheTimingCleanRate()
+    {
+        // Four of ten notes were never played: not timing mistakes in the stored counts, but not clean either.
+        SightReadingHistory history = History(
+            Session(0, mode: NoteReadingMode.RhythmOnly, promptCount: 10, pitchCorrect: 10, firstTryCorrect: 6, timingMistakes: 0));
+
+        TrendPoint point = Assert.Single(SightReadingInsights.Build(history).Trend);
+
+        Assert.Equal(60, point.TimingCleanPercent);
+    }
+
+    [Theory]
+    [InlineData(NoteReadingMode.RhythmOnly, "Fixed")]
+    [InlineData(NoteReadingMode.PitchAndRhythm, "Basic")]
+    public void Build_Trend_TimingCleanRate_IsTheOneTheGuidedPathUsesForTheSameSession(NoteReadingMode mode, string rhythmPreset)
+    {
+        SightReadingHistory history = History(
+            Session(0, mode: mode, promptCount: 10, pitchCorrect: 10, firstTryCorrect: 6, timingMistakes: 3) with
+            {
+                RhythmPreset = rhythmPreset,
+                IsGrandStaff = false,
+            });
+
+        TrendPoint point = Assert.Single(SightReadingInsights.Build(history).Trend);
+        LevelProgress level = Assert.Single(
+            LevelProgression.Evaluate(history).Levels,
+            progress => progress.WindowSessionCount > 0);
+
+        Assert.NotNull(point.TimingCleanPercent);
+        Assert.Equal(level.AverageTimingCleanPercent, point.TimingCleanPercent);
+    }
+
+    [Fact]
     public void Build_Trend_LegacyTimedSessionsWithFusedOutcomesAreLeftOut()
     {
         SightReadingHistory history = History(
@@ -239,6 +272,7 @@ public sealed class SightReadingInsightsTests
         IReadOnlyList<ConfusionSummary>? confusions = null) =>
         new(
             SightReadingSessionSummary.CurrentSchemaVersion,
+            Guid.NewGuid(),
             Start.AddHours(index),
             "FiveNote",
             Staff.Treble,

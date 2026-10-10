@@ -454,9 +454,52 @@ public sealed class SightReadingLabelsTests
             SightReadingLabels.DescribeTimingBreakdown(summary));
     }
 
+    [Fact]
+    public void DescribeProgressStatus_NothingWorthSaying_ReturnsNull()
+    {
+        ProgressStatus[] quiet =
+        [
+            new(ProgressSyncState.Connecting, IsCacheAvailable: true),
+            new(ProgressSyncState.Connecting, IsCacheAvailable: false),
+            new(ProgressSyncState.NoServer, IsCacheAvailable: true),
+        ];
+
+        Assert.All(quiet, status => Assert.Null(SightReadingLabels.DescribeProgressStatus(status)));
+    }
+
+    [Fact]
+    public void DescribeProgressStatus_EveryStatusWorthSaying_HasItsOwnMessage()
+    {
+        ProgressStatus[] spoken =
+        [
+            new(ProgressSyncState.Synced, IsCacheAvailable: true),
+            new(ProgressSyncState.Synced, IsCacheAvailable: false),
+            new(ProgressSyncState.NotSynced, IsCacheAvailable: true),
+            new(ProgressSyncState.NotSynced, IsCacheAvailable: false),
+            new(ProgressSyncState.NoServer, IsCacheAvailable: false),
+            new(ProgressSyncState.DeleteFailed, IsCacheAvailable: true),
+        ];
+
+        string?[] messages = [.. spoken.Select(SightReadingLabels.DescribeProgressStatus)];
+
+        Assert.All(messages, message => Assert.False(string.IsNullOrWhiteSpace(message)));
+        Assert.Equal(messages.Length, messages.Distinct().Count());
+    }
+
+    [Fact]
+    public void DescribeProgressStatus_EveryState_IsHandled()
+    {
+        foreach (ProgressSyncState state in Enum.GetValues<ProgressSyncState>())
+        {
+            Assert.Null(Record.Exception(() => SightReadingLabels.DescribeProgressStatus(new ProgressStatus(state, true))));
+            Assert.Null(Record.Exception(() => SightReadingLabels.DescribeProgressStatus(new ProgressStatus(state, false))));
+        }
+    }
+
     private static SightReadingSessionSummary CreateSummary() =>
         new(
             SightReadingSessionSummary.CurrentSchemaVersion,
+            Guid.NewGuid(),
             new DateTimeOffset(2026, 10, 2, 9, 0, 0, TimeSpan.Zero),
             "FiveNote",
             Staff.Treble,

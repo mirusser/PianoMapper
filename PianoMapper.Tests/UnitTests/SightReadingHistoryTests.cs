@@ -91,6 +91,7 @@ public sealed class SightReadingHistoryTests
     public void ToJson_RoundTripsRepresentativeSummaryThroughSystemTextJson()
     {
         SightReadingSessionSummary original = SightReadingSessionSummary.Create(
+            Guid.NewGuid(),
             new DateTimeOffset(2026, 3, 4, 5, 6, 7, TimeSpan.Zero),
             "OneOctave",
             Staff.Bass,
@@ -115,6 +116,7 @@ public sealed class SightReadingHistoryTests
 
         SightReadingSessionSummary roundTripped = Assert.Single(reloaded.Entries);
         Assert.Equal(original.SchemaVersion, roundTripped.SchemaVersion);
+        Assert.Equal(original.SessionId, roundTripped.SessionId);
         Assert.Equal(original.CompletedAt, roundTripped.CompletedAt);
         Assert.Equal(original.PresetId, roundTripped.PresetId);
         Assert.Equal(original.Staff, roundTripped.Staff);
@@ -274,6 +276,7 @@ public sealed class SightReadingHistoryTests
     {
         var c4 = new Pitch(NoteLetter.C, 0, 4);
         SightReadingSessionSummary summary = SightReadingSessionSummary.Create(
+            Guid.NewGuid(),
             DateTimeOffset.UtcNow,
             "FiveNote",
             Staff.Treble,
@@ -356,6 +359,7 @@ public sealed class SightReadingHistoryTests
         var expected = new Pitch(NoteLetter.C, 1, 4);
         var played = new Pitch(NoteLetter.D, 0, 4);
         SightReadingSessionSummary original = SightReadingSessionSummary.Create(
+            Guid.NewGuid(),
             DateTimeOffset.UtcNow,
             "FiveNote",
             Staff.Bass,
@@ -422,6 +426,25 @@ public sealed class SightReadingHistoryTests
     public void CalculateWeakness_WithoutSpeedData_IsTheInaccuracyFraction(double accuracyPercent, double expected)
     {
         Assert.Equal(expected, NoteMastery.CalculateWeakness(accuracyPercent, null, null), precision: 9);
+    }
+
+    [Theory]
+    [InlineData("sight-reading-history-v1.json", 3)]
+    [InlineData("sight-reading-history-v2.json", 2)]
+    [InlineData("sight-reading-history-v3.json", 2)]
+    public void FromJson_RealPayloadOfEveryShippedSchema_LoadsEveryEntryAndKeepsItsIdentityThroughASave(
+        string fixture,
+        int expectedEntryCount)
+    {
+        string json = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture));
+
+        SightReadingHistory loaded = SightReadingHistory.FromJson(json);
+        SightReadingHistory saved = SightReadingHistory.FromJson(loaded.ToJson());
+
+        Assert.Equal(expectedEntryCount, loaded.Entries.Count);
+        Assert.Equal(
+            loaded.Entries.Select(entry => (entry.SchemaVersion, entry.SessionId)),
+            saved.Entries.Select(entry => (entry.SchemaVersion, entry.SessionId)));
     }
 
     [Fact]
@@ -595,6 +618,7 @@ public sealed class SightReadingHistoryTests
         IReadOnlyList<PitchAttemptSummary>? pitchAttempts = null) =>
         new(
             SightReadingSessionSummary.CurrentSchemaVersion,
+            Guid.NewGuid(),
             completedAt,
             "FiveNote",
             Staff.Treble,

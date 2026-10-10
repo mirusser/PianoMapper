@@ -440,6 +440,7 @@ public sealed class SightReadingExerciseCoordinatorTests
         {
             history = history.WithCompletedSession(new SightReadingSessionSummary(
                 SightReadingSessionSummary.CurrentSchemaVersion,
+                Guid.NewGuid(),
                 start.AddHours(index),
                 "FiveNote",
                 Staff.Treble,
@@ -2031,6 +2032,55 @@ public sealed class SightReadingExerciseCoordinatorTests
         Assert.Equal(isGrandStaff, summary.IsGrandStaff);
     }
 
+    [Theory]
+    [InlineData(SightReadingPresetId.GMajor)]
+    [InlineData(SightReadingPresetId.OneOctave)]
+    [InlineData(SightReadingPresetId.Chords)]
+    public void ConsumeCompletionSummary_RhythmOnlyRun_RecordsTheFiveNoteRangeTheExerciseActuallyUsed(
+        SightReadingPresetId selectedPreset)
+    {
+        SightReadingSessionSummary summary = CompleteRhythmOnlyRunOnTime(selectedPreset);
+
+        Assert.Equal(nameof(SightReadingPresetId.FiveNote), summary.PresetId);
+    }
+
+    [Theory]
+    [InlineData(SightReadingPresetId.FiveNote)]
+    [InlineData(SightReadingPresetId.GMajor)]
+    public void ConsumeCompletionSummary_RhythmOnlyRun_CountsTowardTheRhythmOnlyLadderLevelWhateverRangeWasSelected(
+        SightReadingPresetId selectedPreset)
+    {
+        SightReadingSessionSummary summary = CompleteRhythmOnlyRunOnTime(selectedPreset);
+
+        LevelProgressionReport report = LevelProgression.Evaluate(SightReadingHistory.Empty.WithCompletedSession(summary));
+
+        LevelProgress quarterNoteRhythm = report.Levels.Single(progress =>
+            progress.Level.Mode == NoteReadingMode.RhythmOnly &&
+            progress.Level.RhythmPreset == SightReadingRhythmPreset.Fixed);
+        Assert.Equal(1, quarterNoteRhythm.WindowSessionCount);
+    }
+
+    [Fact]
+    public void ConsumeCompletionSummary_ModeChangedToRhythmOnlyAfterTheRun_RecordsTheRangeAndLayoutTheRunUsed()
+    {
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+        coordinator.SetPresetId(SightReadingPresetId.OneOctave);
+        coordinator.SetIsGrandStaff(true);
+        coordinator.SetPromptCountOption(4);
+        coordinator.Generate(new Random(11), Tolerance);
+        foreach (ScoreNote note in coordinator.Score!.Measures.SelectMany(measure => measure.Notes))
+        {
+            coordinator.Session.Check(note.Pitch);
+        }
+
+        coordinator.SetMode(NoteReadingMode.RhythmOnly);
+        SightReadingSessionSummary? summary = coordinator.ConsumeCompletionSummary();
+
+        Assert.NotNull(summary);
+        Assert.Equal(nameof(SightReadingPresetId.OneOctave), summary.PresetId);
+        Assert.True(summary.IsGrandStaff);
+    }
+
     [Fact]
     public void ConsumeCompletionSummary_CalledTwiceForSameCompletion_ReturnsNullTheSecondTime()
     {
@@ -2686,6 +2736,29 @@ public sealed class SightReadingExerciseCoordinatorTests
 
         Assert.Equal(NoteReadingMode.PitchAndOrder, coordinator.RunMode);
         Assert.Equal(ExercisePacing.WaitForMe, coordinator.RunPacing);
+    }
+
+    private static SightReadingSessionSummary CompleteRhythmOnlyRunOnTime(SightReadingPresetId selectedPreset)
+    {
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+        coordinator.SetMode(NoteReadingMode.RhythmOnly);
+        coordinator.SetPresetId(selectedPreset);
+        coordinator.SetPromptCountOption(4);
+        coordinator.Generate(new Random(11), Tolerance);
+        TimeSpan start = TimeSpan.FromSeconds(10);
+        foreach (ScoreEvent scoreEvent in ScoreDerivation.Flatten(coordinator.Score!))
+        {
+            TimeSpan onset = start + MusicalTime.BeatsToDuration(scoreEvent.OnsetBeats, coordinator.Score!.Tempo);
+            coordinator.Session.Check(scoreEvent.Pitch, onset);
+            coordinator.Session.Release(
+                scoreEvent.Pitch,
+                onset + MusicalTime.BeatsToDuration(scoreEvent.DurationBeats, coordinator.Score.Tempo));
+        }
+
+        SightReadingSessionSummary? summary = coordinator.ConsumeCompletionSummary();
+
+        Assert.NotNull(summary);
+        return summary;
     }
 
     private static void CompleteWaitForMeRunWithOneWrongKey(SightReadingExerciseCoordinator coordinator)

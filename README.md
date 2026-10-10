@@ -12,7 +12,7 @@ PianoMapper is a .NET 10 application with three clients: an OpenTK desktop app, 
 
 - Generate treble, bass, or grand-staff note-reading exercises for five-note ranges, octaves, ledger lines, keys, accidentals, and triad inversions.
 - Work from pitch-only recognition through rhythm and hold-duration practice. Choose **Wait for me** or a clock-driven **Play along** mode.
-- See early/late feedback, review pitch, timing, and missed-note marks after a run, retry missed material, and follow an optional guided path built from local progress history.
+- See early/late feedback, review pitch, timing, and missed-note marks after a run, retry missed material, and follow an optional guided path built from your progress history.
 - Use MIDI, the touch- and mouse-playable 88-key piano, or the optional computer-key layout—MIDI is never required for exercises.
 
 ### Play, hear, and follow scores
@@ -31,7 +31,7 @@ PianoMapper is a .NET 10 application with three clients: an OpenTK desktop app, 
 ### Keep the browser experience local and resilient
 
 - Install the standalone browser client as a PWA. After its first online load, the app shell can start offline.
-- Keep practice history in browser-local storage; the exercise generator degrades safely when storage is unavailable.
+- Keep practice history in browser storage first. On the hosted app each finished session is also saved to PostgreSQL (see [Progress storage](#-progress-storage)), so progress survives clearing the browser; the standalone PWA keeps it in browser storage alone, and the exercise generator degrades safely when storage is unavailable.
 - Run MIDI, rendering, and audio in the browser connected to the piano, even when the development host runs elsewhere on your network.
 
 ## 🚀 Quick start
@@ -41,7 +41,7 @@ Choose the route that fits what you want to try.
 | I want to… | Run | What it includes |
 | --- | --- | --- |
 | Use the complete browser app **(recommended)** | `make` | PostgreSQL, MusicXML, image recognition, and saved scores |
-| Try MusicXML in a standalone browser PWA | `dotnet run --project PianoMapper.Web/PianoMapper.Web.csproj` | MusicXML import; no server, OMR, or saved-score library |
+| Try MusicXML in a standalone browser PWA | `dotnet run --project PianoMapper.Web/PianoMapper.Web.csproj` | MusicXML import; no server, OMR, saved-score library, or server-saved progress |
 | Run the desktop app | `dotnet run --project PianoMapper/PianoMapper.csproj` | OpenTK/OpenAL desktop piano app |
 | Start a hosted browser app with your own prerequisites | `docker compose up --detach --wait postgres` then `dotnet run --project PianoMapper.Server/PianoMapper.Server.csproj` | Hosted browser app with PostgreSQL and image recognition |
 
@@ -149,7 +149,21 @@ For saved scores and image recognition, publish the ASP.NET Core companion inste
 dotnet publish PianoMapper.Server/PianoMapper.Server.csproj --configuration Release
 ```
 
-The standalone PWA has no process in which to run Audiveris or connect to PostgreSQL, so it intentionally supports MusicXML import only. The first PWA visit must be online so its service worker can cache the app shell; selected music files are never bundled into that cache.
+The standalone PWA has no process in which to run Audiveris or connect to PostgreSQL, so it intentionally supports MusicXML import only and keeps practice history in browser storage alone. The first PWA visit must be online so its service worker can cache the app shell; selected music files are never bundled into that cache.
+
+## 💾 Progress storage
+
+Finished note-reading sessions are kept in two places. The browser's local storage (key `pianomapper-sight-reading-history-v1`) is read first and written first, so the Progress panel and the guided path appear instantly and work offline. On the hosted app each session is then written to the `progress_sessions` table in PostgreSQL, and on every page load the browser and the server are reconciled: sessions only the server has are added to the browser, and sessions only the browser has (old browser data, or writes made while the server was down) are uploaded. A session is never stored twice, because each carries its own id. The browser keeps the newest 100 sessions; the server keeps all of them. There is one shared history for now, with no learner id in the routes.
+
+| Route | Behavior |
+| --- | --- |
+| `GET /api/progress/sessions?limit=100` | The newest sessions, newest first, as a JSON array. `limit` is 1–100 (default 100); anything else is `400`. |
+| `POST /api/progress/sessions` | Stores a JSON array of sessions and answers `204`. Sending a session again changes nothing. One entry the server cannot read (malformed, or a schema version it does not know) rejects the whole request with `400`. |
+| `DELETE /api/progress/sessions` | Deletes every stored session and answers `204`. The **Clear history** button calls it. |
+
+Every database route, saved scores included, answers `503` problem details while PostgreSQL is unreachable and recovers once it is back, without a restart; invalid input (such as a blank score title) is `400`. The host starts even when PostgreSQL is down, and failures are logged without the connection string. A missing `ConnectionStrings__PianoMapper` still stops startup.
+
+The Progress panel reports the state. With the server unreachable it says progress is **not synced** and keeps saving to the browser, and the next sync uploads what was missed. With no server at all (the standalone PWA) it behaves as before and shows no error. If the browser blocks local storage, history is held in memory and on the server only.
 
 ## 🧭 Project map
 
@@ -158,7 +172,7 @@ The standalone PWA has no process in which to run Audiveris or connect to Postgr
 | `PianoMapper.Core` | Shared music model, MusicXML import, score layout, timing, playback scheduling, synthesis contracts, and exercise grading |
 | `PianoMapper` | OpenTK/OpenAL desktop application |
 | `PianoMapper.Web` | Standalone Blazor WebAssembly PWA, Web MIDI, Web Audio, and canvas UI |
-| `PianoMapper.Server` | ASP.NET Core host for the web client, Audiveris image conversion, and PostgreSQL saved scores |
+| `PianoMapper.Server` | ASP.NET Core host for the web client, Audiveris image conversion, and PostgreSQL saved scores and progress |
 | `PianoMapper.Tests` | .NET unit and integration tests, plus browser-facing JavaScript tests |
 
 ## ✅ Verify a checkout
@@ -169,6 +183,8 @@ node --test PianoMapper.Tests/JavaScript/*.test.mjs
 dotnet build PianoMapper.slnx --configuration Release
 ```
 
+The database tests (`Category=Integration`) start a throwaway `postgres:17-alpine` container through Testcontainers, so a bare `dotnet test` needs a running Docker daemon and fails, rather than skips, without one. Without Docker, run `dotnet test PianoMapper.Tests/PianoMapper.Tests.csproj --filter "Category!=Integration"`; to run only the database tests, use `--filter "Category=Integration"`. They never touch the development database.
+
 The browser’s manual coverage and current evidence live in [the browser test matrix](docs/browser-test-matrix.md). For running a browser client from another machine while keeping MIDI and audio local to the browser, see [remote access notes](docs/remote-access.md).
 
 ## ⚠️ Boundaries and current limits
@@ -178,7 +194,7 @@ The browser’s manual coverage and current evidence live in [the browser test m
 - OMR output depends on scan quality and Audiveris. Review every recognized score, especially rhythm and fingering, before using it for practice.
 - Timed exercises use the audio clock and do not yet compensate for output latency. Hardware with a large latency can make an on-beat player appear slightly late.
 - Web MIDI depends on browser support, permission, and secure context. Sustain-pedal control changes are not interpreted; duration checking ends when a key sends note-off.
-- Accounts, backend synchronization, and mobile-specific layout are outside the current browser release.
+- Accounts and mobile-specific layout are outside the current browser release. The hosted server keeps one shared progress history, not one per learner. Clearing history deletes the saved copy too, but a browser that still holds older sessions re-uploads them on its next sync, so clear on each device that has used the app.
 
 ---
 

@@ -5,6 +5,7 @@
 @inject ExerciseClick ExerciseClick
 @inject BrowserScorePlayback ScorePlaybackSession
 @inject IJSRuntime JS
+@inject ProgressStore ProgressStore
 
 <PageTitle>PianoMapper</PageTitle>
 
@@ -616,11 +617,12 @@
                 @if (showSightReadingProgressPanel)
                 {
                     <div id="sight-reading-progress-panel">
-                        <SightReadingHistoryPanel RecentSessions="@RecentSightReadingSessions"
-                                                   WeakestPitches="@sightReadingHistory.ComputeMasteryWeakestFirst()"
-                                                   InsufficientDataPitchCount="@InsufficientMasteryDataPitchCount"
-                                                   Insights="@sightReadingInsights"
-                                                   Ladder="@sightReadingLadder"
+                        <SightReadingHistoryPanel RecentSessions="@progressViews.RecentSessions"
+                                                   WeakestPitches="@progressViews.WeakestPitches"
+                                                   InsufficientDataPitchCount="@progressViews.InsufficientDataPitchCount"
+                                                   Insights="@progressViews.Insights"
+                                                   Ladder="@progressViews.Ladder"
+                                                   StatusMessage="@SightReadingLabels.DescribeProgressStatus(ProgressStore.Status)"
                                                    ClearHistory="ClearSightReadingHistoryAsync"
                                                    Hide="ToggleSightReadingProgressPanel" />
                     </div>
@@ -674,11 +676,8 @@
     private readonly GrandStaffSceneCache lowerGrandStaffSceneCache = new();
     private readonly NoteReadingSession noteReadingSession = new();
     private readonly SightReadingExerciseCoordinator sightReadingExerciseCoordinator;
-    private BrowserSightReadingHistoryStore sightReadingHistoryStore = null!;
-    private SightReadingHistory sightReadingHistory = SightReadingHistory.Empty;
-    private SightReadingInsightReport sightReadingInsights = SightReadingInsights.Build(SightReadingHistory.Empty);
-    private IReadOnlyList<NoteMastery> sightReadingWeakNotes = [];
-    private LevelProgressionReport sightReadingLadder = LevelProgression.Evaluate(SightReadingHistory.Empty);
+    private ProgressViews progressViews = ProgressViews.Empty;
+    private DrillAvailability drillAvailability;
     private readonly HashSet<PerformedNote> wrongScoreInputNotes = new(ReferenceEqualityComparer.Instance);
     private ElementReference playSurface;
     private AudioClockAnchor? audioClockAnchor;
@@ -788,10 +787,9 @@
         IsActive = sightReadingExerciseCoordinator.IsActive,
         IsComplete = sightReadingExerciseCoordinator.Phase != SightReadingExercisePhase.Active,
         HasMissedPrompts = sightReadingExerciseCoordinator.HasMissedPrompts,
-        RecommendedExerciseDescription = SightReadingLabels.DescribeLevelProgress(
-            sightReadingLadder.Levels[sightReadingLadder.Recommended.Level.Number - 1]),
-        CanDrillWeakNotes = sightReadingExerciseCoordinator.GetDrillAvailability(sightReadingWeakNotes).IsAvailable,
-        DrillUnavailableReason = sightReadingExerciseCoordinator.GetDrillAvailability(sightReadingWeakNotes).Reason,
+        RecommendedExerciseDescription = progressViews.RecommendedExerciseDescription,
+        CanDrillWeakNotes = drillAvailability.IsAvailable,
+        DrillUnavailableReason = drillAvailability.Reason,
         IsMidiInputConnected = midiInputNames.Count > 0,
         IsComputerPianoEnabled = computerPianoState.IsEnabled,
         PromptCount = sightReadingExerciseCoordinator.PromptCount,
@@ -921,14 +919,6 @@
     private bool EffectiveShowNextKeyHints => IsSightReadingExerciseInProgress
         ? sightReadingExerciseCoordinator.RevealKeysWhileActive
         : showNextKeyHints;
-
-    private const int RecentSightReadingSessionCount = 10;
-
-    private IReadOnlyList<SightReadingSessionSummary> RecentSightReadingSessions =>
-        sightReadingHistory.Entries.Take(RecentSightReadingSessionCount).ToArray();
-
-    private int InsufficientMasteryDataPitchCount => sightReadingHistory.ComputeMastery()
-        .Count(mastery => mastery.AttemptCount < SightReadingHistory.MinimumMasteryAttempts);
 
     private bool IsNoteCheckingEnabled =>
         IsSightReadingExerciseActive || idleNoteReadingMode != NoteReadingMode.Off;
@@ -1140,6 +1130,7 @@
         midiInputState = new BrowserMidiInputState(noteInputState);
         computerPianoState = new BrowserComputerPianoState(noteInputState);
         sightReadingExerciseCoordinator = new SightReadingExerciseCoordinator(noteReadingSession);
+        drillAvailability = sightReadingExerciseCoordinator.GetDrillAvailability(progressViews.WeakNotes);
     }
 
     protected override void OnInitialized()
@@ -1149,7 +1140,7 @@
             practiceCoordinator,
             sightReadingExerciseCoordinator,
             ExerciseClick);
-        sightReadingHistoryStore = new BrowserSightReadingHistoryStore(JS);
+        ProgressStore.Changed += OnProgressChanged;
         fingeringProfileStore = new BrowserFingeringProfileStore(JS);
     }
 
@@ -1160,9 +1151,9 @@
             return;
         }
 
-        sightReadingHistory = await sightReadingHistoryStore.LoadAsync();
+        await ProgressStore.LoadAsync();
         ApplyFingeringProfile(await fingeringProfileStore.LoadAsync());
-        RefreshSightReadingInsights();
+        RefreshProgressViews();
         StateHasChanged();
         await TryAutoConnectMidiAsync();
         StateHasChanged();
@@ -1171,15 +1162,29 @@
     }
 
     /// <summary>
-    /// Recomputes what the history says (the insights and the weak notes a drill would use) once per change, not on
-    /// every render, since the page re-renders on every key press.
+    /// Rebuilds what the history says when a background step changed it (a merge with the server). The first load, a
+    /// local record and a clear rebuild it themselves. It is never done on a render or a key press: the page only
+    /// reads <see cref="progressViews"/>.
     /// </summary>
-    private void RefreshSightReadingInsights()
+    private void OnProgressChanged() =>
+        _ = InvokeAsync(() =>
+        {
+            RefreshProgressViews();
+            StateHasChanged();
+        });
+
+    private void RefreshProgressViews()
     {
-        sightReadingInsights = SightReadingInsights.Build(sightReadingHistory);
-        sightReadingWeakNotes = SightReadingInsights.GetWeakNotes(sightReadingHistory);
-        sightReadingLadder = LevelProgression.Evaluate(sightReadingHistory);
+        progressViews = ProgressViews.Build(ProgressStore.History);
+        RefreshDrillAvailability();
     }
+
+    /// <summary>
+    /// Whether a weak-note drill can start depends on the exercise setup and the weak notes, which only change when an
+    /// exercise setting is chosen or the history changes, so it is worked out then and not on every render.
+    /// </summary>
+    private void RefreshDrillAvailability() =>
+        drillAvailability = sightReadingExerciseCoordinator.GetDrillAvailability(progressViews.WeakNotes);
 
     private async Task StopExerciseClickAsync()
     {
@@ -1202,9 +1207,8 @@
             return;
         }
 
-        sightReadingHistory = sightReadingHistory.WithCompletedSession(summary);
-        RefreshSightReadingInsights();
-        await sightReadingHistoryStore.SaveAsync(sightReadingHistory);
+        await ProgressStore.RecordAsync(summary);
+        RefreshProgressViews();
         EnsureAutoNextTicker();
     }
 
@@ -1243,9 +1247,8 @@
 
     private async Task ClearSightReadingHistoryAsync()
     {
-        sightReadingHistory = SightReadingHistory.Empty;
-        RefreshSightReadingInsights();
-        await sightReadingHistoryStore.ClearAsync();
+        await ProgressStore.ClearAsync();
+        RefreshProgressViews();
     }
 
     /// <summary>
@@ -1635,7 +1638,23 @@
         audioStatus = $"Playing a random measure at {TimingLabel}.";
     }
 
+    /// <summary>
+    /// Every exercise setting changes through here, so this is where the drill availability that depends on them is
+    /// worked out again.
+    /// </summary>
     private async Task HandleSightReadingExerciseActionAsync(SightReadingExerciseAction action)
+    {
+        try
+        {
+            await ApplySightReadingExerciseActionAsync(action);
+        }
+        finally
+        {
+            RefreshDrillAvailability();
+        }
+    }
+
+    private async Task ApplySightReadingExerciseActionAsync(SightReadingExerciseAction action)
     {
         ArgumentNullException.ThrowIfNull(action);
         switch (action)
@@ -1792,7 +1811,7 @@
         if (!TryGenerateSightReadingExercise(() => sightReadingExerciseCoordinator.Generate(
             Random.Shared,
             onTimeTolerance,
-            sightReadingHistory.ComputeNoteMasteryWeakestFirst())))
+            progressViews.NoteMasteryWeakestFirst)))
         {
             return;
         }
@@ -1814,8 +1833,8 @@
         if (!TryGenerateSightReadingExercise(() => sightReadingExerciseCoordinator.GenerateRecommended(
             Random.Shared,
             onTimeTolerance,
-            sightReadingLadder.Recommended,
-            sightReadingHistory.ComputeNoteMasteryWeakestFirst())))
+            progressViews.Ladder.Recommended,
+            progressViews.NoteMasteryWeakestFirst)))
         {
             return;
         }
@@ -1823,13 +1842,13 @@
         ResetScoreWindowPair();
         await FinishSightReadingTransitionAsync(
             currentTime,
-            $"Recommended exercise ready: {sightReadingLadder.Recommended.Level.Name}. Play the highlighted note.");
+            $"Recommended exercise ready: {progressViews.Ladder.Recommended.Level.Name}. Play the highlighted note.");
     }
 
     /// <summary>An explicit drill on the weak notes of the current range; ordinary generation is untouched.</summary>
     private async Task DrillWeakSightReadingNotesAsync()
     {
-        if (!sightReadingExerciseCoordinator.GetDrillAvailability(sightReadingWeakNotes).IsAvailable)
+        if (!drillAvailability.IsAvailable)
         {
             return;
         }
@@ -1837,7 +1856,7 @@
         TimeSpan currentTime = await PrepareSightReadingExerciseTransitionAsync();
         showPianoRoll = false;
         if (!TryGenerateSightReadingExercise(() =>
-            sightReadingExerciseCoordinator.GenerateWeaknessDrill(Random.Shared, onTimeTolerance, sightReadingWeakNotes)))
+            sightReadingExerciseCoordinator.GenerateWeaknessDrill(Random.Shared, onTimeTolerance, progressViews.WeakNotes)))
         {
             return;
         }
@@ -2899,6 +2918,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        ProgressStore.Changed -= OnProgressChanged;
         await visualizationTicker.StopAsync();
         await autoNextTicker.StopAsync();
         await AbortPracticeAsync(updateStatus: false);

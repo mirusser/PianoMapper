@@ -13,4 +13,12 @@ public static class NoteReadingModeExtensions
         NoteReadingMode.RhythmOnly => GradedAxes.Onset,
         _ => throw new ArgumentOutOfRangeException(nameof(mode)),
     };
+
+    /// <summary>
+    /// Whether the mode judges onset or release timing, not just pitch. False for an undefined mode (stored history can
+    /// name a mode this version does not know) instead of throwing like <see cref="GetGradedAxes"/>.
+    /// </summary>
+    public static bool IsTimingGraded(this NoteReadingMode mode) =>
+        Enum.IsDefined(mode) &&
+        (mode.GetGradedAxes() & (GradedAxes.Onset | GradedAxes.Duration)) != GradedAxes.None;
 }

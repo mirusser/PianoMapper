@@ -112,23 +112,14 @@ public static class SightReadingInsights
 
     private static TrendPoint? ToTrendPoint(SightReadingSessionSummary entry)
     {
-        if (entry.PromptCount == 0)
+        // An entry that cannot say how the pitches went (no prompts, or a legacy timed run that fused pitch with timing)
+        // says nothing here.
+        if (entry.PitchFirstTryPercent() is not { } pitchPercent)
         {
             return null;
         }
 
-        // Legacy entries recorded in a timed mode fused pitch and timing into one number, so they say nothing here.
-        int? pitchCorrect = entry.PitchFirstTryCorrectCount ??
-            (entry.Mode == NoteReadingMode.PitchAndOrder ? entry.FirstTryCorrectCount : null);
-        if (pitchCorrect is not { } correct)
-        {
-            return null;
-        }
-
-        double? timingClean = entry.TimingMistakeCount is { } timingMistakes && SightReadingLabels.IsTimingGraded(entry.Mode)
-            ? 100.0 * (entry.PromptCount - timingMistakes) / entry.PromptCount
-            : null;
-        return new TrendPoint(entry.CompletedAt, 100.0 * correct / entry.PromptCount, timingClean);
+        return new TrendPoint(entry.CompletedAt, pitchPercent, entry.TimingCleanPercent());
     }
 
     private static TrendDirection GetDirection(IReadOnlyList<TrendPoint> trend)

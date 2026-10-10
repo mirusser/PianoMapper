@@ -19,5 +19,8 @@ builder.Services.AddScoped<BrowserScorePlayback>();
 builder.Services.AddScoped<BrowserMetronome>();
 builder.Services.AddScoped<ExerciseClick>();
 builder.Services.AddScoped<SavedScoreClient>();
+builder.Services.AddScoped<IProgressCache, BrowserProgressCache>();
+builder.Services.AddScoped<IProgressServer, ProgressServerClient>();
+builder.Services.AddScoped<ProgressStore>();
 
 await builder.Build().RunAsync();

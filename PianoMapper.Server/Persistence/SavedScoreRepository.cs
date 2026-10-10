@@ -5,24 +5,8 @@ using PianoMapper.Scores;
 
 namespace PianoMapper.Server.Persistence;
 
-internal sealed class SavedScoreRepository(NpgsqlDataSource dataSource)
+internal sealed class SavedScoreRepository(PostgresDatabase database)
 {
-    internal const string ConnectionStringName = "PianoMapper";
-
-    private const string InitializeDatabaseSql = """
-        CREATE TABLE IF NOT EXISTS scores (
-            id uuid PRIMARY KEY,
-            title text NOT NULL CONSTRAINT scores_title_ck CHECK (btrim(title) <> ''),
-            measure_count integer NOT NULL CONSTRAINT scores_measure_count_ck CHECK (measure_count >= 0),
-            score_document jsonb NOT NULL,
-            document_version integer NOT NULL CONSTRAINT scores_document_version_ck CHECK (document_version > 0),
-            created_at timestamptz NOT NULL DEFAULT now(),
-            updated_at timestamptz NOT NULL DEFAULT now()
-        );
-
-        CREATE INDEX IF NOT EXISTS scores_updated_at_idx ON scores (updated_at DESC, id);
-        """;
-
     private const string ListScoresSql = """
         SELECT id, title, measure_count, created_at, updated_at
         FROM scores
@@ -66,12 +50,6 @@ internal sealed class SavedScoreRepository(NpgsqlDataSource dataSource)
         WHERE id = @id;
         """;
 
-    internal async Task InitializeAsync(CancellationToken cancellationToken)
-    {
-        await using var command = dataSource.CreateCommand(InitializeDatabaseSql);
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
-
     internal async Task<SavedScorePage> ListAsync(
         int page,
         int pageSize,
@@ -82,6 +60,7 @@ internal sealed class SavedScoreRepository(NpgsqlDataSource dataSource)
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(pageSize);
 
         string? normalizedTitle = string.IsNullOrWhiteSpace(title) ? null : title.Trim();
+        NpgsqlDataSource dataSource = await database.GetDataSourceAsync(cancellationToken).ConfigureAwait(false);
         var scores = new List<SavedScoreSummary>();
         await using var command = dataSource.CreateCommand(ListScoresSql);
         AddListParameters(command, page, pageSize, normalizedTitle);
@@ -104,6 +83,7 @@ internal sealed class SavedScoreRepository(NpgsqlDataSource dataSource)
 
     internal async Task<SavedScoreDetails?> FindAsync(Guid id, CancellationToken cancellationToken)
     {
+        NpgsqlDataSource dataSource = await database.GetDataSourceAsync(cancellationToken).ConfigureAwait(false);
         await using var command = dataSource.CreateCommand(FindScoreSql);
         command.Parameters.AddWithValue("id", id);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -126,6 +106,7 @@ internal sealed class SavedScoreRepository(NpgsqlDataSource dataSource)
         ValidateScore(score);
 
         Guid id = Guid.NewGuid();
+        NpgsqlDataSource dataSource = await database.GetDataSourceAsync(cancellationToken).ConfigureAwait(false);
         await using var command = dataSource.CreateCommand(CreateScoreSql);
         AddScoreParameters(command, id, score);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -144,6 +125,7 @@ internal sealed class SavedScoreRepository(NpgsqlDataSource dataSource)
     {
         ValidateScore(score);
 
+        NpgsqlDataSource dataSource = await database.GetDataSourceAsync(cancellationToken).ConfigureAwait(false);
         await using var command = dataSource.CreateCommand(UpdateScoreSql);
         AddScoreParameters(command, id, score);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -161,6 +143,7 @@ internal sealed class SavedScoreRepository(NpgsqlDataSource dataSource)
 
     internal async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken)
     {
+        NpgsqlDataSource dataSource = await database.GetDataSourceAsync(cancellationToken).ConfigureAwait(false);
         await using var command = dataSource.CreateCommand(DeleteScoreSql);
         command.Parameters.AddWithValue("id", id);
         int deletedRows = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);

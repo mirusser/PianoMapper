@@ -1,6 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using PianoMapper.Music;
 
 namespace PianoMapper.Practice;
@@ -20,35 +18,6 @@ public sealed class SightReadingHistory
     public const int MinimumMasteryAttempts = 5;
 
     private const int MaxEntries = 100;
-
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
-        TypeInfoResolver = new DefaultJsonTypeInfoResolver { Modifiers = { StoreOnlyThePitchSpelling } },
-    };
-
-    /// <summary>
-    /// A stored pitch needs only the three values that define it; the other members of <see cref="Pitch"/> are derived
-    /// (MIDI number, frequency, staff position) and would make up two thirds of every stored pitch. Entries written
-    /// before this still read fine: the extra members are ignored. Only history storage is affected, never the score
-    /// wire format.
-    /// </summary>
-    private static void StoreOnlyThePitchSpelling(JsonTypeInfo typeInfo)
-    {
-        if (typeInfo.Type != typeof(Pitch))
-        {
-            return;
-        }
-
-        for (int index = typeInfo.Properties.Count - 1; index >= 0; index--)
-        {
-            if (typeInfo.Properties[index].Name is not ("letter" or "alter" or "octave"))
-            {
-                typeInfo.Properties.RemoveAt(index);
-            }
-        }
-    }
 
     private readonly List<SightReadingSessionSummary> entries;
 
@@ -90,7 +59,7 @@ public sealed class SightReadingHistory
         var validEntries = new List<SightReadingSessionSummary>();
         foreach (JsonElement element in root.EnumerateArray())
         {
-            if (TryParseEntry(element) is { } summary)
+            if (SightReadingSessionSerializer.TryParse(element) is { } summary)
             {
                 validEntries.Add(summary);
             }
@@ -99,7 +68,7 @@ public sealed class SightReadingHistory
         return new SightReadingHistory(validEntries);
     }
 
-    public string ToJson() => JsonSerializer.Serialize(entries, JsonOptions);
+    public string ToJson() => SightReadingSessionSerializer.SerializeAll(entries);
 
     public SightReadingHistory WithCompletedSession(SightReadingSessionSummary summary)
     {
@@ -107,10 +76,21 @@ public sealed class SightReadingHistory
         return new SightReadingHistory(entries.Prepend(summary));
     }
 
+    /// <summary>
+    /// This history plus the sessions it does not have yet, never the same <see cref="SightReadingSessionSummary.SessionId"/>
+    /// twice (the copy already here wins), then the newest entries up to the cap.
+    /// </summary>
+    public SightReadingHistory MergedWith(IEnumerable<SightReadingSessionSummary> sessions)
+    {
+        ArgumentNullException.ThrowIfNull(sessions);
+        HashSet<Guid> knownIds = entries.Select(entry => entry.SessionId).ToHashSet();
+        return new SightReadingHistory(entries.Concat(sessions.Where(session => knownIds.Add(session.SessionId))));
+    }
+
     public IReadOnlyList<PitchMastery> ComputeMastery()
     {
         var totals = new Dictionary<Pitch, (int Correct, int Attempts)>();
-        foreach (SightReadingSessionSummary entry in entries.Where(ContributesToPitchMastery))
+        foreach (SightReadingSessionSummary entry in entries.Where(entry => entry.HasReliablePitchCounts()))
         {
             foreach (PitchAttemptSummary pitchAttempt in entry.PitchAttempts)
             {
@@ -165,7 +145,7 @@ public sealed class SightReadingHistory
     private Dictionary<(Pitch Pitch, Staff? Staff), NoteBucket> BuildNoteBuckets()
     {
         var buckets = new Dictionary<(Pitch Pitch, Staff? Staff), NoteBucket>();
-        foreach (SightReadingSessionSummary entry in entries.Where(ContributesToPitchMastery))
+        foreach (SightReadingSessionSummary entry in entries.Where(entry => entry.HasReliablePitchCounts()))
         {
             if (entry.NoteAttempts is { } noteAttempts)
             {
@@ -316,32 +296,4 @@ public sealed class SightReadingHistory
             .OrderBy(mastery => mastery.AccuracyPercent)
             .ThenBy(mastery => mastery.Pitch.MidiNumber)
             .ToArray();
-
-    /// <summary>
-    /// A legacy entry recorded in a timed mode fused wrong-key and early/late/short/long outcomes into one first-try
-    /// flag, so its per-pitch counts cannot be trusted as pitch accuracy. Pitch-only legacy entries and every
-    /// current-schema entry are fine.
-    /// </summary>
-    private static bool ContributesToPitchMastery(SightReadingSessionSummary entry) =>
-        entry.SchemaVersion > SightReadingSessionSummary.LegacySchemaVersion ||
-        entry.Mode == NoteReadingMode.PitchAndOrder;
-
-    private static SightReadingSessionSummary? TryParseEntry(JsonElement element)
-    {
-        try
-        {
-            SightReadingSessionSummary? summary = element.Deserialize<SightReadingSessionSummary>(JsonOptions);
-            return summary is
-            {
-                SchemaVersion: >= SightReadingSessionSummary.LegacySchemaVersion
-                    and <= SightReadingSessionSummary.CurrentSchemaVersion,
-            }
-                ? summary
-                : null;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
 }

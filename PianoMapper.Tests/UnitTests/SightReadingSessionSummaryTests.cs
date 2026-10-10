@@ -16,6 +16,7 @@ public sealed class SightReadingSessionSummaryTests
         ];
 
         SightReadingSessionSummary summary = SightReadingSessionSummary.Create(
+            Guid.NewGuid(),
             completedAt,
             "FiveNote",
             Staff.Treble,
@@ -77,6 +78,7 @@ public sealed class SightReadingSessionSummaryTests
         ];
 
         SightReadingSessionSummary summary = SightReadingSessionSummary.Create(
+            Guid.NewGuid(),
             DateTimeOffset.UtcNow,
             "FiveNote",
             Staff.Treble,
@@ -105,6 +107,7 @@ public sealed class SightReadingSessionSummaryTests
     public void Create_PitchOnlyResults_HaveZeroTimingCounts()
     {
         SightReadingSessionSummary summary = SightReadingSessionSummary.Create(
+            Guid.NewGuid(),
             DateTimeOffset.UtcNow,
             "FiveNote",
             Staff.Treble,
@@ -295,7 +298,11 @@ public sealed class SightReadingSessionSummaryTests
         SightReadingHistory history = SightReadingHistory.Empty;
         for (int index = 0; index < 100; index++)
         {
-            history = history.WithCompletedSession(summary with { CompletedAt = summary.CompletedAt.AddMinutes(index) });
+            history = history.WithCompletedSession(summary with
+            {
+                SessionId = Guid.NewGuid(),
+                CompletedAt = summary.CompletedAt.AddMinutes(index),
+            });
         }
 
         int bytes = System.Text.Encoding.UTF8.GetByteCount(history.ToJson());
@@ -322,6 +329,7 @@ public sealed class SightReadingSessionSummaryTests
         }
 
         SightReadingSessionSummary summary = SightReadingSessionSummary.Create(
+            Guid.NewGuid(),
             DateTimeOffset.UtcNow,
             nameof(SightReadingPresetId.Accidentals),
             Staff.Treble,
@@ -345,6 +353,7 @@ public sealed class SightReadingSessionSummaryTests
     public void Create_NullOrWhitespacePresetId_Throws()
     {
         Assert.Throws<ArgumentException>(() => SightReadingSessionSummary.Create(
+            Guid.NewGuid(),
             DateTimeOffset.UtcNow,
             " ",
             Staff.Treble,
@@ -353,8 +362,40 @@ public sealed class SightReadingSessionSummaryTests
             []));
     }
 
+    [Fact]
+    public void Create_SessionId_IsKeptAsSuppliedByTheCaller()
+    {
+        var sessionId = Guid.Parse("5b0c1d2e-3f40-4a51-8b62-7c8d9e0f1a2b");
+
+        SightReadingSessionSummary summary = SightReadingSessionSummary.Create(
+            sessionId,
+            DateTimeOffset.UtcNow,
+            "FiveNote",
+            Staff.Treble,
+            NoteReadingMode.PitchAndOrder,
+            TimeSpan.Zero,
+            []);
+
+        Assert.Equal(sessionId, summary.SessionId);
+        Assert.Equal(3, summary.SchemaVersion);
+    }
+
+    [Fact]
+    public void Create_EmptySessionId_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => SightReadingSessionSummary.Create(
+            Guid.Empty,
+            DateTimeOffset.UtcNow,
+            "FiveNote",
+            Staff.Treble,
+            NoteReadingMode.PitchAndOrder,
+            TimeSpan.Zero,
+            []));
+    }
+
     private static SightReadingSessionSummary Create(IReadOnlyList<NoteReadingPromptResult> results) =>
         SightReadingSessionSummary.Create(
+            Guid.NewGuid(),
             new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero),
             "FiveNote",
             Staff.Treble,

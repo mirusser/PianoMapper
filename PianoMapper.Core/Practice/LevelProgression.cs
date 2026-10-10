@@ -55,40 +55,32 @@ public static class LevelProgression
             window,
             isPassed,
             window.Length == 0 ? null : window.Average(PitchPercent),
-            window.Length == 0 || !level.IsTimed ? null : window.Average(entry => TimingCleanPercent(entry, level)),
+            window.Length == 0 || !level.IsTimed ? null : window.Average(TimingCleanPercent),
             level.IsTimed ? RecommendTempo(matching, level, rules) : null);
     }
 
     /// <summary>
-    /// A session counts toward a level when it was recorded with the details needed to tell levels apart (schema
-    /// version 2: layout and rhythm known, pitch outcome separated) and its range, staff or grand staff, mode and
-    /// rhythm all equal the level's. Older entries cannot be matched safely (a grand-staff session stored an arbitrary
-    /// staff), so they are ignored rather than guessed at.
+    /// A session counts toward a level when it was recorded with the details needed to tell levels apart (see
+    /// <see cref="SightReadingSessionSummaryExtensions.CanBeMatchedToLevel"/>) and its range, staff or grand staff, mode
+    /// and rhythm all equal the level's. A rhythm-only level ignores the staff: it plays every note on the staff's centre
+    /// line and grades no pitch, so a bass run is the same exercise as a treble one.
     /// </summary>
     private static bool Matches(SightReadingSessionSummary entry, ExerciseLevel level) =>
-        entry is { PromptCount: > 0, IsGrandStaff: { } isGrandStaff, RhythmPreset: { } rhythmPreset, PitchFirstTryCorrectCount: not null } &&
-        entry.SchemaVersion >= SightReadingSessionSummary.CurrentSchemaVersion &&
+        entry.CanBeMatchedToLevel() &&
         entry.PresetId == level.PresetId.ToString() &&
-        isGrandStaff == level.IsGrandStaff &&
-        (isGrandStaff || entry.Staff == level.Staff) &&
+        entry.IsGrandStaff == level.IsGrandStaff &&
+        (level.IsGrandStaff || level.Mode == NoteReadingMode.RhythmOnly || entry.Staff == level.Staff) &&
         entry.Mode == level.Mode &&
-        rhythmPreset == level.RhythmPreset.ToString();
+        entry.RhythmPreset == level.RhythmPreset.ToString();
 
     private static bool Passes(SightReadingSessionSummary entry, ExerciseLevel level, LevelProgressionRules rules) =>
         PitchPercent(entry) >= rules.MinimumPitchFirstTryPercent - PercentTolerance &&
-        (!level.IsTimed || TimingCleanPercent(entry, level) >= rules.MinimumTimingCleanPercent - PercentTolerance);
+        (!level.IsTimed || TimingCleanPercent(entry) >= rules.MinimumTimingCleanPercent - PercentTolerance);
 
-    private static double PitchPercent(SightReadingSessionSummary entry) =>
-        100.0 * (entry.PitchFirstTryCorrectCount ?? 0) / entry.PromptCount;
+    private static double PitchPercent(SightReadingSessionSummary entry) => entry.PitchFirstTryPercent() ?? 0;
 
-    /// <summary>
-    /// Share of prompts whose timing was fine. Rhythm only has no pitch to get wrong, so there every prompt that was
-    /// not clean counts, including notes never played (which are not "timing mistakes" in the stored counts).
-    /// </summary>
-    private static double TimingCleanPercent(SightReadingSessionSummary entry, ExerciseLevel level) =>
-        level.Mode == NoteReadingMode.RhythmOnly
-            ? 100.0 * entry.FirstTryCorrectCount / entry.PromptCount
-            : 100.0 * (entry.PromptCount - (entry.TimingMistakeCount ?? entry.PromptCount)) / entry.PromptCount;
+    /// <summary>A timed session that never recorded its timing mistakes cannot show it was on time, so it counts as none.</summary>
+    private static double TimingCleanPercent(SightReadingSessionSummary entry) => entry.TimingCleanPercent() ?? 0;
 
     private static double CleanPercent(SightReadingSessionSummary entry) =>
         100.0 * entry.FirstTryCorrectCount / entry.PromptCount;

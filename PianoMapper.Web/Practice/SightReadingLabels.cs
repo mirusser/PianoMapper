@@ -236,9 +236,7 @@ internal static class SightReadingLabels
     };
 
     /// <summary>Whether the mode judges onset or release timing, not just pitch.</summary>
-    internal static bool IsTimingGraded(NoteReadingMode mode) =>
-        Enum.IsDefined(mode) &&
-        (mode.GetGradedAxes() & (GradedAxes.Onset | GradedAxes.Duration)) != GradedAxes.None;
+    internal static bool IsTimingGraded(NoteReadingMode mode) => mode.IsTimingGraded();
 
     /// <summary>A timing offset with its sign, e.g. "+120 ms" (late) or "−85 ms" (early), rounded to whole milliseconds.</summary>
     internal static string SignedMilliseconds(TimeSpan deviation)
@@ -313,7 +311,7 @@ internal static class SightReadingLabels
             parts.Add(Tempo(pulses, rhythmPreset ?? SightReadingRhythmPreset.Fixed));
         }
 
-        if (summary.SchemaVersion == SightReadingSessionSummary.LegacySchemaVersion)
+        if (summary.IsLegacy())
         {
             parts.Add("older session");
         }
@@ -328,16 +326,42 @@ internal static class SightReadingLabels
     internal static string? DescribeTimingBreakdown(SightReadingSessionSummary summary)
     {
         ArgumentNullException.ThrowIfNull(summary);
-        return IsTimingGraded(summary.Mode) &&
-            summary is { PitchFirstTryCorrectCount: { } pitchFirstTryCorrectCount, TimingMistakeCount: { } timingMistakeCount }
-                ? DescribeTimingBreakdown(pitchFirstTryCorrectCount, summary.PromptCount, timingMistakeCount)
-                : null;
+        return summary.GetTimingBreakdown() is { } breakdown
+            ? DescribeTimingBreakdown(breakdown.PitchFirstTryCorrectCount, summary.PromptCount, breakdown.TimingMistakeCount)
+            : null;
     }
 
     internal static string DescribeTimingBreakdown(int pitchFirstTryCorrectCount, int promptCount, int timingMistakeCount) =>
         string.Create(
             CultureInfo.InvariantCulture,
             $"pitch {pitchFirstTryCorrectCount} of {promptCount} first-try{Separator}{timingMistakeCount} timing mistake(s)");
+
+    /// <summary>
+    /// The line the Progress panel shows about where the history is kept, or <see langword="null"/> when there is
+    /// nothing to add: still asking the server, or a standalone app whose browser storage works, which behaves as it
+    /// always did.
+    /// </summary>
+    internal static string? DescribeProgressStatus(ProgressStatus status)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        return (status.Sync, status.IsCacheAvailable) switch
+        {
+            (ProgressSyncState.Connecting, _) => null,
+            (ProgressSyncState.NoServer, true) => null,
+            (ProgressSyncState.NoServer, false) =>
+                "This browser can't store progress, so it will be lost when you leave this page.",
+            (ProgressSyncState.Synced, true) => "Saved on the server as well as in this browser.",
+            (ProgressSyncState.Synced, false) =>
+                "This browser can't store progress, so it is kept on the server only.",
+            (ProgressSyncState.NotSynced, true) =>
+                "Not synced: the server can't be reached. Progress is kept in this browser and uploads when the server is back.",
+            (ProgressSyncState.NotSynced, false) =>
+                "Not saved: this browser can't store progress and the server can't be reached, so it will be lost when you leave this page.",
+            (ProgressSyncState.DeleteFailed, _) =>
+                "The saved copy on the server could not be deleted, so cleared history may come back. Clear it again when the server is reachable.",
+            _ => throw new ArgumentOutOfRangeException(nameof(status)),
+        };
+    }
 
     private static string WithHint(string label, string? hint) =>
         hint is null ? label : $"{label} ({hint})";

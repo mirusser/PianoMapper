@@ -20,6 +20,10 @@ public sealed record ExerciseLevel(
     int? StartTempoPulsesPerMinute,
     int? MaximumTempoPulsesPerMinute)
 {
+    /// <summary>
+    /// Whether the level carries a tempo, which the code that reads <see cref="StartTempoPulsesPerMinute"/> relies on. The
+    /// catalog tests pin it to the same answer as <see cref="NoteReadingModeExtensions.IsTimingGraded"/> for the mode.
+    /// </summary>
     public bool IsTimed => StartTempoPulsesPerMinute is not null;
 
     /// <summary>The exercise options for this level, at <paramref name="tempoPulsesPerMinute"/> (or the level default).</summary>

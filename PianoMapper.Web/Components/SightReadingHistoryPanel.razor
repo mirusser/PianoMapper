@@ -2,10 +2,14 @@
     <div class="control-card-heading">
         <h2 id="sight-reading-history-heading">Progress</h2>
         <div class="controls">
-            <span>Local history and pitch mastery</span>
+            <span>History and pitch mastery</span>
             <button class="button-quiet" type="button" @onclick="Hide">Hide</button>
         </div>
     </div>
+    @if (StatusMessage is not null)
+    {
+        <p class="control-note" role="status">@StatusMessage</p>
+    }
     <section aria-labelledby="recent-sessions-heading">
         <h3 id="recent-sessions-heading">Recent sessions</h3>
         @if (RecentSessions.Count == 0)
@@ -118,7 +122,7 @@
         }
     </section>
     <button class="button-quiet" type="button" @onclick="ClearHistoryAsync" disabled="@(RecentSessions.Count == 0)">
-        Clear local history
+        Clear history
     </button>
 </section>
 
@@ -138,6 +142,10 @@
     [Parameter]
     public SightReadingInsightReport Insights { get; set; } = SightReadingInsights.Build(SightReadingHistory.Empty);
 
+    /// <summary>Where the history is kept, when that is worth saying (not synced, saved on the server, ...).</summary>
+    [Parameter]
+    public string? StatusMessage { get; set; }
+
     [Parameter]
     public EventCallback ClearHistory { get; set; }
 
@@ -151,7 +159,7 @@
     {
         bool confirmed = await JS.InvokeAsync<bool>(
             "confirm",
-            "Clear your local note-reading history? This can't be undone and doesn't affect saved scores.");
+            "Clear your note-reading history, including the copy saved on the server? This can't be undone and doesn't affect saved scores.");
         if (confirmed)
         {
             await ClearHistory.InvokeAsync();

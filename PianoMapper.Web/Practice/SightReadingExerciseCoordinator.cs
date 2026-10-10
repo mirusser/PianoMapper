@@ -712,16 +712,20 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
             autoNextStartTimestamp = timeProvider.GetTimestamp();
         }
 
+        // Rhythm only ignores the range and the grand staff (Generate composes it on the five-note range), so the run
+        // is recorded as what was played: the range and layout of the ladder's rhythm levels, not the leftover setup.
+        bool ranRhythmOnly = RunMode == NoteReadingMode.RhythmOnly;
         return SightReadingSessionSummary.Create(
+            Guid.NewGuid(),
             timeProvider.GetUtcNow(),
-            PresetId.ToString(),
+            (ranRhythmOnly ? SightReadingPresetId.FiveNote : PresetId).ToString(),
             Staff,
             RunMode,
             ElapsedTime,
             PromptResults) with
         {
             RhythmPreset = EffectiveRhythmPreset.ToString(),
-            IsGrandStaff = IsGrandStaff && !IsPitchSetupIgnored,
+            IsGrandStaff = IsGrandStaff && !ranRhythmOnly,
             TempoBeatsPerMinute = SightReadingLabels.IsTimingGraded(RunMode) ? TempoPulsesPerMinute : null,
             Pacing = RunPacing == ExercisePacing.PlayAlong ? PlayAlongPacingName : null,
             Motion = EffectiveMotion.ToString(),

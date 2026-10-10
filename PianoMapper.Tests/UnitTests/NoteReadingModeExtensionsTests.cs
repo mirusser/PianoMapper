@@ -32,6 +32,24 @@ public sealed class NoteReadingModeExtensionsTests
         Assert.Throws<ArgumentOutOfRangeException>(() => ((NoteReadingMode)999).GetGradedAxes());
     }
 
+    [Theory]
+    [InlineData(NoteReadingMode.Off, false)]
+    [InlineData(NoteReadingMode.PitchAndOrder, false)]
+    [InlineData(NoteReadingMode.PitchAndHold, true)]
+    [InlineData(NoteReadingMode.PitchHoldAndRhythm, true)]
+    [InlineData(NoteReadingMode.PitchAndRhythm, true)]
+    [InlineData(NoteReadingMode.RhythmOnly, true)]
+    public void IsTimingGraded_EachMode_IsWhetherOnsetOrDurationIsJudged(NoteReadingMode mode, bool expected)
+    {
+        Assert.Equal(expected, mode.IsTimingGraded());
+    }
+
+    [Fact]
+    public void IsTimingGraded_UndefinedMode_IsFalseInsteadOfThrowing()
+    {
+        Assert.False(((NoteReadingMode)999).IsTimingGraded());
+    }
+
     [Fact]
     public void NoteReadingMode_PersistedNamesAndOrdinalsOfExistingMembersAreStable()
     {

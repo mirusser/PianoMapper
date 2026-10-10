@@ -9,10 +9,13 @@ namespace PianoMapper.Practice;
 /// entry written by a future version with an unrecognized preset can still be parsed and skipped gracefully.
 /// Schema version 2 adds the optional members below. They are additive and nullable: a version 1 entry parses with
 /// every one of them <see langword="null"/> (meaning "recorded before this was tracked"), and later additions
-/// follow the same rule without another version bump.
+/// follow the same rule without another version bump. Schema version 3 adds <see cref="SessionId"/>, the identity
+/// that keeps one session from being stored twice by the browser cache and the server; entries written before it get
+/// a deterministic id from <see cref="SightReadingSessionSerializer"/> when they are read.
 /// </summary>
 public sealed record SightReadingSessionSummary(
     int SchemaVersion,
+    Guid SessionId,
     DateTimeOffset CompletedAt,
     string PresetId,
     Staff Staff,
@@ -26,7 +29,13 @@ public sealed record SightReadingSessionSummary(
     /// <summary>The first schema, whose per-pitch counts fused pitch mistakes with timing mistakes.</summary>
     public const int LegacySchemaVersion = 1;
 
-    public const int CurrentSchemaVersion = 2;
+    /// <summary>
+    /// The first schema whose entries record the layout, the rhythm and a pitch outcome kept apart from timing, the
+    /// details the guided ladder needs to match a session to a level.
+    /// </summary>
+    public const int DetailedSchemaVersion = 2;
+
+    public const int CurrentSchemaVersion = 3;
 
     /// <summary>The <see cref="SightReadingRhythmPreset"/> member name; null before schema version 2.</summary>
     public string? RhythmPreset { get; init; }
@@ -67,6 +76,7 @@ public sealed record SightReadingSessionSummary(
     public IReadOnlyList<ConfusionSummary>? Confusions { get; init; }
 
     public static SightReadingSessionSummary Create(
+        Guid sessionId,
         DateTimeOffset completedAt,
         string presetId,
         Staff staff,
@@ -74,6 +84,7 @@ public sealed record SightReadingSessionSummary(
         TimeSpan elapsedTime,
         IReadOnlyList<NoteReadingPromptResult> promptResults)
     {
+        ArgumentOutOfRangeException.ThrowIfEqual(sessionId, Guid.Empty);
         ArgumentException.ThrowIfNullOrWhiteSpace(presetId);
         ArgumentNullException.ThrowIfNull(promptResults);
 
@@ -91,6 +102,7 @@ public sealed record SightReadingSessionSummary(
 
         return new SightReadingSessionSummary(
             CurrentSchemaVersion,
+            sessionId,
             completedAt,
             presetId,
             staff,
