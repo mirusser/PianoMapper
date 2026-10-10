@@ -899,9 +899,14 @@ public sealed partial class GrandStaffSceneBuilderTests
             note => Assert.InRange(note.LabelY!.Value, annotationLane.Y0, annotationLane.Y1));
         if (noteCount == 3)
         {
+            // The fingering shares no lane with the note names: it sits above the bass staff, not in the strip below it.
             double fingeringY = Assert.Single(renderedNotes, note => note.Fingering is not null).FingeringY!.Value;
-            Assert.True(fingeringY < renderedNotes.Min(note => note.LabelY));
-            Assert.InRange(fingeringY, annotationLane.Y0, annotationLane.Y1);
+            double bassTopLineY = scene.Lines
+                .Where(line => line.Kind == GrandStaffLineKind.Staff)
+                .Skip(5)
+                .Max(line => line.Y0);
+            Assert.True(fingeringY > bassTopLineY);
+            Assert.True(fingeringY > annotationLane.Y1);
         }
     }
 
@@ -974,7 +979,7 @@ public sealed partial class GrandStaffSceneBuilderTests
     [Theory]
     [InlineData(Staff.Treble)]
     [InlineData(Staff.Bass)]
-    public void BuildScore_Fingering_PositionedBelowNotationStaff(Staff staff)
+    public void BuildScore_Fingering_PositionedAboveNotationStaff(Staff staff)
     {
         var sourceNote = new ScoreNote(
             new Pitch(NoteLetter.C, 0, staff == Staff.Treble ? 4 : 3),
@@ -988,18 +993,18 @@ public sealed partial class GrandStaffSceneBuilderTests
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
         var renderedNote = Assert.Single(scene.Notes);
         var staffLines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Staff).ToArray();
-        double staffBottomLineY = staff == Staff.Treble
-            ? staffLines.Take(5).Min(line => line.Y0)
-            : staffLines.Skip(5).Min(line => line.Y0);
+        double staffTopLineY = staff == Staff.Treble
+            ? staffLines.Take(5).Max(line => line.Y0)
+            : staffLines.Skip(5).Max(line => line.Y0);
 
         Assert.NotNull(renderedNote.FingeringY);
-        Assert.True(renderedNote.FingeringY < staffBottomLineY);
+        Assert.True(renderedNote.FingeringY > staffTopLineY);
     }
 
     [Theory]
     [InlineData(Staff.Treble)]
     [InlineData(Staff.Bass)]
-    public void BuildScore_Fingering_ClearsGapBelowItsNoteLabel(Staff staff)
+    public void BuildScore_Fingering_SitsOnTheOppositeSideOfTheStaffFromItsNoteName(Staff staff)
     {
         var sourceNote = new ScoreNote(
             new Pitch(NoteLetter.C, 0, staff == Staff.Treble ? 4 : 3),
@@ -1014,25 +1019,25 @@ public sealed partial class GrandStaffSceneBuilderTests
         var renderedNote = Assert.Single(scene.Notes);
         var staffLines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Staff).ToArray();
         double staffSpace = staffLines[1].Y0 - staffLines[0].Y0;
+        double staffTopLineY = staff == Staff.Treble
+            ? staffLines.Take(5).Max(line => line.Y0)
+            : staffLines.Skip(5).Max(line => line.Y0);
 
         Assert.NotNull(renderedNote.LabelY);
         Assert.NotNull(renderedNote.FingeringY);
-        Assert.True(renderedNote.LabelY > renderedNote.FingeringY);
-        Assert.True(renderedNote.LabelY - renderedNote.FingeringY >= staffSpace);
+        Assert.True(renderedNote.FingeringY > staffTopLineY);
+        Assert.True(renderedNote.FingeringY - renderedNote.LabelY >= 4 * staffSpace);
     }
 
     [Theory]
     [InlineData(NoteLetter.C, 4)] // five-note preset's lowest possible note: one ledger line below the staff
     [InlineData(NoteLetter.A, 3)] // ledger-lines preset's lowest possible note: two ledger lines below the staff
-    public void BuildScore_LowTrebleNoteWithBothLabelAndFingering_FingeringClearsTheBassStaff(
+    public void BuildScore_LowTrebleNoteWithBothLabelAndFingering_FingeringStaysAboveTheTrebleStaff(
         NoteLetter letter,
         int octave)
     {
-        // Regression test for a reported bug: with both the note-name and fingering rows shown at once for a
-        // low treble note (needing ledger lines below the staff), the fingering row could run far enough down
-        // to visually overlap the bass staff below it — most visible at the smallest clamped canvas height.
-        // Asserts the fix's invariant (a real, positive clearance above the bass staff's top line) rather than
-        // recomputing the exact clamped value the production code itself computes.
+        // A low treble note drags its note name down toward the bass staff, but its fingering no longer follows it
+        // there: the fingering lane is above the treble staff, so the bass staff and the name strip stay clear of it.
         var sourceNote = new ScoreNote(
             new Pitch(letter, 0, octave),
             new NoteValue(4),
@@ -1045,94 +1050,56 @@ public sealed partial class GrandStaffSceneBuilderTests
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
         var renderedNote = Assert.Single(scene.Notes);
         var staffLines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Staff).ToArray();
-        double bassTopLineY = staffLines.Skip(5).Max(line => line.Y0);
+        double trebleTopLineY = staffLines.Take(5).Max(line => line.Y0);
         double staffSpace = staffLines[1].Y0 - staffLines[0].Y0;
 
         Assert.NotNull(renderedNote.FingeringY);
         Assert.True(
-            renderedNote.FingeringY!.Value > bassTopLineY,
-            $"Fingering Y ({renderedNote.FingeringY}) must stay above the bass staff's top line ({bassTopLineY}).");
-        Assert.True(
-            renderedNote.FingeringY!.Value - bassTopLineY >= staffSpace / 2,
-            "Fingering must clear the bass staff by a real margin, not just barely avoid touching it.");
+            renderedNote.FingeringY!.Value - trebleTopLineY >= staffSpace / 2,
+            "Fingering must clear the treble staff's top line by a real margin, not just barely avoid touching it.");
+        Assert.True(renderedNote.LabelY < renderedNote.Y);
     }
 
     [Fact]
-    public void BuildScore_LowTrebleNoteWithFingering_FloorClampStillEngagesAtTheWidenedRowSeparation()
+    public void BuildScore_FourNoteTrebleChordWithLabelsAndFingering_ShrinksLabelFontAndKeepsTheFingering()
     {
-        // Proves the bass-staff-overlap clamp is doing real work, not just coincidentally already-fine: after
-        // widening FingeringRowSeparation (8 -> 10 diatonic steps) for user-requested breathing room in the
-        // common single-note case, the *natural*, unclamped fingering position for this low note would fall
-        // below the bass staff's own top line — i.e. GetAnnotationRows's Math.Max(naturalFingeringY, floorY)
-        // clamp is the only thing keeping it in place, not a coincidence of the new, larger constant.
-        var sourceNote = new ScoreNote(
-            new Pitch(NoteLetter.C, 0, 4),
-            new NoteValue(4),
-            0,
-            0,
-            Staff.Treble,
-            Fingering: new ScoreFingering(3));
-        var score = SingleNoteScore(sourceNote);
-
-        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
-        var renderedNote = Assert.Single(scene.Notes);
-        var staffLines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Staff).ToArray();
-        double bassTopLineY = staffLines.Skip(5).Max(line => line.Y0);
-        double trebleBottomLineY = staffLines.Take(5).Min(line => line.Y0);
-        // Independently reconstructs GrandStaffSceneBuilder's own floorY (bass staff's top line plus a
-        // LabelRowSeparation margin) rather than importing it, so this test would catch a regression in either
-        // the margin GrandStaffSceneBuilder passes in or FingeringRowSeparation itself.
-        double floorY = bassTopLineY + GrandStaffLayout.LabelRowSeparation;
-
-        double naturalFingeringY = renderedNote.LabelY!.Value - GrandStaffLayout.FingeringRowSeparation;
-        Assert.True(
-            naturalFingeringY < floorY,
-            $"Expected the unclamped position ({naturalFingeringY}) to fall below the bass-staff floor " +
-            $"({floorY}) at the new, wider separation — otherwise this test can't prove the clamp is actually " +
-            "the thing keeping the rendered fingering row in place.");
-        Assert.NotNull(renderedNote.FingeringY);
-        Assert.True(renderedNote.FingeringY!.Value > naturalFingeringY);
-        Assert.True(renderedNote.FingeringY!.Value >= floorY);
-        Assert.True(renderedNote.FingeringY!.Value < trebleBottomLineY);
-    }
-
-    [Fact]
-    public void BuildScore_ThreeNoteTrebleChordWithLabelsAndFingering_ShrinksLabelFontAndDropsFingering()
-    {
-        // Regression test for a reported bug, worst-case variant: a 3-note chord (e.g. the "Chords" exercise
-        // preset's triads) stacks three label rows, and together with a fingering row that adds up to more
-        // depth than a single label row ever needed — confirmed (via manual reproduction against the unfixed
-        // code) to spill directly onto the bass staff's lines, and confirmed separately that merely
-        // clamping/compressing all three rows' *positions* to fit still left the label *text* illegibly
-        // overlapping (16px-tall text squeezed into much less than 16px of row separation). The actual fix:
-        // fingering is dropped for this staff (see GetAnnotationRows's doc comment for the exact ratio-based
-        // cutoff and the milder two-note case it deliberately leaves alone), and the label font shrinks in
-        // lockstep with the compressed row spacing (see GrandStaffSceneBuilder's LabelFontScale comment) so
-        // the row-gap-to-text-height ratio — and so legibility — stays the same as an uncompressed row, just
-        // smaller. An earlier attempt combined all three names into one row on the highest note instead; that
-        // was abandoned after visual testing showed it just traded vertical crowding for horizontal crowding
-        // between adjacent chords (the "Chords" preset puts one triad on every beat).
+        // Regression test for a reported bug, worst-case variant: a chord stacks one label row per note, which spilled
+        // directly onto the bass staff's lines when a fingering row had to share the strip, and merely
+        // clamping/compressing all the rows' *positions* to fit still left the label *text* illegibly overlapping
+        // (16px-tall text squeezed into much less than 16px of row separation). The label font shrinks in lockstep
+        // with the compressed row spacing (see GrandStaffSceneBuilder's LabelFontScale comment) so the
+        // row-gap-to-text-height ratio — and so legibility — stays the same as an uncompressed row, just smaller.
+        // A triad (the "Chords" exercise preset) only compresses mildly now that the staves are one diatonic step
+        // further apart, so this uses four notes. Fingering no longer shares that strip (it sits above the treble
+        // staff), so it is not dropped any more: the numbers share one label above the staff instead. An earlier attempt
+        // combined all the names into one row on the highest note instead; that was abandoned after visual testing
+        // showed it just traded vertical crowding for horizontal crowding between adjacent chords (the "Chords"
+        // preset puts one chord on every beat).
         ScoreNote[] notes =
         [
             new(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble, Fingering: new ScoreFingering(5)),
             new(new Pitch(NoteLetter.E, 0, 4), new NoteValue(4), 0, 0, Staff.Treble, Fingering: new ScoreFingering(3)),
-            new(new Pitch(NoteLetter.G, 0, 4), new NoteValue(4), 0, 0, Staff.Treble, Fingering: new ScoreFingering(1)),
+            new(new Pitch(NoteLetter.G, 0, 4), new NoteValue(4), 0, 0, Staff.Treble, Fingering: new ScoreFingering(2)),
+            new(new Pitch(NoteLetter.B, 0, 4), new NoteValue(4), 0, 0, Staff.Treble, Fingering: new ScoreFingering(1)),
         ];
         var score = ScoreWithNotes(notes);
 
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
         var staffLines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Staff).ToArray();
         double bassTopLineY = staffLines.Skip(5).Max(line => line.Y0);
+        double trebleTopLineY = staffLines.Take(5).Max(line => line.Y0);
 
-        Assert.All(scene.Notes, note => Assert.Null(note.FingeringY));
-        Assert.All(scene.Notes, note => Assert.Null(note.Fingering));
+        // One combined fingering label for the chord, above the staff, carried by the highest note.
+        var fingered = Assert.Single(scene.Notes, note => note.Fingering is not null);
+        Assert.Equal("R5321", fingered.Fingering);
+        Assert.True(fingered.FingeringY > trebleTopLineY);
 
         // Still one stacked row per note (not combined) — each clears the bass staff.
         Assert.All(scene.Notes, note => Assert.NotNull(note.LabelY));
         Assert.All(scene.Notes, note => Assert.True(note.LabelY!.Value >= bassTopLineY));
-        Assert.Equal(3, scene.Notes.Select(note => note.LabelY).Distinct().Count());
+        Assert.Equal(4, scene.Notes.Select(note => note.LabelY).Distinct().Count());
 
-        // All three share this staff's one compressed row separation, so they all shrink by the same amount —
+        // All share this staff's one compressed row separation, so they all shrink by the same amount —
         // meaningfully smaller than full size, but not scaled down to nothing.
         double fontScale = Assert.Single(scene.Notes.Select(note => note.LabelFontScale).Distinct());
         Assert.InRange(fontScale, 0.3, 0.99);
@@ -1160,7 +1127,8 @@ public sealed partial class GrandStaffSceneBuilderTests
         Assert.NotNull(renderedNote.LabelY);
         Assert.NotNull(renderedNote.FingeringY);
         Assert.InRange(renderedNote.LabelY.Value, annotationLane.Y0, annotationLane.Y1);
-        Assert.InRange(renderedNote.FingeringY.Value, annotationLane.Y0, annotationLane.Y1);
+        // The fingering is not in that lane: it is above the staff, well clear of the ledger-line note below it.
+        Assert.True(renderedNote.FingeringY.Value > renderedNote.Y);
         Assert.True(renderedNote.Y > annotationLane.Y1);
     }
 
@@ -1215,7 +1183,7 @@ public sealed partial class GrandStaffSceneBuilderTests
     }
 
     [Fact]
-    public void BuildScore_NoteBelowTrebleStaff_FingeringUsesInterStaffLane()
+    public void BuildScore_NoteBelowTrebleStaff_FingeringStaysAboveTheTrebleStaff()
     {
         var sourceNote = new ScoreNote(
             new Pitch(NoteLetter.C, 0, 4),
@@ -1231,11 +1199,10 @@ public sealed partial class GrandStaffSceneBuilderTests
         GrandStaffLine[] staffLines = scene.Lines
             .Where(line => line.Kind == GrandStaffLineKind.Staff)
             .ToArray();
-        double trebleBottomLineY = staffLines.Take(5).Min(line => line.Y0);
-        double bassTopLineY = staffLines.Skip(5).Max(line => line.Y0);
+        double trebleTopLineY = staffLines.Take(5).Max(line => line.Y0);
 
         Assert.NotNull(renderedNote.FingeringY);
-        Assert.InRange(renderedNote.FingeringY.Value, bassTopLineY, trebleBottomLineY);
+        Assert.True(renderedNote.FingeringY.Value > trebleTopLineY);
     }
 
     [Theory]
@@ -1262,7 +1229,7 @@ public sealed partial class GrandStaffSceneBuilderTests
         Assert.NotNull(renderedNote.LabelY);
         Assert.NotNull(renderedNote.FingeringY);
         Assert.InRange(renderedNote.LabelY.Value, annotationLane.Y0, annotationLane.Y1);
-        Assert.InRange(renderedNote.FingeringY.Value, annotationLane.Y0, annotationLane.Y1);
+        Assert.True(renderedNote.FingeringY.Value > renderedNote.Y);
         Assert.True(renderedNote.Y > annotationLane.Y1);
     }
 
@@ -1291,7 +1258,7 @@ public sealed partial class GrandStaffSceneBuilderTests
     }
 
     [Fact]
-    public void BuildScore_LowBassNote_AnnotationsStayBelowBassStaff()
+    public void BuildScore_LowBassNote_NoteNameStaysBelowAndFingeringAboveBassStaff()
     {
         var sourceNote = new ScoreNote(
             new Pitch(NoteLetter.F, 0, 1),
@@ -1308,13 +1275,13 @@ public sealed partial class GrandStaffSceneBuilderTests
             .Where(line => line.Kind == GrandStaffLineKind.Staff)
             .ToArray();
         double bassBottomLineY = staffLines.Skip(5).Min(line => line.Y0);
+        double bassTopLineY = staffLines.Skip(5).Max(line => line.Y0);
         var annotationLane = Assert.Single(scene.Bands);
 
         Assert.NotNull(renderedNote.LabelY);
         Assert.NotNull(renderedNote.FingeringY);
         Assert.True(renderedNote.LabelY < bassBottomLineY);
-        Assert.True(renderedNote.FingeringY < bassBottomLineY);
-        Assert.True(renderedNote.FingeringY < renderedNote.LabelY);
+        Assert.True(renderedNote.FingeringY > bassTopLineY);
         Assert.True(renderedNote.Y > annotationLane.Y1);
     }
 
@@ -1422,7 +1389,7 @@ public sealed partial class GrandStaffSceneBuilderTests
     }
 
     [Fact]
-    public void BuildScore_Annotations_UseSeparateLanesBelowEachPopulatedStaff()
+    public void BuildScore_NoteNames_UseSeparateLanesBelowEachPopulatedStaffAndFingeringsAboveIt()
     {
         ScoreNote[] notes =
         [
@@ -1470,11 +1437,22 @@ public sealed partial class GrandStaffSceneBuilderTests
             scene.Bands,
             band => bassNote.LabelY >= band.Y0 && bassNote.LabelY <= band.Y1);
 
+        double trebleTopLineY = staffLines.Take(5).Max(line => line.Y0);
+        double bassTopLineY = staffLines.Skip(5).Max(line => line.Y0);
+
         Assert.True(trebleLane.Y1 < trebleBottomLineY);
         Assert.True(bassLane.Y1 < bassBottomLineY);
         Assert.NotEqual(trebleLabelY, bassNote.LabelY);
-        Assert.InRange(trebleFingeringY, trebleLane.Y0, trebleLane.Y1);
-        Assert.InRange(bassNote.FingeringY!.Value, bassLane.Y0, bassLane.Y1);
+        // Each fingering lane is above its own staff and outside both name lanes.
+        Assert.True(trebleFingeringY > trebleTopLineY);
+        Assert.True(bassNote.FingeringY!.Value > bassTopLineY);
+        Assert.True(bassNote.FingeringY!.Value < trebleLane.Y0);
+        Assert.DoesNotContain(
+            scene.Bands,
+            band => trebleFingeringY >= band.Y0 && trebleFingeringY <= band.Y1);
+        Assert.DoesNotContain(
+            scene.Bands,
+            band => bassNote.FingeringY!.Value >= band.Y0 && bassNote.FingeringY!.Value <= band.Y1);
     }
 
     [Fact]
@@ -1528,7 +1506,7 @@ public sealed partial class GrandStaffSceneBuilderTests
         var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
 
         var annotationLane = Assert.Single(scene.Bands);
-        GrandStaffNote[] leftHandNotes = scene.Notes.Where(note => note.Fingering?.StartsWith('L') == true).ToArray();
+        GrandStaffNote[] leftHandNotes = scene.Notes.Where(note => note.Label is "C4" or "D4" or "E4" or "F4").ToArray();
         GrandStaffLine[] staffLines = scene.Lines
             .Where(line => line.Kind == GrandStaffLineKind.Staff)
             .ToArray();
@@ -1563,9 +1541,16 @@ public sealed partial class GrandStaffSceneBuilderTests
             lowestTrebleNotationY - annotationLane.Y1 >= (renderedStaffSpace / 2) - 0.000001);
 
         Assert.Equal(2, scene.Notes.Select(note => note.LabelY).Distinct().Count());
-        Assert.Single(scene.Notes.Select(note => note.FingeringY).Distinct());
+        // The two notes sounding together (right hand G4, left hand C4) share one fingering label on the higher note;
+        // every fingering is in one row above the treble staff.
+        Assert.Equal("L4R3", Assert.Single(scene.Notes, note => note.Label == "G4").Fingering);
+        Assert.Null(Assert.Single(scene.Notes, note => note.Label == "C4").Fingering);
+        Assert.Single(scene.Notes.Where(note => note.Fingering is not null).Select(note => note.FingeringY).Distinct());
         Assert.All(scene.Notes, note => Assert.InRange(note.LabelY!.Value, annotationLane.Y0, annotationLane.Y1));
-        Assert.All(scene.Notes, note => Assert.InRange(note.FingeringY!.Value, annotationLane.Y0, annotationLane.Y1));
+        double trebleTopLineY = staffLines.Take(5).Max(line => line.Y0);
+        Assert.All(
+            scene.Notes.Where(note => note.Fingering is not null),
+            note => Assert.True(note.FingeringY!.Value > trebleTopLineY));
         Assert.All(
             leftHandNotes.Where(note => note.Label == "C4"),
             note => Assert.Contains(
@@ -1618,7 +1603,7 @@ public sealed partial class GrandStaffSceneBuilderTests
     }
 
     [Fact]
-    public void BuildScore_NoteWithFingering_BandCoversBothLabelAndFingeringRows()
+    public void BuildScore_NoteWithFingering_BandCoversOnlyTheNoteNameRow()
     {
         var sourceNote = new ScoreNote(
             new Pitch(NoteLetter.C, 0, 4),
@@ -1636,9 +1621,23 @@ public sealed partial class GrandStaffSceneBuilderTests
 
         var renderedNote = Assert.Single(
             GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0).Notes);
-        Assert.True(withFingering.Y0 <= renderedNote.FingeringY);
+        Assert.Equal(labelOnly, withFingering);
         Assert.True(withFingering.Y1 >= renderedNote.LabelY);
-        Assert.True(withFingering.Y1 - withFingering.Y0 > labelOnly.Y1 - labelOnly.Y0);
+        Assert.True(renderedNote.FingeringY > withFingering.Y1);
+    }
+
+    [Fact]
+    public void BuildScore_NoteNameBand_EnclosesTheNoteNameText()
+    {
+        // The note name hangs below its row's Y, so the band must reach one text height lower, not stop at the row.
+        var sourceNote = new ScoreNote(new Pitch(NoteLetter.C, 0, 4), new NoteValue(4), 0, 0, Staff.Treble);
+        var score = SingleNoteScore(sourceNote);
+
+        var scene = GrandStaffSceneBuilder.BuildScore(score, firstVisibleMeasure: 0);
+
+        var band = Assert.Single(scene.Bands);
+        double nameBottomY = Assert.Single(scene.Notes).LabelY!.Value - (NoteNameFontPixels * SceneUnitsPerPixel);
+        Assert.True(band.Y0 <= nameBottomY, $"The band ends at {band.Y0}, inside the note name that ends at {nameBottomY}.");
     }
 
     [Fact]
@@ -2994,7 +2993,9 @@ public sealed partial class GrandStaffSceneBuilderTests
 
         var staffLines = scene.Lines.Where(line => line.Kind == GrandStaffLineKind.Staff).ToArray();
         double renderedStaffSpace = staffLines[1].Y0 - staffLines[0].Y0;
-        Assert.Equal(renderedStaffSpace * 8, staffLines[0].Y0 - staffLines[^1].Y0, 6);
+        // Eight staff spaces before the bass fingering lane moved into the gap; one diatonic step (half a staff space)
+        // wider on each side since, so a high bass note and a low treble note's name do not meet.
+        Assert.Equal(renderedStaffSpace * 9, staffLines[0].Y0 - staffLines[^1].Y0, 6);
     }
 
     [Fact]

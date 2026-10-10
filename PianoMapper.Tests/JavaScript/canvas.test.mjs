@@ -90,7 +90,7 @@ class FakeCanvasContext {
             actualBoundingBoxDescent: 20,
             actualBoundingBoxRight: 50,
             // A proportional text model (half the font size per character) so label-fitting is deterministic here.
-            width: (Number.parseFloat(this.font) || 16) * text.length * 0.5,
+            width: (Number.parseFloat(/([\d.]+)px/.exec(this.font)?.[1]) || 16) * text.length * 0.5,
         };
     }
     save() { }
@@ -1430,6 +1430,238 @@ test("grand staff applies the fit on top of a label's own severe-stack scale", (
     assert.deepEqual(labelFontSizes(context).map(label => label.size), [12, 12]);
 });
 
+// A fingering is 600-weight 15 px text centred over its note in a lane above the staff, and a chord's merged label
+// ("R135") is wider than its notes are apart in a dense passage. Neighbours in one lane that would touch are drawn smaller
+// (down to a floor), the way note names are. A label that a barline would cross moves sideways just far enough to clear it.
+function fingeringScene(notes, lines = []) {
+    return {
+        kind: 0,
+        lines: [
+            { x0: -0.8, y0: 0.4, x1: 0.8, y1: 0.4, kind: 0 },
+            { x0: -0.8, y0: 0.3, x1: 0.8, y1: 0.3, kind: 0 },
+            ...lines,
+        ],
+        glyphs: [],
+        notes: notes.map(note => ({ y: 0.35, fingeringY: 0.1, isActive: false, isFilled: true, ...note })),
+        beams: [],
+        shouldClipNotesAtClefs: false,
+    };
+}
+
+// canvas.js maps scene X onto the canvas minus 18 px each side: 302 px per scene unit at 640 px.
+const fingeringPixelX = value => 18 + ((value + 1) / 2) * (640 - 36);
+
+function fingeringDraws(context) {
+    return context.fillTextCalls
+        .filter(call => /^[LR]\d+$/.test(call.args[0]))
+        .map(call => ({
+            text: call.args[0],
+            x: call.args[1],
+            size: Number.parseFloat(/([\d.]+)px/.exec(call.font)[1]),
+            weight: Number.parseFloat(call.font),
+        }));
+}
+
+test("grand staff draws a fingering at full size when its neighbours leave room", () => {
+    const context = renderGrandStaffScene(fingeringScene([
+        { x: -0.2, fingering: "R3" },
+        { x: 0.2, fingering: "R4" },
+    ]));
+
+    assert.deepEqual(fingeringDraws(context).map(draw => [draw.text, draw.size, draw.weight]), [["R3", 15, 600], ["R4", 15, 600]]);
+});
+
+test("grand staff shrinks fingerings that would touch their neighbour so they keep a gap", () => {
+    // 0.04 either side of the centre is 24.16 px between the labels; four characters at 15 px are 30 px wide.
+    const context = renderGrandStaffScene(fingeringScene([
+        { x: -0.04, fingering: "R135" },
+        { x: 0.04, fingering: "R135" },
+    ]));
+
+    const expectedSize = 15 * (24.16 - 2) / 30;
+    const draws = fingeringDraws(context);
+    assert.equal(draws.length, 2);
+    for (const { size } of draws) {
+        assert.ok(Math.abs(size - expectedSize) < 0.01, `expected ${expectedSize}, got ${size}`);
+    }
+});
+
+test("grand staff never shrinks a fingering below its floor, however close the neighbour", () => {
+    const context = renderGrandStaffScene(fingeringScene([
+        { x: -0.01, fingering: "R135" },
+        { x: 0.01, fingering: "R135" },
+    ]));
+
+    for (const { size } of fingeringDraws(context)) {
+        assert.ok(Math.abs(size - 7.5) < 1e-9, `expected the 7.5 px floor (half the normal size), got ${size}`);
+    }
+});
+
+test("grand staff only compares fingerings in the same lane", () => {
+    // Same x, different lanes (treble above its staff, bass above its own): they never shrink each other.
+    const context = renderGrandStaffScene(fingeringScene([
+        { x: 0, fingering: "R135", fingeringY: 0.8 },
+        { x: 0, fingering: "L531", fingeringY: 0.1 },
+    ]));
+
+    assert.deepEqual(fingeringDraws(context).map(draw => draw.size), [15, 15]);
+});
+
+test("grand staff compares fingerings whose lanes step by less than a digit's height", () => {
+    // A lane follows each measure's notation, so neighbours across a barline can sit at slightly different heights: 5 px
+    // apart (0.049 scene units on this 240 px canvas) they still overlap, so they shrink together.
+    const context = renderGrandStaffScene(fingeringScene([
+        { x: -0.04, fingering: "R135", fingeringY: 0.1 },
+        { x: 0.04, fingering: "R135", fingeringY: 0.149 },
+    ]));
+
+    for (const { size } of fingeringDraws(context)) {
+        assert.ok(size < 15, `expected a shrunk label, got ${size}`);
+    }
+});
+
+test("grand staff leaves fingerings a digit's height or more apart at full size", () => {
+    // 16 px apart (0.157 scene units): they cannot overlap however close their x.
+    const context = renderGrandStaffScene(fingeringScene([
+        { x: -0.04, fingering: "R135", fingeringY: 0.1 },
+        { x: 0.04, fingering: "R135", fingeringY: 0.257 },
+    ]));
+
+    assert.deepEqual(fingeringDraws(context).map(draw => draw.size), [15, 15]);
+});
+
+test("grand staff moves a fingering that a barline would cross clear of it", () => {
+    // The note sits 0.02 (6.04 px) right of the barline and a four-character label is 30 px wide, so its left half would
+    // cross the line.
+    const barlineX = -0.2;
+    const noteX = barlineX + 0.02;
+    const context = renderGrandStaffScene(fingeringScene(
+        [{ x: noteX, fingering: "R135" }],
+        [{ x0: barlineX, y0: 0.5, x1: barlineX, y1: -0.5, kind: barlineKind }]));
+
+    const [draw] = fingeringDraws(context);
+    const barlinePixelX = fingeringPixelX(barlineX);
+    // Left edge of the label (centre - half of 30 px) sits the 2 px gap right of the line.
+    assert.ok(Math.abs((draw.x - 15) - (barlinePixelX + 2)) < 1e-6, `label centred at ${draw.x}, line at ${barlinePixelX}`);
+});
+
+test("grand staff moves a fingering that a barline to its right would cross to the left", () => {
+    const barlineX = 0.2;
+    const noteX = barlineX - 0.02;
+    const context = renderGrandStaffScene(fingeringScene(
+        [{ x: noteX, fingering: "R135" }],
+        [{ x0: barlineX, y0: 0.5, x1: barlineX, y1: -0.5, kind: barlineKind }]));
+
+    const [draw] = fingeringDraws(context);
+    const barlinePixelX = fingeringPixelX(barlineX);
+    assert.ok(Math.abs((draw.x + 15) - (barlinePixelX - 2)) < 1e-6, `label centred at ${draw.x}, line at ${barlinePixelX}`);
+});
+
+test("grand staff leaves a fingering where it is when no barline reaches its lane", () => {
+    // The barline stops at y 0.5; a label centred at 0.8 (with its 7.5 px half height) sits wholly above it.
+    const barlineX = -0.2;
+    const noteX = barlineX + 0.02;
+    const context = renderGrandStaffScene(fingeringScene(
+        [{ x: noteX, fingering: "R135", fingeringY: 0.8 }],
+        [{ x0: barlineX, y0: 0.5, x1: barlineX, y1: -0.5, kind: barlineKind }]));
+
+    const [draw] = fingeringDraws(context);
+    assert.ok(Math.abs(draw.x - fingeringPixelX(noteX)) < 1e-6);
+});
+
+test("grand staff leaves a fingering that clears every barline where it is", () => {
+    const context = renderGrandStaffScene(fingeringScene(
+        [{ x: 0.1, fingering: "R3" }],
+        [{ x0: -0.2, y0: 0.5, x1: -0.2, y1: -0.5, kind: barlineKind }]));
+
+    const [draw] = fingeringDraws(context);
+    assert.ok(Math.abs(draw.x - fingeringPixelX(0.1)) < 1e-6);
+});
+
+// The bass fingering lane sits in the gap that a chord's stacked treble note names hang into. The names yield in real
+// pixels: the stack closes up toward its first row (spacing and font together) just far enough to keep its lowest ink
+// above the fingering's, and no further than the same floor crowded labels have. At 240 px a scene unit is 102 px, and the
+// fake context measures a 16 px name's ink as ending 12.6 px below its row and a fingering digit as reaching 5 px.
+const stackMetrics = {
+    C4: { width: 18, actualBoundingBoxAscent: -2.6, actualBoundingBoxDescent: 12.6 },
+    E4: { width: 18, actualBoundingBoxAscent: -2.6, actualBoundingBoxDescent: 12.6 },
+    G4: { width: 18, actualBoundingBoxAscent: -2.6, actualBoundingBoxDescent: 12.6 },
+    L5: { width: 17, actualBoundingBoxAscent: 5, actualBoundingBoxDescent: 5 },
+};
+const stackPixelToScene = pixel => ((240 - 18 - pixel) / 102) - 1;
+const stackNameRows = [90, 108.8, 127.6];
+
+function stackScene(fingering, rows = stackNameRows) {
+    return fingeringScene([
+        { x: 0, label: "G4", labelY: stackPixelToScene(rows[0]) },
+        { x: 0, label: "E4", labelY: stackPixelToScene(rows[1]) },
+        { x: 0, label: "C4", labelY: stackPixelToScene(rows[2]) },
+        ...fingering,
+    ]);
+}
+
+function stackDraws(context) {
+    return context.fillTextCalls
+        .filter(call => /^[CEG]4$/.test(call.args[0]))
+        .map(call => ({ text: call.args[0], y: call.args[2], size: Number.parseFloat(/([\d.]+)px/.exec(call.font)[1]) }));
+}
+
+test("grand staff closes a name stack up so its ink stays above a fingering in the same column", () => {
+    // The fingering's ink starts at 124.5 px, inside the lowest name's (127.6 + 12.6 = 140.2 px).
+    const context = renderGrandStaffScene(
+        stackScene([{ x: 0, fingering: "L5", fingeringY: stackPixelToScene(129.5) }]), 640, 240, stackMetrics);
+
+    const draws = stackDraws(context);
+    assert.equal(draws.length, 3);
+    const first = draws.find(draw => draw.text === "G4");
+    assert.ok(Math.abs(first.y - stackNameRows[0]) < 1e-9, "the first row stays where it is");
+    const expectedScale = (124.5 - 2 - 90) / ((127.6 - 90) + 12.6);
+    for (const draw of draws) {
+        assert.ok(Math.abs(draw.size - 16 * expectedScale) < 0.01, `expected ${16 * expectedScale}, got ${draw.size}`);
+    }
+
+    const lowest = draws.find(draw => draw.text === "C4");
+    assert.ok(lowest.y + (12.6 * lowest.size / 16) <= 124.5 - 2 + 1e-6, "the lowest name's ink ends above the fingering's");
+    assert.ok(Math.abs(lowest.y - (90 + ((127.6 - 90) * expectedScale))) < 1e-6, "the rows close up toward the first");
+});
+
+test("grand staff leaves a name stack alone when a fingering clears it", () => {
+    // The fingering's ink starts at 150 px, well below the stack's lowest ink at 140.2 px.
+    const context = renderGrandStaffScene(
+        stackScene([{ x: 0, fingering: "L5", fingeringY: stackPixelToScene(155) }]), 640, 240, stackMetrics);
+
+    assert.deepEqual(stackDraws(context).map(draw => draw.size), [16, 16, 16]);
+    assert.deepEqual(stackDraws(context).map(draw => draw.y), stackNameRows);
+});
+
+test("grand staff leaves a name stack alone when no fingering is beside it", () => {
+    // 0.2 scene units (60 px) right of the stack: the fingering and the names cannot touch.
+    const context = renderGrandStaffScene(
+        stackScene([{ x: 0.2, fingering: "L5", fingeringY: stackPixelToScene(129.5) }]), 640, 240, stackMetrics);
+
+    assert.deepEqual(stackDraws(context).map(draw => draw.size), [16, 16, 16]);
+});
+
+test("grand staff never closes a name stack up below its floor", () => {
+    // Rows 10 px apart with a fingering whose ink starts 17 px under the first: 15 px of room for a 32.6 px stack.
+    const context = renderGrandStaffScene(
+        stackScene([{ x: 0, fingering: "L5", fingeringY: stackPixelToScene(112) }], [90, 100, 110]), 640, 240, stackMetrics);
+
+    for (const { size } of stackDraws(context)) {
+        assert.ok(Math.abs(size - 8) < 1e-9, `expected the 8 px floor (half the normal size), got ${size}`);
+    }
+});
+
+test("grand staff leaves names below a fingering alone", () => {
+    // A bass name hangs below the bass staff: under the lane's label, never in its way.
+    const context = renderGrandStaffScene(fingeringScene([
+        { x: 0, label: "C4", labelY: stackPixelToScene(180) },
+        { x: 0, fingering: "L5", fingeringY: stackPixelToScene(129.5) },
+    ]), 640, 240, stackMetrics);
+
+    assert.deepEqual(stackDraws(context).map(draw => draw.size), [16]);
+});
+
 test("score playback highlight redraws a crowded label at the same fitted size", async () => {
     const harness = await createScoreCursorHarness(1);
     const canvas = harness.createCanvas();
@@ -1870,6 +2102,15 @@ const reviewMarkMissed = 3;
 function ringsOf(context) {
     return context.roundRectCalls.filter(call => call.stroked);
 }
+
+test("grand staff paints no background behind the annotation rows in dark mode", () => {
+    const context = renderGrandStaffScene(reviewMarkScene(
+        [{ x: 0, y: 0 }],
+        { bands: [{ x0: -0.9, y0: -0.6, x1: 0.9, y1: -0.8 }] }));
+
+    assert.equal(context.roundRectCalls.length, 0);
+    assert.equal(context.fillCalls.length, 1, "only the note head is filled");
+});
 
 test("review marks draw one ring per marked note and nothing for a clean or unmarked note", () => {
     const context = renderGrandStaffScene(reviewMarkScene([

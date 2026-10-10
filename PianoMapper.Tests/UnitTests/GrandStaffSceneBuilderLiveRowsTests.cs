@@ -162,12 +162,10 @@ public sealed partial class GrandStaffSceneBuilderTests
     }
 
     [Theory]
-    [InlineData(1)]
     [InlineData(2)]
     [InlineData(3)]
     [InlineData(4)]
     [InlineData(5)]
-    [InlineData(6)]
     public void BuildLivePair_SelectedOctaveWithRoomToSpare_DrawsTheStavesAtTheScoreStaffSpace(int selectedOctave)
     {
         var (upper, lower) = BuildLiveRowsFor(selectedOctave, LiveRowsContent.Empty);
@@ -177,7 +175,10 @@ public sealed partial class GrandStaffSceneBuilderTests
         Assert.Equal(scoreStaffSpace, GetStaffSpace(lower), StaffSpaceTolerance);
     }
 
+    // Octaves 1 and 6 only just fitted at the score scale before the staves moved one diatonic step further apart.
     [Theory]
+    [InlineData(1)]
+    [InlineData(6)]
     [InlineData(7)]
     [InlineData(8)]
     public void BuildLivePair_SelectedOctaveTooTallForTheScoreScale_StillShrinksTheStavesToFit(int selectedOctave)

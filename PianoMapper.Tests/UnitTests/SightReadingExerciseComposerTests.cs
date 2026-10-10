@@ -3022,17 +3022,135 @@ public sealed class SightReadingExerciseComposerTests
             new Random(1)));
     }
 
-    [Theory]
-    [InlineData(SightReadingPresetId.OneOctave)]
-    [InlineData(SightReadingPresetId.LedgerLines)]
-    [InlineData(SightReadingPresetId.Chords)]
-    [InlineData(SightReadingPresetId.GMajor)]
-    [InlineData(SightReadingPresetId.Accidentals)]
-    public void Compose_HandsTogetherWithARangeOtherThanFiveNotes_Throws(SightReadingPresetId preset)
+    [Fact]
+    public void Compose_HandsTogetherWithChords_Throws()
     {
+        Assert.False(SightReadingExerciseComposer.SupportsHandsTogether(SightReadingPresetId.Chords));
         Assert.Throws<ArgumentException>(() => SightReadingExerciseComposer.Compose(
-            HandsTogetherOptions(preset: preset),
+            HandsTogetherOptions(preset: SightReadingPresetId.Chords),
             new Random(1)));
+    }
+
+    [Fact]
+    public void SupportsHandsTogether_ForEveryRangeOfSingleNotes_IsTrue() =>
+        Assert.All(
+            Enum.GetValues<SightReadingPresetId>().Where(preset => preset != SightReadingPresetId.Chords),
+            preset => Assert.True(SightReadingExerciseComposer.SupportsHandsTogether(preset), preset.ToString()));
+
+    [Theory]
+    [InlineData(SightReadingPresetId.GMajor)]
+    [InlineData(SightReadingPresetId.FMajor)]
+    [InlineData(SightReadingPresetId.DMajor)]
+    [InlineData(SightReadingPresetId.BFlatMajor)]
+    [InlineData(SightReadingPresetId.AMinor)]
+    public void Compose_HandsTogetherInAKeyRange_PlaysOneNoteInEachHandInTheKeyOnEveryPrompt(SightReadingPresetId preset)
+    {
+        IReadOnlyList<Pitch> treblePalette = SightReadingExerciseComposer.GetRangePitches(Staff.Treble, preset);
+        IReadOnlyList<Pitch> bassPalette = SightReadingExerciseComposer.GetRangePitches(Staff.Bass, preset);
+
+        foreach (SightReadingMotion motion in Enum.GetValues<SightReadingMotion>())
+        {
+            for (int seed = 0; seed < 50; seed++)
+            {
+                Score score = SightReadingExerciseComposer.Compose(
+                    HandsTogetherOptions(16, preset) with { Motion = motion },
+                    new Random(seed));
+
+                var prompts = score.Measures
+                    .SelectMany(measure => measure.Notes)
+                    .GroupBy(note => (note.MeasureIndex, note.BeatOffset))
+                    .ToArray();
+                Assert.Equal(16, prompts.Length);
+                Assert.All(
+                    prompts,
+                    prompt =>
+                    {
+                        ScoreNote treble = Assert.Single(prompt, note => note.Staff == Staff.Treble);
+                        ScoreNote bass = Assert.Single(prompt, note => note.Staff == Staff.Bass);
+                        Assert.Contains(treble.Pitch, treblePalette);
+                        Assert.Contains(bass.Pitch, bassPalette);
+                        Assert.NotEqual(treble.Pitch.MidiNumber, bass.Pitch.MidiNumber);
+                    });
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(SightReadingPresetId.OneOctave, SightReadingMotion.Random)]
+    [InlineData(SightReadingPresetId.OneOctave, SightReadingMotion.Melodic)]
+    [InlineData(SightReadingPresetId.OneOctave, SightReadingMotion.Intervallic)]
+    [InlineData(SightReadingPresetId.LedgerLines, SightReadingMotion.Random)]
+    [InlineData(SightReadingPresetId.LedgerLines, SightReadingMotion.Melodic)]
+    [InlineData(SightReadingPresetId.LedgerLines, SightReadingMotion.Intervallic)]
+    [InlineData(SightReadingPresetId.Accidentals, SightReadingMotion.Random)]
+    public void Compose_HandsTogetherInARangeThatOverlapsMiddleC_NeverAsksBothHandsForTheSameKey(
+        SightReadingPresetId preset,
+        SightReadingMotion motion)
+    {
+        IReadOnlyList<Pitch> treblePalette = SightReadingExerciseComposer.GetRangePitches(Staff.Treble, preset);
+        IReadOnlyList<Pitch> bassPalette = SightReadingExerciseComposer.GetRangePitches(Staff.Bass, preset);
+
+        foreach (int promptCount in new[] { 8, 16, 32, 64 })
+        {
+            for (int seed = 0; seed < 150; seed++)
+            {
+                Score score = SightReadingExerciseComposer.Compose(
+                    HandsTogetherOptions(promptCount, preset) with { Motion = motion },
+                    new Random(seed));
+
+                var prompts = score.Measures
+                    .SelectMany(measure => measure.Notes)
+                    .GroupBy(note => (note.MeasureIndex, note.BeatOffset))
+                    .ToArray();
+                Assert.Equal(promptCount, prompts.Length);
+                Assert.All(
+                    prompts,
+                    prompt =>
+                    {
+                        ScoreNote treble = Assert.Single(prompt, note => note.Staff == Staff.Treble);
+                        ScoreNote bass = Assert.Single(prompt, note => note.Staff == Staff.Bass);
+                        Assert.Contains(treble.Pitch, treblePalette);
+                        Assert.Contains(bass.Pitch, bassPalette);
+                        Assert.NotEqual(treble.Pitch.MidiNumber, bass.Pitch.MidiNumber);
+                    });
+            }
+        }
+    }
+
+    [Fact]
+    public void Compose_HandsTogetherOnLedgerLines_EachHandStillReachesBelowAndAboveItsStaff()
+    {
+        for (int seed = 0; seed < 100; seed++)
+        {
+            Score score = SightReadingExerciseComposer.Compose(
+                HandsTogetherOptions(16, SightReadingPresetId.LedgerLines),
+                new Random(seed));
+
+            foreach ((Staff staff, Pitch bottomLine, Pitch topLine) in new[]
+            {
+                (Staff.Treble, new Pitch(NoteLetter.E, 0, 4), new Pitch(NoteLetter.F, 0, 5)),
+                (Staff.Bass, new Pitch(NoteLetter.G, 0, 2), new Pitch(NoteLetter.A, 0, 3)),
+            })
+            {
+                Pitch[] hand = score.Measures
+                    .SelectMany(measure => measure.Notes)
+                    .Where(note => note.Staff == staff)
+                    .Select(note => note.Pitch)
+                    .ToArray();
+                Assert.Contains(hand, pitch => pitch.DiatonicIndex < bottomLine.DiatonicIndex);
+                Assert.Contains(hand, pitch => pitch.DiatonicIndex > topLine.DiatonicIndex);
+            }
+        }
+    }
+
+    [Fact]
+    public void Compose_HandsTogetherOnLedgerLines_SameSeedIsDeterministic()
+    {
+        SightReadingExerciseOptions options = HandsTogetherOptions(16, SightReadingPresetId.LedgerLines);
+
+        Assert.Equal(
+            PitchesOf(SightReadingExerciseComposer.Compose(options, new Random(9))),
+            PitchesOf(SightReadingExerciseComposer.Compose(options, new Random(9))));
     }
 
     [Fact]

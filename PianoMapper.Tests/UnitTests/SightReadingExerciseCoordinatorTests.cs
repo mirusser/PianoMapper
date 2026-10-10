@@ -2418,18 +2418,47 @@ public sealed class SightReadingExerciseCoordinatorTests
     }
 
     [Fact]
-    public void IsHandsTogetherAvailable_NeedsTheFiveNoteRangeAndAGrandStaffAndNotRhythmOnly()
+    public void IsHandsTogetherAvailable_NeedsASupportedRangeAndAGrandStaffAndNotRhythmOnly()
     {
         var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
         coordinator.SetIsGrandStaff(true);
         Assert.True(coordinator.IsHandsTogetherAvailable);
 
-        coordinator.SetPresetId(SightReadingPresetId.OneOctave);
+        foreach (SightReadingPresetId preset in Enum.GetValues<SightReadingPresetId>()
+            .Where(preset => preset != SightReadingPresetId.Chords))
+        {
+            coordinator.SetPresetId(preset);
+            Assert.True(coordinator.IsHandsTogetherAvailable, preset.ToString());
+        }
+
+        coordinator.SetPresetId(SightReadingPresetId.Chords);
         Assert.False(coordinator.IsHandsTogetherAvailable);
 
         coordinator.SetPresetId(SightReadingPresetId.FiveNote);
         coordinator.SetMode(NoteReadingMode.RhythmOnly);
         Assert.False(coordinator.IsHandsTogetherAvailable);
+    }
+
+    [Fact]
+    public void Generate_HandsTogetherOnLedgerLinesWithMelodicMotion_PutsTwoDifferentKeysInEveryPrompt()
+    {
+        var coordinator = new SightReadingExerciseCoordinator(new NoteReadingSession());
+        coordinator.SetIsGrandStaff(true);
+        coordinator.SetPresetId(SightReadingPresetId.LedgerLines);
+        coordinator.SetMotion(SightReadingMotion.Melodic);
+        coordinator.SetHandsTogether(true);
+        coordinator.SetPromptCountOption(16);
+
+        coordinator.Generate(new Random(2), Tolerance);
+
+        Assert.True(coordinator.EffectiveHandsTogether);
+        Assert.All(
+            coordinator.Session.PromptResults,
+            result =>
+            {
+                Assert.Equal([Staff.Treble, Staff.Bass], result.ExpectedSourceNotes.Select(note => note.Staff).Order());
+                Assert.Equal(2, result.ExpectedSourceNotes.Select(note => note.Pitch.MidiNumber).Distinct().Count());
+            });
     }
 
     [Fact]

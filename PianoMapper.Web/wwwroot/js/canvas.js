@@ -98,6 +98,12 @@ const lightReviewMarkStyles = new Map([
 const noteLabelFontSizePixels = 16;
 const noteLabelMinimumGapPixels = 2;
 const noteLabelMinimumFitScale = 0.5;
+// Fingerings are 600-weight 15 px text centred over their note in a lane above the staff. Crowded neighbours in one lane
+// shrink the same way note names do; a fingering that a barline would cross moves just clear of it, keeping this much air.
+const fingeringFontSizePixels = 15;
+const fingeringBarlineGapPixels = 2;
+// A stack of note names that hangs down into a fingering closes up to keep this much air from the fingering's ink.
+const noteNameFingeringGapPixels = 2;
 // Labels this close are the same moment drawn a little apart (a chord's notes, a live note and the one it overlaps), not a
 // run of neighbours, and shrinking them cannot separate them, so they are left at their own size.
 const noteLabelSameMomentPixels = 4;
@@ -138,7 +144,6 @@ const plotBottomMargin = 34;
 const darkGrandStaffPalette = {
     activeNote: "#22d3ee",
     arpeggio: "#e2e8f0",
-    band: "rgba(51, 65, 85, 0.35)",
     barline: "#64748b",
     beam: "#60a5fa",
     beatLine: "#334155",
@@ -164,7 +169,6 @@ const lightGrandStaffPalette = {
     activeNote: "#0369a1",
     arpeggio: "#111827",
     background: "#fff",
-    band: "transparent",
     barline: "#111827",
     beam: "#111827",
     beatLine: "#9ca3af",
@@ -572,10 +576,6 @@ function drawGrandStaff(context, state, width, height) {
         context.fillStyle = palette.background;
         context.fillRect(0, 0, width, height);
     }
-    for (const band of scene.bands ?? []) {
-        drawBand(context, band, width, height, palette);
-    }
-
     for (const line of scene.lines) {
         if (line.kind === ledgerLineKind) {
             continue;
@@ -627,10 +627,10 @@ function drawGrandStaff(context, state, width, height) {
         drawArpeggioMark(context, arpeggioMark, width, height, staffSpace, palette);
     }
 
-    const labelFitScales = getLabelFitScales(context, scene.notes, width);
+    const textFits = getTextFits(context, scene, width, height);
     for (const note of scene.notes) {
         if (!note.isActive) {
-            drawNote(context, note, width, height, staffSpace, undefined, labelFitScales.get(note), palette);
+            drawNote(context, note, width, height, staffSpace, undefined, textFits.get(note), palette);
         }
     }
     for (const beam of scene.beams ?? []) {
@@ -638,7 +638,7 @@ function drawGrandStaff(context, state, width, height) {
     }
     for (const note of scene.notes) {
         if (note.isActive) {
-            drawNote(context, note, width, height, staffSpace, undefined, labelFitScales.get(note), palette);
+            drawNote(context, note, width, height, staffSpace, undefined, textFits.get(note), palette);
         }
     }
     drawLedgerLines(context, scene, width, height, staffSpace, palette);
@@ -1127,7 +1127,7 @@ function drawScorePlaybackHighlights(context, scene, width, height, scorePlaybac
         return highlightKey;
     }
 
-    const labelFitScales = getLabelFitScales(context, scene.notes, width);
+    const textFits = getTextFits(context, scene, width, height);
     for (let index = 0; index < scene.notes.length; index++) {
         const note = scene.notes[index];
         if (Number.isFinite(note.scoreOnsetBeats)
@@ -1141,7 +1141,7 @@ function drawScorePlaybackHighlights(context, scene, width, height, scorePlaybac
                 height,
                 staffSpace,
                 palette.scorePlaybackHighlight,
-                labelFitScales.get(note),
+                textFits.get(note),
                 palette);
         }
     }
@@ -1397,19 +1397,42 @@ function findMeasureIndex(absoluteBeat, beatsPerMeasure, measureStartBeats) {
     return Math.floor(absoluteBeat / beatsPerMeasure);
 }
 
-// A fit is a pure function of the notes and the canvas width, and playback highlights redraw labels every frame, so the
-// last result is kept per notes array.
-const labelFitCache = new WeakMap();
+// A fit is a pure function of the scene and the canvas size, and playback highlights redraw labels every frame, so the last
+// result is kept per notes array.
+const textFitCache = new WeakMap();
 
-function getLabelFitScales(context, notes, width) {
-    const cached = labelFitCache.get(notes);
-    if (cached?.width === width) {
-        return cached.scales;
+/**
+ * What each note's text needs so it stays readable at this canvas size: labelScale and fingeringScale shrink crowded
+ * neighbours (see getNoteLabelFitScales and getFingeringFitScales), fingeringOffset moves a fingering sideways, in pixels,
+ * off a barline, and stackScale with labelY (a pixel row) close a note-name stack up above a fingering (see
+ * getNameStackFits). Only notes that need something get an entry.
+ */
+function getTextFits(context, scene, width, height) {
+    const cached = textFitCache.get(scene.notes);
+    if (cached?.width === width && cached.height === height && cached.lines === scene.lines) {
+        return cached.fits;
     }
 
-    const scales = getNoteLabelFitScales(context, notes, width);
-    labelFitCache.set(notes, { width, scales });
-    return scales;
+    const labelScales = getNoteLabelFitScales(context, scene.notes, width);
+    const fingeringScales = getFingeringFitScales(context, scene.notes, width, height);
+    const fingeringOffsets = getFingeringBarlineOffsets(context, scene, fingeringScales, width, height);
+    const nameStacks = getNameStackFits(context, scene, labelScales, fingeringScales, fingeringOffsets, width, height);
+    const fits = new Map();
+    for (const note of scene.notes) {
+        const fit = {
+            labelScale: labelScales.get(note),
+            fingeringScale: fingeringScales.get(note),
+            fingeringOffset: fingeringOffsets.get(note),
+            stackScale: nameStacks.get(note)?.scale,
+            labelY: nameStacks.get(note)?.y,
+        };
+        if (Object.values(fit).some(value => value !== undefined)) {
+            fits.set(note, fit);
+        }
+    }
+
+    textFitCache.set(scene.notes, { width, height, lines: scene.lines, fits });
+    return fits;
 }
 
 /**
@@ -1421,47 +1444,64 @@ function getLabelFitScales(context, notes, width) {
  * their strip and stay readable, a crowded run just gets smaller text. Only notes that have to shrink get an entry.
  */
 export function getNoteLabelFitScales(context, notes, width) {
-    const rows = new Map();
-    for (const note of notes) {
-        if (!Number.isFinite(note.labelY) || typeof note.label !== "string" || note.label.length === 0) {
-            continue;
-        }
+    return getTextFitScales(context, notes, width, {
+        text: note => note.label,
+        rowY: note => note.labelY,
+        font: note => {
+            const labelFontScale = Number.isFinite(note.labelFontScale) ? note.labelFontScale : 1;
+            return `${noteLabelFontSizePixels * labelFontScale}px system-ui, sans-serif`;
+        },
+        sharesRow: (first, second) => first.labelY === second.labelY,
+    });
+}
 
-        const row = rows.get(note.labelY);
-        if (row) {
-            row.push(note);
-        } else {
-            rows.set(note.labelY, [note]);
-        }
-    }
+/**
+ * The same fit for fingerings. A lane follows each measure's notation, so neighbours across a barline can sit at slightly
+ * different heights: fingerings share a row when a digit's height does not separate them, and the treble and bass lanes,
+ * far apart, never do.
+ */
+export function getFingeringFitScales(context, notes, width, height) {
+    return getTextFitScales(context, notes, width, {
+        text: note => note.fingering,
+        rowY: note => note.fingeringY,
+        font: () => getFingeringFont(1),
+        sharesRow: (first, second) =>
+            Math.abs(mapY(first.fingeringY, height) - mapY(second.fingeringY, height)) < fingeringFontSizePixels,
+    });
+}
 
+function getFingeringFont(scale) {
+    return `600 ${fingeringFontSizePixels * scale}px system-ui, sans-serif`;
+}
+
+function getTextFitScales(context, notes, width, { text, rowY, font, sharesRow }) {
+    const labelled = notes
+        .filter(note => Number.isFinite(rowY(note)) && typeof text(note) === "string" && text(note).length > 0)
+        .sort((first, second) => first.x - second.x);
     const scales = new Map();
     context.save();
-    for (const row of rows.values()) {
-        if (row.length < 2) {
+    const textWidths = new Map(labelled.map(note => {
+        context.font = font(note);
+        return [note, context.measureText(text(note)).width];
+    }));
+    for (let index = 0; index < labelled.length; index++) {
+        const note = labelled[index];
+        const neighbour = labelled.slice(index + 1).find(candidate => sharesRow(note, candidate));
+        if (neighbour === undefined) {
             continue;
         }
 
-        row.sort((first, second) => first.x - second.x);
-        const centers = row.map(note => mapX(note.x, width));
-        const textWidths = row.map(note => {
-            const labelFontScale = Number.isFinite(note.labelFontScale) ? note.labelFontScale : 1;
-            context.font = `${noteLabelFontSizePixels * labelFontScale}px system-ui, sans-serif`;
-            return context.measureText(note.label).width;
-        });
-        for (let index = 1; index < row.length; index++) {
-            const distance = centers[index] - centers[index - 1];
-            const combinedHalfWidths = (textWidths[index] + textWidths[index - 1]) / 2;
-            if (distance <= noteLabelSameMomentPixels || !(combinedHalfWidths > 0)) {
-                continue;
-            }
+        const distance = mapX(neighbour.x, width) - mapX(note.x, width);
+        const combinedHalfWidths = (textWidths.get(note) + textWidths.get(neighbour)) / 2;
+        if (distance <= noteLabelSameMomentPixels || !(combinedHalfWidths > 0)) {
+            continue;
+        }
 
-            const pairScale = (distance - noteLabelMinimumGapPixels) / combinedHalfWidths;
-            if (pairScale < 1) {
-                const fitted = Math.max(noteLabelMinimumFitScale, pairScale);
-                for (const note of [row[index - 1], row[index]]) {
-                    scales.set(note, Math.min(fitted, scales.get(note) ?? 1));
-                }
+        const pairScale = (distance - noteLabelMinimumGapPixels) / combinedHalfWidths;
+        if (pairScale < 1) {
+            const fitted = Math.max(noteLabelMinimumFitScale, pairScale);
+            for (const member of [note, neighbour]) {
+                scales.set(member, Math.min(fitted, scales.get(member) ?? 1));
             }
         }
     }
@@ -1470,15 +1510,116 @@ export function getNoteLabelFitScales(context, notes, width) {
     return scales;
 }
 
-function drawBand(context, band, width, height, palette = darkGrandStaffPalette) {
-    const x0 = mapX(band.x0, width);
-    const x1 = mapX(band.x1, width);
-    const y0 = mapY(band.y0, height);
-    const y1 = mapY(band.y1, height);
-    context.fillStyle = palette.band;
-    context.beginPath();
-    context.roundRect(x0, Math.min(y0, y1), x1 - x0, Math.abs(y1 - y0), 6);
-    context.fill();
+/**
+ * How far, in pixels, each fingering moves sideways so a barline does not cross it. The lane above the bass staff lies in
+ * the gap that the barlines join the staves across, and a chord's merged label ("R135") is wider than the room between a
+ * measure's first note and its barline. A label whose text reaches a barline that spans its height moves to the side its
+ * note is on, just far enough to leave fingeringBarlineGapPixels clear. The lane above the treble staff is never crossed:
+ * barlines end at the staves' outer lines.
+ */
+function getFingeringBarlineOffsets(context, scene, fingeringScales, width, height) {
+    const offsets = new Map();
+    const barlines = (scene.lines ?? [])
+        .filter(line => (line.kind === barlineKind || line.kind === finalBarlineKind) && line.x0 === line.x1)
+        .map(line => ({
+            x: mapX(line.x0, width),
+            top: Math.min(mapY(line.y0, height), mapY(line.y1, height)),
+            bottom: Math.max(mapY(line.y0, height), mapY(line.y1, height)),
+        }));
+    if (barlines.length === 0) {
+        return offsets;
+    }
+
+    context.save();
+    for (const note of scene.notes) {
+        if (typeof note.fingering !== "string" || !Number.isFinite(note.fingeringY)) {
+            continue;
+        }
+
+        const scale = fingeringScales.get(note) ?? 1;
+        const halfHeight = fingeringFontSizePixels * scale / 2;
+        context.font = getFingeringFont(scale);
+        const clearance = (context.measureText(note.fingering).width / 2) + fingeringBarlineGapPixels;
+        const x = mapX(note.x, width);
+        const y = mapY(note.fingeringY, height);
+        for (const barline of barlines) {
+            const distance = x - barline.x;
+            if (Math.abs(distance) >= clearance || y + halfHeight < barline.top || y - halfHeight > barline.bottom) {
+                continue;
+            }
+
+            offsets.set(note, (distance >= 0 ? clearance : -clearance) - distance);
+            break;
+        }
+    }
+
+    context.restore();
+    return offsets;
+}
+
+/**
+ * The note names that hang into a fingering, closed up so they do not. The fingering lane above the bass staff lies in the
+ * gap that the treble names hang into, so a chord's stack of names (one row per note, under the treble staff) can reach down
+ * to a fingering in its column. For each fingering, the names that start above the bottom of its ink and share its column are
+ * one stack (names of the staff below start far under it): if its lowest
+ * ink ends within noteNameFingeringGapPixels of the fingering's ink, the stack closes up toward its first row, which stays
+ * where it is, spacing and font together, by just enough to clear it, and by no more than noteLabelMinimumFitScale. Ink is
+ * measured with the real font, so the fit holds at every canvas size. Returns each closed-up name's scale and its new row.
+ */
+function getNameStackFits(context, scene, labelScales, fingeringScales, fingeringOffsets, width, height) {
+    const fits = new Map();
+    const fingerings = scene.notes.filter(note => typeof note.fingering === "string" && Number.isFinite(note.fingeringY));
+    const names = scene.notes.filter(note =>
+        typeof note.label === "string" && note.label.length > 0 && Number.isFinite(note.labelY));
+    if (fingerings.length === 0 || names.length === 0) {
+        return fits;
+    }
+
+    context.save();
+    context.textBaseline = "top";
+    const nameInks = names.map(note => {
+        const labelFontScale = Number.isFinite(note.labelFontScale) ? note.labelFontScale : 1;
+        context.font = `${noteLabelFontSizePixels * labelFontScale * (labelScales.get(note) ?? 1)}px system-ui, sans-serif`;
+        const metrics = context.measureText(note.label);
+        return {
+            note,
+            x: mapX(note.x, width),
+            top: mapY(note.labelY, height),
+            halfWidth: metrics.width / 2,
+            inkBottom: metrics.actualBoundingBoxDescent,
+        };
+    });
+    context.textBaseline = "middle";
+    for (const fingering of fingerings) {
+        context.font = getFingeringFont(fingeringScales.get(fingering) ?? 1);
+        const metrics = context.measureText(fingering.fingering);
+        const centerX = mapX(fingering.x, width) + (fingeringOffsets.get(fingering) ?? 0);
+        const centerY = mapY(fingering.fingeringY, height);
+        const inkTop = centerY - metrics.actualBoundingBoxAscent;
+        const inkBottom = centerY + metrics.actualBoundingBoxDescent;
+        const stack = nameInks.filter(name =>
+            name.top < inkBottom && Math.abs(name.x - centerX) < name.halfWidth + (metrics.width / 2));
+        if (stack.length === 0) {
+            continue;
+        }
+
+        const firstTop = Math.min(...stack.map(name => name.top));
+        const stackHeight = Math.max(...stack.map(name => name.top + name.inkBottom)) - firstTop;
+        const room = inkTop - noteNameFingeringGapPixels - firstTop;
+        if (stackHeight <= room) {
+            continue;
+        }
+
+        const scale = Math.max(noteLabelMinimumFitScale, room / stackHeight);
+        for (const name of stack) {
+            if (scale < (fits.get(name.note)?.scale ?? 1)) {
+                fits.set(name.note, { scale, y: firstTop + ((name.top - firstTop) * scale) });
+            }
+        }
+    }
+
+    context.restore();
+    return fits;
 }
 
 function drawLine(context, line, width, height, staffSpace, palette = darkGrandStaffPalette) {
@@ -1627,8 +1768,9 @@ function drawNote(
     height,
     staffSpace,
     colorOverride,
-    labelFitScale = 1,
+    textFit = {},
     palette = darkGrandStaffPalette) {
+    const labelFitScale = (textFit.labelScale ?? 1) * (textFit.stackScale ?? 1);
     const x = mapX(note.x, width);
     const y = mapY(note.y, height);
     const noteHeadRadiusX = staffSpace * noteHeadWidthInStaffSpaces / 2;
@@ -1709,14 +1851,14 @@ function drawNote(
         context.font = `${noteLabelFontSizePixels * labelFontScale * labelFitScale}px system-ui, sans-serif`;
         context.textAlign = "center";
         context.textBaseline = "top";
-        context.fillText(note.label, x, mapY(note.labelY, height));
+        context.fillText(note.label, x, textFit.labelY ?? mapY(note.labelY, height));
     }
 
     if (typeof note.fingering === "string" && Number.isFinite(note.fingeringY)) {
         context.fillStyle = palette.fingering;
-        context.font = "600 15px system-ui, sans-serif";
+        context.font = getFingeringFont(textFit.fingeringScale ?? 1);
         context.textBaseline = "middle";
-        context.fillText(note.fingering, x, mapY(note.fingeringY, height));
+        context.fillText(note.fingering, x + (textFit.fingeringOffset ?? 0), mapY(note.fingeringY, height));
     }
 }
 

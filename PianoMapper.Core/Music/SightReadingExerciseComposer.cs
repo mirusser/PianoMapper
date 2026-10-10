@@ -197,13 +197,31 @@ public static class SightReadingExerciseComposer
             throw new ArgumentException("Hands together needs a grand staff.", nameof(options));
         }
 
-        if (options.PresetId != SightReadingPresetId.FiveNote)
+        if (!SupportsHandsTogether(options.PresetId))
         {
             throw new ArgumentException(
-                "Hands together is only supported for the five-note range, where the two hands never share a pitch.",
+                "Hands together is not supported for chords.",
                 nameof(options));
         }
     }
+
+    /// <summary>
+    /// How many times the bass hand is drawn before giving up on keeping it off the treble hand's keys. Each draw
+    /// has a real chance of success in every supported range, so running out is practically impossible.
+    /// </summary>
+    private const int MaximumHandsTogetherAttempts = 500;
+
+    private static bool HasSharedKey(IReadOnlyList<Pitch> trebleHand, IReadOnlyList<Pitch> bassHand) =>
+        trebleHand.Zip(bassHand).Any(pair => pair.First.MidiNumber == pair.Second.MidiNumber);
+
+    /// <summary>
+    /// Whether a range can be played with both hands at once: every range of single notes. Its two hands' palettes
+    /// never share a pitch (five notes and the key signatures) or share only a few around middle C (one octave and
+    /// accidentals at C4, ledger lines from A3 to E4), which the composer keeps apart prompt by prompt. Chords are
+    /// whole triads on one staff and are not offered.
+    /// </summary>
+    public static bool SupportsHandsTogether(SightReadingPresetId presetId) =>
+        presetId != SightReadingPresetId.Chords;
 
     private static Pitch GetCentreLinePitch(Staff staff) =>
         staff == Staff.Treble ? TrebleCentreLinePitch : BassCentreLinePitch;
@@ -253,7 +271,7 @@ public static class SightReadingExerciseComposer
                 Staff.Treble,
                 options,
                 handMeasureSizes);
-            Pitch[] bassHand = ComposePitches(
+            Pitch[] ComposeBassHand() => ComposePitches(
                 bass,
                 options.PromptCount,
                 random,
@@ -261,6 +279,20 @@ public static class SightReadingExerciseComposer
                 Staff.Bass,
                 options,
                 handMeasureSizes);
+            Pitch[] bassHand = ComposeBassHand();
+            // The two hands cannot both play one key, and the ranges that overlap around middle C could ask them to.
+            // The bass hand is drawn again until it never needs the treble hand's key; where the palettes are apart
+            // (five notes) the first draw always stands, so nothing changes there.
+            for (int attempt = 1; HasSharedKey(trebleHand, bassHand); attempt++)
+            {
+                if (attempt == MaximumHandsTogetherAttempts)
+                {
+                    throw new InvalidOperationException("Could not keep the two hands on different keys.");
+                }
+
+                bassHand = ComposeBassHand();
+            }
+
             IReadOnlyList<IReadOnlyList<(Pitch, Staff)>> together = Enumerable
                 .Range(0, options.PromptCount)
                 .Select(index => (IReadOnlyList<(Pitch, Staff)>)[(trebleHand[index], Staff.Treble), (bassHand[index], Staff.Bass)])

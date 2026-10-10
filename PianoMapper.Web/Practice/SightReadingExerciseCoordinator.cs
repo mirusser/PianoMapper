@@ -32,11 +32,12 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     internal bool HandsTogether { get; private set; }
 
     /// <summary>
-    /// Hands together needs a grand staff and the five-note range (the only range whose hands never share a pitch), and
-    /// does not apply to rhythm only. The panel disables the option otherwise instead of the composer rejecting it.
+    /// Hands together needs a grand staff and a range the composer can keep the two hands apart in, see
+    /// <see cref="SightReadingExerciseComposer.SupportsHandsTogether"/>, and does not apply to rhythm only. The panel
+    /// disables the option otherwise instead of the composer rejecting it.
     /// </summary>
     internal bool IsHandsTogetherAvailable =>
-        IsGrandStaff && PresetId == SightReadingPresetId.FiveNote && !IsPitchSetupIgnored;
+        IsGrandStaff && SightReadingExerciseComposer.SupportsHandsTogether(PresetId) && !IsPitchSetupIgnored;
 
     /// <summary>What the next exercise really uses: <see cref="HandsTogether"/>, where it applies.</summary>
     internal bool EffectiveHandsTogether => HandsTogether && IsHandsTogetherAvailable;

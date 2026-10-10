@@ -37,8 +37,10 @@ namespace PianoMapper.Music;
 /// </param>
 /// <param name="IsHandsTogether">
 /// With a grand staff, every prompt is one treble note and one bass note sounded together instead of the staves
-/// alternating. Only supported for the five-note range (so the two hands never share a pitch); the composer rejects
-/// it without a grand staff or with another range.
+/// alternating. The two hands never need the same key: the composer redraws the bass hand where a range's palettes
+/// overlap around middle C. Only supported for the ranges of
+/// <see cref="SightReadingExerciseComposer.SupportsHandsTogether"/>; the composer rejects it without a grand staff or
+/// with another range.
 /// </param>
 public sealed record SightReadingExerciseOptions(
     Staff Staff,

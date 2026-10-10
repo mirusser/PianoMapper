@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using PianoMapper.Rendering;
 using PianoMapper.Music;
 using PianoMapper.Practice;
@@ -97,6 +98,15 @@ internal static class GrandStaffSceneBuilder
     // tuplet's numeral and the beam itself — mirrors GrandStaffLayout.FermataClearanceInStaffSpaces'
     // role of pushing a glyph just outside the notation it annotates.
     private const double TupletGlyphClearanceInStaffSpaces = 0.6;
+    // A tuplet numeral is canvas.js's fixed 18 px digit, about 13 px tall: 0.9 of a staff space at the 240 px minimum
+    // score canvas, where a staff space is 7.5 px.
+    private const double TupletNumeralHalfHeightInStaffSpaces = 0.9;
+    // A slur arcs over its end notes by a cubic Bezier whose control points sit at most canvas.js's
+    // slurMaximumHeightInStaffSpaces (1.6) from the chord between them, so the arc's highest point is 0.75 of that, plus
+    // half its 0.12 staff space stroke. A tie needs no such allowance: its apex is at most 0.57 staff space above its
+    // note's centre (0.12 tip bias and 0.45 height), and the lane's digits start about 1.0 above it (0.4 for the head, 1.25
+    // of clearance, less a digit's 0.67 half height).
+    private const double SlurMaximumApexInStaffSpaces = (0.75 * 1.6) + 0.06;
     private const double OctaveShiftClearanceInStaffSpaces = 2.25;
     private const double OctaveShiftPeakRiseInStaffSpaces = 0.75;
     private const double OctaveShiftNumeralHalfHeightInStaffSpaces = 0.75;
@@ -300,36 +310,40 @@ internal static class GrandStaffSceneBuilder
             Staff.Treble,
             visibleNotes,
             GrandStaffLayout.GetNotationBottomY(Staff.Treble, visibleNotes, beamOverrides));
-        // Guards the treble staff's annotation rows from running into the bass staff below when both a note-name
-        // row and a fingering row are shown at once — see GetAnnotationRows's floorY parameter doc comment.
-        // Margin reuses LabelRowSeparation (not the smaller AnnotationNotationGap/AnnotationBandPadding) because
-        // it's the constant already calibrated to keep a rendered text row legible at the minimum canvas height
-        // (see its own doc comment) — the smaller gap constants proved too thin to actually engage the clamp for
-        // realistic content (verified: for a C4/A3 ledger-line note, the natural fingering position sits at or a
-        // hair above that narrower floor, never below it).
+        // Guards the treble staff's note-name rows from running into the bass staff below when several simultaneous
+        // notes stack their names — see GetAnnotationRows's floorY parameter doc comment. Margin reuses
+        // LabelRowSeparation (not the smaller AnnotationNotationGap/AnnotationBandPadding) because it's the constant
+        // already calibrated to keep a rendered text row legible at the minimum canvas height (see its own doc
+        // comment) — the smaller gap constants proved too thin to actually engage the clamp for realistic content.
         double trebleAnnotationFloorY = GrandStaffLayout.SeparateStaffY(GrandStaffLayout.BassLineYs[^1], Staff.Bass)
             + GrandStaffLayout.LabelRowSeparation;
         AnnotationRows trebleAnnotationRows = GrandStaffLayout.GetAnnotationRows(
-            Staff.Treble,
-            visibleNotes,
             trebleNotationBottomY,
             showNoteLabels ? GrandStaffLayout.GetLabelRowCount(Staff.Treble, visibleNotes, labelRowIndexes) : 0,
-            showFingerings,
             trebleAnnotationFloorY);
         double bassNotationBottomY = IncludeDownwardOctaveShiftInNotationBottom(
             Staff.Bass,
             visibleNotes,
             GrandStaffLayout.GetNotationBottomY(Staff.Bass, visibleNotes, beamOverrides));
         AnnotationRows bassAnnotationRows = GrandStaffLayout.GetAnnotationRows(
-            Staff.Bass,
-            visibleNotes,
             bassNotationBottomY,
-            showNoteLabels ? GrandStaffLayout.GetLabelRowCount(Staff.Bass, visibleNotes, labelRowIndexes) : 0,
-            showFingerings);
+            showNoteLabels ? GrandStaffLayout.GetLabelRowCount(Staff.Bass, visibleNotes, labelRowIndexes) : 0);
+
+        // Fingering goes in a row above each staff, not in the name strips below: in each measure the lane starts above
+        // everything that staff draws upward there, so it is a hard boundary for that staff's own notation.
+        Dictionary<int, double> trebleNotationTopYByMeasure = showFingerings
+            ? GetNotationTopYByMeasure(Staff.Treble, visibleNotes, beamOverrides, keyFifthsByMeasure)
+            : [];
+        Dictionary<int, double> bassNotationTopYByMeasure = showFingerings
+            ? GetNotationTopYByMeasure(Staff.Bass, visibleNotes, beamOverrides, keyFifthsByMeasure)
+            : [];
+        double GetFingeringLaneY(Staff staff, int measureIndex) =>
+            (staff == Staff.Treble ? trebleNotationTopYByMeasure : bassNotationTopYByMeasure)[measureIndex] +
+                GrandStaffLayout.FingeringRowClearance;
+        string?[] fingeringLabels = BuildFingeringLabels(visibleNotes, showFingerings);
 
         // A simultaneous label stack this compressed (e.g. a 3-note chord) no longer has room for full-size,
-        // legibly separated rows — GetAnnotationRows already dropped fingering for it (see its doc comment) to
-        // free up what room there is, and here the label font itself shrinks by the same ratio the row spacing
+        // legibly separated rows, and here the label font itself shrinks by the same ratio the row spacing
         // compressed by. Row spacing and font size shrinking together preserves the row-gap-to-text-height
         // ratio a normal (uncompressed) row already has, so rows stay just as visually separated — smaller, but
         // not more cramped relative to their own size. Mild compression (e.g. two simultaneous notes) leaves
@@ -440,15 +454,12 @@ internal static class GrandStaffSceneBuilder
                     : 1.0,
                 ScoreOnsetBeats: scoreOnsetBeats,
                 ScoreEndBeats: scoreEndBeats,
-                // Both fields are gated on annotationRows.FingeringY too (not just showFingerings/note.Fingering)
-                // so a note whose fingering GetAnnotationRows dropped for crowding (see its doc comment) reports
-                // consistently as "no fingering" rather than a text label with nowhere to draw it.
-                Fingering: !showFingerings || note.Fingering is null || annotationRows.FingeringY is null
+                // One label per set of notes sounding together on a staff, carried by its highest note (see
+                // BuildFingeringLabels); the lane above the note's staff holds it in a single row.
+                Fingering: fingeringLabels[visibleNoteIndex],
+                FingeringY: fingeringLabels[visibleNoteIndex] is null
                     ? null
-                    : GetFingeringLabel(note.Fingering.Number, note.Staff),
-                FingeringY: !showFingerings || note.Fingering is null
-                    ? null
-                    : annotationRows.FingeringY,
+                    : GetFingeringLaneY(layout.Position.Staff, note.MeasureIndex),
                 Address: visibleNoteAddresses[visibleNoteIndex],
                 ReviewMark: reviewMark,
                 ReviewMarkGroup: reviewMarkGroup));
@@ -745,6 +756,22 @@ internal static class GrandStaffSceneBuilder
         IReadOnlyList<GrandStaffNote> renderedNotes)
     {
         var slurs = new List<GrandStaffSlur>();
+        foreach (var (startIndex, stopIndex) in FindSlurSpans(notes))
+        {
+            slurs.Add(new GrandStaffSlur(
+                renderedNotes[startIndex].X,
+                renderedNotes[startIndex].Y,
+                renderedNotes[stopIndex].X,
+                renderedNotes[stopIndex].Y,
+                GetSlurCurveDirection(notes, startIndex, stopIndex, notes[startIndex].Layout.Position.Staff)));
+        }
+
+        return slurs;
+    }
+
+    private static IEnumerable<(int StartIndex, int StopIndex)> FindSlurSpans(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> notes)
+    {
         for (int startIndex = 0; startIndex < notes.Count; startIndex++)
         {
             Staff staff = notes[startIndex].Layout.Position.Staff;
@@ -759,18 +786,11 @@ internal static class GrandStaffSceneBuilder
                         continue;
                     }
 
-                    slurs.Add(new GrandStaffSlur(
-                        renderedNotes[startIndex].X,
-                        renderedNotes[startIndex].Y,
-                        renderedNotes[stopIndex].X,
-                        renderedNotes[stopIndex].Y,
-                        GetSlurCurveDirection(notes, startIndex, stopIndex, staff)));
+                    yield return (startIndex, stopIndex);
                     break;
                 }
             }
         }
-
-        return slurs;
     }
 
     /// <summary>
@@ -908,6 +928,122 @@ internal static class GrandStaffSceneBuilder
         return Math.Min(notationBottomY, numeralBottomY);
     }
 
+    /// <summary>
+    /// The highest Y a staff's own notation reaches in each measure that has a note on it — the mirror of
+    /// <see cref="GrandStaffLayout.GetNotationBottomY"/>, also counting what is drawn only above a note: a printed accidental,
+    /// an upright fermata, the stack of articulation, ornament and accidental marks, a beamed tuplet's numeral, the arc of a
+    /// slur that curves up, and an upward octave-shift guide with its numeral. A guide or slur that spans measures raises each
+    /// of them. The fingering lane of a measure starts above its own top, so one tall note does not lift the lane of the
+    /// measures around it.
+    /// </summary>
+    private static Dictionary<int, double> GetNotationTopYByMeasure(
+        Staff staff,
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> visibleNotes,
+        IReadOnlyDictionary<ScoreNote, (StemDirection Direction, double StemEndY, int BeamCount)> beamOverrides,
+        IReadOnlyList<int> keyFifthsByMeasure)
+    {
+        IReadOnlyList<float> staffLines = staff == Staff.Treble ? GrandStaffLayout.TrebleLineYs : GrandStaffLayout.BassLineYs;
+        double staffTopY = GrandStaffLayout.SeparateStaffY(staffLines[^1], staff);
+        double renderedStaffSpace = GrandStaffLayout.GetRenderedStaffSpace(staff);
+        double noteHeadHalfHeight = renderedStaffSpace * GrandStaffLayout.NoteHeadHalfHeightInStaffSpaces;
+        double accidentalHalfHeight = renderedStaffSpace * AccidentalHeightInStaffSpaces / 2;
+        double strokePadding = renderedStaffSpace * GrandStaffLayout.NotationStrokePaddingInStaffSpaces;
+        var topYByMeasure = new Dictionary<int, double>();
+
+        void Raise(int measureIndex, double y) =>
+            topYByMeasure[measureIndex] = Math.Max(topYByMeasure.GetValueOrDefault(measureIndex, staffTopY), y);
+
+        foreach (var (note, layout) in visibleNotes.Where(item => item.Layout.Position.Staff == staff))
+        {
+            int measureIndex = note.MeasureIndex;
+            double noteY = GrandStaffLayout.SeparateStaffY(layout.Position.Y, staff);
+            bool hasAccidental = PrintsAccidental(note, keyFifthsByMeasure[measureIndex]);
+            Raise(measureIndex, noteY + (hasAccidental ? accidentalHalfHeight : noteHeadHalfHeight));
+            foreach (float ledgerLineY in layout.Position.LedgerLineYs)
+            {
+                Raise(measureIndex, GrandStaffLayout.SeparateStaffY(ledgerLineY, staff));
+            }
+
+            double? stemEndY = null;
+            if (layout.HasStem)
+            {
+                stemEndY = beamOverrides.TryGetValue(note, out var beamOverride)
+                    ? beamOverride.StemEndY
+                    : GetStemEndY(note, layout, layout.StemDirection);
+                Raise(measureIndex, stemEndY.Value + strokePadding);
+            }
+
+            if (beamOverrides.TryGetValue(note, out var tupletBeam) &&
+                tupletBeam.Direction == StemDirection.Up &&
+                note.NoteValue.TupletActualNotes != note.NoteValue.TupletNormalNotes)
+            {
+                // The numeral of a beamed tuplet sits above its beam (AddTupletGlyph); the note's own stem end stands in
+                // for the beam's midpoint, which is never higher.
+                Raise(
+                    measureIndex,
+                    tupletBeam.StemEndY +
+                        ((TupletGlyphClearanceInStaffSpaces + TupletNumeralHalfHeightInStaffSpaces) * renderedStaffSpace));
+            }
+
+            if (note.Fermata == ScoreFermata.Upright)
+            {
+                double fermataY = GrandStaffLayout.GetFermataY(note.Fermata.Value, noteY, layout, stemEndY);
+                Raise(
+                    measureIndex,
+                    fermataY + (GrandStaffLayout.FermataHeightInStaffSpaces * renderedStaffSpace / 2) + strokePadding);
+            }
+
+            int stackedMarkCount = GetSetFlags(note.Articulation).Count() +
+                GetSetFlags(note.Ornament).Count() +
+                (note.AccidentalMark is null ? 0 : 1);
+            if (stackedMarkCount > 0)
+            {
+                double topMarkY = GrandStaffLayout.GetPointGlyphY(noteY, layout, stemEndY) +
+                    ((stackedMarkCount - 1) * MarkStackStepInStaffSpaces * renderedStaffSpace);
+                // The accidental mark is stacked last, and drawn at an accidental's size rather than a mark's.
+                double topMarkHalfHeight = note.AccidentalMark is null
+                    ? NotationMarkHeightInStaffSpaces * renderedStaffSpace / 2
+                    : accidentalHalfHeight;
+                Raise(measureIndex, topMarkY + topMarkHalfHeight + strokePadding);
+            }
+        }
+
+        int[] shiftedMeasures = visibleNotes
+            .Where(item => item.Layout.Position.Staff == staff && item.Note.SoundingOctavesAboveNotated > 0)
+            .Select(item => item.Note.MeasureIndex)
+            .ToArray();
+        if (shiftedMeasures.Length > 0)
+        {
+            double guideTopY = GetOctaveShiftY(staff, shift: 1) +
+                (Math.Max(OctaveShiftPeakRiseInStaffSpaces, OctaveShiftNumeralHalfHeightInStaffSpaces) * renderedStaffSpace);
+            for (int measureIndex = shiftedMeasures.Min(); measureIndex <= shiftedMeasures.Max(); measureIndex++)
+            {
+                Raise(measureIndex, guideTopY);
+            }
+        }
+
+        foreach (var (startIndex, stopIndex) in FindSlurSpans(visibleNotes))
+        {
+            if (visibleNotes[startIndex].Layout.Position.Staff != staff ||
+                GetSlurCurveDirection(visibleNotes, startIndex, stopIndex, staff) != StemDirection.Up)
+            {
+                continue;
+            }
+
+            double chordTopY = Math.Max(
+                GrandStaffLayout.SeparateStaffY(visibleNotes[startIndex].Layout.Position.Y, staff),
+                GrandStaffLayout.SeparateStaffY(visibleNotes[stopIndex].Layout.Position.Y, staff));
+            for (int measureIndex = visibleNotes[startIndex].Note.MeasureIndex;
+                 measureIndex <= visibleNotes[stopIndex].Note.MeasureIndex;
+                 measureIndex++)
+            {
+                Raise(measureIndex, chordTopY + (SlurMaximumApexInStaffSpaces * renderedStaffSpace));
+            }
+        }
+
+        return topYByMeasure;
+    }
+
     private static double GetOctaveShiftY(Staff staff, int shift)
     {
         IReadOnlyList<float> staffLineYs = staff == Staff.Treble
@@ -954,16 +1090,58 @@ internal static class GrandStaffSceneBuilder
         return bands;
     }
 
-    private static string GetFingeringLabel(int number, Staff staff)
+    /// <summary>
+    /// The fingering text each visible note draws, or <see langword="null"/> for none. Notes sounding together on one
+    /// staff share a single label, lowest pitch first with the hand letter repeated only when it changes ("R135",
+    /// "L531", "L4R3"; a finger number is one digit), carried by the highest of them: the lane above the staff is one row
+    /// tall, and stacking a chord's numbers there would grow it up off the canvas or, for the bass staff, down onto the
+    /// treble notation. Without separators a triad is about 37 px wide, narrower than the 45 px between the beats of
+    /// five measures on the smallest canvas, so a chord on every beat does not run its labels together.
+    /// </summary>
+    private static string?[] BuildFingeringLabels(
+        IReadOnlyList<(ScoreNote Note, ScoreNoteLayout Layout)> visibleNotes,
+        bool showFingerings)
     {
-        string handPrefix = staff == Staff.Treble ? RightHandFingeringPrefix : LeftHandFingeringPrefix;
-        return handPrefix + number.ToString(CultureInfo.InvariantCulture);
+        var labels = new string?[visibleNotes.Count];
+        if (!showFingerings)
+        {
+            return labels;
+        }
+
+        var chords = visibleNotes
+            .Select((item, index) => (item.Note, item.Layout, Index: index))
+            .Where(item => item.Note.Fingering is not null)
+            .GroupBy(item => (item.Note.MeasureIndex, item.Note.BeatOffset, item.Layout.Position.Staff));
+        foreach (var chord in chords)
+        {
+            var ordered = chord
+                .OrderBy(item => item.Note.Pitch.MidiNumber)
+                .ThenBy(item => item.Index)
+                .ToArray();
+            var label = new StringBuilder();
+            string? previousHandPrefix = null;
+            foreach (var item in ordered)
+            {
+                string handPrefix = item.Note.Staff == Staff.Treble ? RightHandFingeringPrefix : LeftHandFingeringPrefix;
+                if (handPrefix != previousHandPrefix)
+                {
+                    label.Append(handPrefix);
+                }
+
+                label.Append(item.Note.Fingering!.Number.ToString(CultureInfo.InvariantCulture));
+                previousHandPrefix = handPrefix;
+            }
+
+            labels[ordered[^1].Index] = label.ToString();
+        }
+
+        return labels;
     }
 
     /// <summary>
     /// True once <see cref="GrandStaffLayout.GetAnnotationRows"/> has compressed a staff's stacked label rows
-    /// (e.g. a chord) below the point where GrandStaffLayout considers each row individually legible — the
-    /// same threshold that method already used to decide whether to drop that staff's fingering row.
+    /// (e.g. a chord) below the point where GrandStaffLayout considers each row individually legible at full
+    /// size (<see cref="GrandStaffLayout.MinimumLegibleLabelRowSeparationRatio"/>), so the label font shrinks with them.
     /// </summary>
     private static bool IsLabelStackSevere(AnnotationRows annotationRows) =>
         annotationRows.LabelY is not null &&
