@@ -1202,6 +1202,22 @@ public sealed class SightReadingExerciseCoordinatorTests
     }
 
     [Fact]
+    public void GetLatestBeatShift_IsTheLatestNotesWrongBeatAndZeroOtherwise()
+    {
+        SightReadingExerciseCoordinator coordinator = CreateOnsetGradedWaitForMeCoordinator();
+        ScoreNote[] notes = coordinator.Score!.Measures[0].Notes.ToArray();
+        Assert.Equal(0, coordinator.GetLatestBeatShift());
+
+        // 120 pulses per minute: the second note belongs 500 ms after the first, but comes a whole beat later.
+        coordinator.Session.Check(notes[0].Pitch, TimeSpan.FromSeconds(37));
+        Assert.Equal(0, coordinator.GetLatestBeatShift());
+        coordinator.Session.Check(notes[1].Pitch, TimeSpan.FromSeconds(38));
+        Assert.Equal(1, coordinator.GetLatestBeatShift());
+        coordinator.Session.Check(notes[2].Pitch, TimeSpan.FromSeconds(38.5));
+        Assert.Equal(0, coordinator.GetLatestBeatShift());
+    }
+
+    [Fact]
     public void GetRecentOnsetDeviations_MoreNotesThanAskedFor_KeepsTheLatestOldestFirst()
     {
         SightReadingExerciseCoordinator coordinator = CreateOnsetGradedWaitForMeCoordinator();
@@ -2648,12 +2664,12 @@ public sealed class SightReadingExerciseCoordinatorTests
         coordinator.SetMode(NoteReadingMode.PitchAndOrder);
 
         // The first note fixes beat one wherever it lands; the next one is half a second later when played on time,
-        // so 300 ms past that is late when the beat is graded and fine when it is not.
+        // so 200 ms past that is late when the beat is graded and fine when it is not.
         ScoreNote[] notes = coordinator.Score!.Measures[0].Notes.ToArray();
         coordinator.Session.Check(notes[0].Pitch, TimeSpan.FromSeconds(7));
         NoteReadingSession.CheckResult result = coordinator.Session.Check(
             notes[1].Pitch,
-            TimeSpan.FromSeconds(7.8));
+            TimeSpan.FromSeconds(7.7));
         Assert.Equal(Verdict.Late, result.Verdict);
     }
 

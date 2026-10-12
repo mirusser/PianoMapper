@@ -2173,7 +2173,7 @@ public sealed class SightReadingExerciseComposerTests
         }
 
         onTime.Check(secondMeasureFirstNote.Pitch, TimeSpan.FromSeconds(3));
-        early.Check(secondMeasureFirstNote.Pitch, TimeSpan.FromSeconds(2));
+        early.Check(secondMeasureFirstNote.Pitch, TimeSpan.FromSeconds(2.8));
 
         NoteReadingPromptResult onTimeResult = onTime.PromptResults.First(result => result.OnsetBeats == 3);
         NoteReadingPromptResult earlyResult = early.PromptResults.First(result => result.OnsetBeats == 3);

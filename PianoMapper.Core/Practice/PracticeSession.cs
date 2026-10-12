@@ -12,6 +12,7 @@ public sealed class PracticeSession
     private readonly IReadOnlyList<ScoreEvent> expectedEvents;
     private readonly TimeSpan countInDuration;
     private readonly TimeSpan performanceDuration;
+    private readonly TimeSpan maximumPerformanceDuration;
 
     private long startTimestamp;
     private TimeSpan clockOrigin;
@@ -27,6 +28,11 @@ public sealed class PracticeSession
             ? 0
             : expectedEvents.Max(scoreEvent => scoreEvent.OnsetBeats + scoreEvent.DurationBeats);
         performanceDuration = MusicalTime.BeatsToDuration(totalBeats, score.Tempo);
+        double maximumDurationBeats = expectedEvents.Count == 0
+            ? 0
+            : expectedEvents.Max(scoreEvent => scoreEvent.OnsetBeats +
+                (scoreEvent.DurationBeats * this.gradingOptions.MaximumDurationRatio));
+        maximumPerformanceDuration = MusicalTime.BeatsToDuration(maximumDurationBeats, score.Tempo);
     }
 
     public PracticeSessionState State { get; private set; } = PracticeSessionState.Idle;
@@ -69,7 +75,7 @@ public sealed class PracticeSession
         State = PracticeSessionState.CountingIn;
     }
 
-    public void Update()
+    public void Update(IReadOnlyList<PerformedNote>? performedNotes = null)
     {
         if (State == PracticeSessionState.Idle || State == PracticeSessionState.Finished)
         {
@@ -77,7 +83,8 @@ public sealed class PracticeSession
         }
 
         TimeSpan elapsed = GetElapsedTime();
-        if (elapsed >= countInDuration + performanceDuration + gradingOptions.OnsetTolerance)
+        if (elapsed >= countInDuration + performanceDuration + gradingOptions.OnsetTolerance &&
+            CanFinish(performedNotes ?? []))
         {
             State = PracticeSessionState.Finished;
         }
@@ -111,6 +118,10 @@ public sealed class PracticeSession
     public bool IsVerdictDue(ScoreEvent expected) =>
         State == PracticeSessionState.Finished ||
         CurrentTime >= PracticeAnchor + MusicalTime.BeatsToDuration(expected.OnsetBeats, score.Tempo) + gradingOptions.OnsetTolerance;
+
+    /// <summary>The number of score entrances whose onset window has closed, for live play-along progress.</summary>
+    public int DuePromptCount => ScoreDerivation.GroupByOnset(expectedEvents)
+        .Count(prompt => prompt.All(IsVerdictDue));
 
     /// <summary>
     /// The pitches of the chord to play next: the earliest onset whose grading window has not closed yet (the same
@@ -165,4 +176,9 @@ public sealed class PracticeSession
 
     private TimeSpan GetElapsedTime() =>
         State == PracticeSessionState.Idle ? TimeSpan.Zero : timeProvider.GetElapsedTime(startTimestamp);
+
+    private bool CanFinish(IReadOnlyList<PerformedNote> performedNotes) =>
+        !gradingOptions.GradeDuration ||
+        GetElapsedTime() >= countInDuration + maximumPerformanceDuration + gradingOptions.OnsetTolerance ||
+        !GetSessionNotes(performedNotes).Any(note => note.ReleaseTime is null);
 }

@@ -12,6 +12,7 @@ namespace PianoMapper.Web.Practice;
 /// <param name="OnsetVerdict">Early or late; null when the start was fine or not graded.</param>
 /// <param name="OnsetDeviation">The signed deviation that goes with <paramref name="OnsetVerdict"/> (positive is late).</param>
 /// <param name="DurationVerdict">Too short or too long; null when the release was fine or not graded.</param>
+/// <param name="BeatShift">The wrong beat, in whole beats (positive is late); zero when the prompt was on its beat.</param>
 public sealed record ExerciseReviewLine(
     int BarNumber,
     double BeatNumber,
@@ -21,4 +22,5 @@ public sealed record ExerciseReviewLine(
     bool WasMissed,
     Verdict? OnsetVerdict,
     TimeSpan? OnsetDeviation,
-    Verdict? DurationVerdict);
+    Verdict? DurationVerdict,
+    int BeatShift = 0);

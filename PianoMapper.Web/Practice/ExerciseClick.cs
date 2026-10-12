@@ -15,9 +15,6 @@ internal sealed class ExerciseClick(BrowserMetronome metronome)
 
     internal bool IsRunning => startedGrid is not null && ReferenceEquals(metronome.Grid, startedGrid);
 
-    /// <summary>Whether this click, and not a manual metronome, is the one running on that audio-clock anchor.</summary>
-    internal bool IsRunningOn(TimeSpan anchor) => IsRunning && startedGrid!.Anchor == anchor;
-
     internal async ValueTask StartAsync(Score score, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(score);

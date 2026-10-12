@@ -12,6 +12,7 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     private int? chosenTempoPulsesPerMinute;
     private PlayAlongOutcome? playAlongOutcome;
     private TimeSpan playAlongElapsedTime;
+    private int playAlongCompletedPromptCount;
     private long? autoNextStartTimestamp;
     private NoteReadingMode runMode;
     private ExercisePacing runPacing;
@@ -247,7 +248,7 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
         RunPacing == ExercisePacing.PlayAlong ? playAlongOutcome?.VerdictCounts : null;
 
     internal int CompletedPromptCount => RunPacing == ExercisePacing.PlayAlong
-        ? PromptResults.Count(result => result.IsComplete)
+        ? playAlongOutcome?.PromptResults.Count(result => result.IsComplete) ?? playAlongCompletedPromptCount
         : session.CompletedPromptCount;
 
     internal int FirstTryCorrectCount => RunPacing == ExercisePacing.PlayAlong
@@ -301,13 +302,23 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     /// <summary>
     /// The audio-clock time beat zero of the running wait-for-me exercise is graded against, which is also where its
     /// click belongs: the learner's first correct key fixes it (that key is beat one, so reading time before it
-    /// never counts as lateness). Null until then, for modes that do not grade the beat, and for play-along, whose
-    /// practice engine owns its own clock.
+    /// never counts as lateness). It never moves afterwards, so a click started on it stays on the grid the session grades
+    /// against. Null until then, for modes that do not grade the beat, and for play-along, whose practice engine owns its
+    /// own clock.
     /// </summary>
     internal TimeSpan? RhythmAnchor =>
         Phase == SightReadingExercisePhase.Active && RunPacing == ExercisePacing.WaitForMe
             ? session.RhythmAnchor
             : null;
+
+    /// <summary>
+    /// The wrong beat of the learner's latest graded note (see <see cref="NoteReadingPromptResult.BeatShift"/>), zero
+    /// where there is none or no gauge, matching <see cref="GetRecentOnsetDeviations"/>.
+    /// </summary>
+    internal int GetLatestBeatShift() =>
+        GetRecentOnsetDeviations(count: 1) is { Count: > 0 }
+            ? session.PromptResults.Last(result => result.OnsetDeviation.HasValue).BeatShift
+            : 0;
 
     internal void SetStaff(Staff staff) => Staff = staff;
 
@@ -619,9 +630,11 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     internal int PitchFirstTryCorrectCount =>
         PromptResults.Count(result => result.IsComplete && result.IsPitchFirstTryCorrect);
 
-    /// <summary>Completed prompts with an early, late, too-short or too-long outcome.</summary>
+    /// <summary>Completed prompts with a timing error, including a missed entrance when onset is graded.</summary>
     internal int TimingMistakeCount =>
-        PromptResults.Count(result => result.IsComplete && result.HasTimingMistake);
+        PromptResults.Count(result => result.IsComplete &&
+            (result.HasTimingMistake ||
+                (RunMode.GetGradedAxes().HasFlag(GradedAxes.Onset) && result.WasMissed)));
 
     internal bool HasMissedPrompts =>
         Phase == SightReadingExercisePhase.Review &&
@@ -667,7 +680,17 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
 
         playAlongOutcome = outcome;
         playAlongElapsedTime = elapsedTime;
+        playAlongCompletedPromptCount = outcome.PromptResults.Count;
         hasConsumedCurrentCompletionSummary = false;
+    }
+
+    /// <summary>Updates the count shown while a play-along run is still scoring future entrances.</summary>
+    internal void UpdatePlayAlongProgress(int completedPromptCount)
+    {
+        if (RunPacing == ExercisePacing.PlayAlong && Phase == SightReadingExercisePhase.Active)
+        {
+            playAlongCompletedPromptCount = Math.Clamp(completedPromptCount, 0, PromptCount);
+        }
     }
 
     /// <summary>
@@ -687,6 +710,7 @@ internal sealed class SightReadingExerciseCoordinator(NoteReadingSession session
     {
         playAlongOutcome = null;
         playAlongElapsedTime = TimeSpan.Zero;
+        playAlongCompletedPromptCount = 0;
         hasConsumedCurrentCompletionSummary = false;
         autoNextStartTimestamp = null;
     }

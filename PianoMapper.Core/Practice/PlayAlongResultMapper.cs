@@ -55,14 +55,24 @@ public static class PlayAlongResultMapper
         Dictionary<Verdict, int> counts = Enum.GetValues<Verdict>().ToDictionary(verdict => verdict, _ => 0);
         foreach (GradedEvent graded in result.Events)
         {
-            Verdict verdict = !gradesDuration && graded.Verdict is Verdict.TooShort or Verdict.TooLong
-                ? Verdict.Correct
-                : graded.Verdict;
+            Verdict verdict = MapVerdict(graded.Verdict, axes);
             counts[verdict]++;
         }
 
         return counts;
     }
+
+    /// <summary>
+    /// The visible live verdict follows the same axes as a completed play-along run. The core grader retains raw
+    /// duration outcomes for every mode, but a mode that does not grade duration presents those outcomes as correct.
+    /// </summary>
+    public static Verdict MapVerdict(Verdict verdict, NoteReadingMode mode) =>
+        MapVerdict(verdict, mode.GetGradedAxes());
+
+    private static Verdict MapVerdict(Verdict verdict, GradedAxes axes) =>
+        !axes.HasFlag(GradedAxes.Duration) && verdict is Verdict.TooShort or Verdict.TooLong
+            ? Verdict.Correct
+            : verdict;
 
     private static NoteReadingPromptResult BuildPromptResult(
         int promptIndex,

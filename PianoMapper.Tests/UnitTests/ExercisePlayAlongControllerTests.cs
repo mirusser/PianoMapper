@@ -330,6 +330,45 @@ public sealed class ExercisePlayAlongControllerTests
     }
 
     [Fact]
+    public async Task UpdateAsync_PlayAlongInProgress_ReportsEntrancesThatHavePassed()
+    {
+        Fixture fixture = CreateFixture();
+        await fixture.Controller.StartAsync(Tolerance);
+        fixture.Audio.CurrentTime = fixture.Practice.PracticeAnchor + TimeSpan.FromSeconds(1.2);
+
+        await fixture.Controller.UpdateAsync();
+
+        Assert.InRange(fixture.Exercise.CompletedPromptCount, 1, fixture.Exercise.PromptCount - 1);
+        Assert.Equal(SightReadingExercisePhase.Active, fixture.Exercise.Phase);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_FinalHeldNote_WaitsForReleaseBeforeCompletingTheRun()
+    {
+        Fixture fixture = CreateFixture();
+        await fixture.Controller.StartAsync(Tolerance);
+        Score score = fixture.Exercise.Score!;
+        ScoreEvent last = ScoreDerivation.Flatten(score).Last();
+        TimeSpan start = fixture.Practice.PracticeAnchor +
+            MusicalTime.BeatsToDuration(last.OnsetBeats, score.Tempo);
+        PerformedNote held = fixture.Timeline.Start(last.Pitch, start);
+        fixture.Audio.CurrentTime = fixture.Practice.PracticeAnchor +
+            MusicalTime.BeatsToDuration(last.OnsetBeats + last.DurationBeats, score.Tempo) +
+            TimeSpan.FromMilliseconds(200);
+
+        await fixture.Controller.UpdateAsync();
+
+        Assert.Equal(PracticeSessionState.Running, fixture.Practice.State);
+        Assert.Equal(SightReadingExercisePhase.Active, fixture.Exercise.Phase);
+
+        fixture.Timeline.Complete(held, fixture.Audio.CurrentTime);
+        await fixture.Controller.UpdateAsync();
+
+        Assert.Equal(SightReadingExercisePhase.Review, fixture.Exercise.Phase);
+        Assert.Equal(Verdict.Correct, fixture.Exercise.PromptResults[^1].DurationVerdict);
+    }
+
+    [Fact]
     public async Task VisibleCursorBeats_OnceTheRunHasFinishedAndTheExerciseIsInReview_HasNoCursorLine()
     {
         // The line used to stay at the end of the score in review.

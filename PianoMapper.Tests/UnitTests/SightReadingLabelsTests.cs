@@ -455,6 +455,19 @@ public sealed class SightReadingLabelsTests
     }
 
     [Fact]
+    public void DescribeTimingBreakdown_RhythmOnlyEntry_LeavesOutPitchThatWasNotGraded()
+    {
+        SightReadingSessionSummary summary = CreateSummary() with
+        {
+            Mode = NoteReadingMode.RhythmOnly,
+            PitchFirstTryCorrectCount = 8,
+            TimingMistakeCount = 3,
+        };
+
+        Assert.Equal("3 timing mistake(s)", SightReadingLabels.DescribeTimingBreakdown(summary));
+    }
+
+    [Fact]
     public void DescribeProgressStatus_NothingWorthSaying_ReturnsNull()
     {
         ProgressStatus[] quiet =
@@ -509,6 +522,14 @@ public sealed class SightReadingLabelsTests
             6,
             2,
             []);
+
+    [Theory]
+    [InlineData(1, "a beat late")]
+    [InlineData(-1, "a beat early")]
+    [InlineData(2, "2 beats late")]
+    [InlineData(-4, "4 beats early")]
+    public void DescribeBeatShift_NamesHowManyBeatsAndWhichWay(int beatShift, string expected) =>
+        Assert.Equal(expected, SightReadingLabels.DescribeBeatShift(beatShift));
 
     [Theory]
     [InlineData(0, "0 ms")]

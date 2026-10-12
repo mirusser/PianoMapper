@@ -238,6 +238,14 @@ internal static class SightReadingLabels
     /// <summary>Whether the mode judges onset or release timing, not just pitch.</summary>
     internal static bool IsTimingGraded(NoteReadingMode mode) => mode.IsTimingGraded();
 
+    /// <summary>A wrong beat in words, e.g. "a beat late" or "3 beats early" (positive is late).</summary>
+    internal static string DescribeBeatShift(int beatShift)
+    {
+        int beats = Math.Abs(beatShift);
+        string amount = beats == 1 ? "a beat" : $"{beats} beats";
+        return $"{amount} {(beatShift > 0 ? "late" : "early")}";
+    }
+
     /// <summary>A timing offset with its sign, e.g. "+120 ms" (late) or "−85 ms" (early), rounded to whole milliseconds.</summary>
     internal static string SignedMilliseconds(TimeSpan deviation)
     {
@@ -327,14 +335,28 @@ internal static class SightReadingLabels
     {
         ArgumentNullException.ThrowIfNull(summary);
         return summary.GetTimingBreakdown() is { } breakdown
-            ? DescribeTimingBreakdown(breakdown.PitchFirstTryCorrectCount, summary.PromptCount, breakdown.TimingMistakeCount)
+            ? DescribeTimingBreakdown(
+                summary.Mode,
+                breakdown.PitchFirstTryCorrectCount,
+                summary.PromptCount,
+                breakdown.TimingMistakeCount)
             : null;
     }
 
-    internal static string DescribeTimingBreakdown(int pitchFirstTryCorrectCount, int promptCount, int timingMistakeCount) =>
-        string.Create(
-            CultureInfo.InvariantCulture,
-            $"pitch {pitchFirstTryCorrectCount} of {promptCount} first-try{Separator}{timingMistakeCount} timing mistake(s)");
+    internal static string DescribeTimingBreakdown(
+        NoteReadingMode mode,
+        int pitchFirstTryCorrectCount,
+        int promptCount,
+        int timingMistakeCount)
+    {
+        GradedAxes axes = mode.GetGradedAxes();
+        string timing = string.Create(CultureInfo.InvariantCulture, $"{timingMistakeCount} timing mistake(s)");
+        return axes.HasFlag(GradedAxes.Pitch)
+            ? string.Create(
+                CultureInfo.InvariantCulture,
+                $"pitch {pitchFirstTryCorrectCount} of {promptCount} first-try{Separator}{timing}")
+            : timing;
+    }
 
     /// <summary>
     /// The line the Progress panel shows about where the history is kept, or <see langword="null"/> when there is

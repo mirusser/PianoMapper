@@ -227,6 +227,23 @@ public sealed class ExerciseReviewBuilderTests
         Assert.Contains("85 ms", text);
     }
 
+    [Fact]
+    public void Describe_AWrongBeat_SaysHowManyBeatsAndWhichWayInsteadOfMilliseconds()
+    {
+        NoteReadingPromptResult slipped = Result(1, measureIndex: 0, beatOffset: 2, C4) with
+        {
+            IsFirstTryCorrect = false,
+            OnsetVerdict = Verdict.Early,
+            OnsetDeviation = TimeSpan.FromMilliseconds(12),
+            BeatShift = -1,
+        };
+
+        ExerciseReviewLine line = Assert.Single(ExerciseReviewBuilder.Build([slipped], FourFour).Lines);
+
+        Assert.Equal(-1, line.BeatShift);
+        Assert.Equal("Bar 1 · beat 3 — expected C4 · a beat early", ExerciseReviewBuilder.Describe(line));
+    }
+
     private static readonly TimeSignature FourFour = new(4, new NoteValue(4));
 
     private static ScoreNote Note(Pitch pitch, int measureIndex, double beatOffset) =>

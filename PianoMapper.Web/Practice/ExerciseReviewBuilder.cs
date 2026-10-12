@@ -49,7 +49,11 @@ internal static class ExerciseReviewBuilder
             findings.Add($"expected {expected}");
         }
 
-        if (line.OnsetVerdict is Verdict.Early or Verdict.Late && line.OnsetDeviation is { } deviation)
+        if (line.BeatShift != 0)
+        {
+            findings.Add(SightReadingLabels.DescribeBeatShift(line.BeatShift));
+        }
+        else if (line.OnsetVerdict is Verdict.Early or Verdict.Late && line.OnsetDeviation is { } deviation)
         {
             int milliseconds = (int)Math.Round(Math.Abs(deviation.TotalMilliseconds), MidpointRounding.AwayFromZero);
             findings.Add(string.Create(
@@ -88,7 +92,8 @@ internal static class ExerciseReviewBuilder
             result.WasMissed,
             hasTimingMistake ? result.OnsetVerdict : null,
             hasTimingMistake ? result.OnsetDeviation : null,
-            result.DurationVerdict is Verdict.TooShort or Verdict.TooLong ? result.DurationVerdict : null);
+            result.DurationVerdict is Verdict.TooShort or Verdict.TooLong ? result.DurationVerdict : null,
+            hasTimingMistake ? result.BeatShift : 0);
     }
 
     private static Pitch NearestExpected(IReadOnlyList<Pitch> expectedPitches, Pitch played) =>

@@ -743,7 +743,11 @@
 
     private TimingGaugeState? TimingGauge =>
         sightReadingExerciseCoordinator.GetRecentOnsetDeviations(TimingGaugeState.RecentNoteCount) is { } deviations
-            ? new TimingGaugeState(deviations, onTimeTolerance, ExerciseClick.IsRunning)
+            ? new TimingGaugeState(
+                deviations,
+                onTimeTolerance,
+                ExerciseClick.IsRunning,
+                sightReadingExerciseCoordinator.GetLatestBeatShift())
             : null;
 
     private SightReadingExercisePresentation ExercisePresentation => new()
@@ -763,6 +767,7 @@
         TempoPulsesPerMinute = sightReadingExerciseCoordinator.TempoPulsesPerMinute,
         IsRhythmPresetLocked = sightReadingExerciseCoordinator.IsRhythmPresetLocked,
         Pacing = sightReadingExerciseCoordinator.EffectivePacing,
+        RunPacing = sightReadingExerciseCoordinator.RunPacing,
         IsPacingAvailable = sightReadingExerciseCoordinator.IsOnsetGraded,
         IsPitchSetupIgnored = sightReadingExerciseCoordinator.IsPitchSetupIgnored,
         RevealNoteNamesWhileActive = sightReadingExerciseCoordinator.RevealNoteNamesWhileActive,
@@ -783,7 +788,6 @@
         IsClickRunning = ExerciseClick.IsRunning,
         ReviewMistakes = sightReadingExerciseCoordinator.ReviewMistakes,
         PlayAlongVerdictCounts = sightReadingExerciseCoordinator.PlayAlongVerdictCounts,
-        TempoFeedback = tempoFeedbackTracker,
         IsActive = sightReadingExerciseCoordinator.IsActive,
         IsComplete = sightReadingExerciseCoordinator.Phase != SightReadingExercisePhase.Active,
         HasMissedPrompts = sightReadingExerciseCoordinator.HasMissedPrompts,
@@ -1958,15 +1962,16 @@
     }
 
     /// <summary>
-    /// Starts the exercise click on the beat the learner's first correct key anchored, and moves it when the session
-    /// restarts the beat after a long pause. Its grid is the very anchor the session grades against, so the click and
-    /// the grading can never disagree; clicks that are already in the past when the click starts are skipped by the
-    /// scheduler.
+    /// Starts the exercise click, once, on the beat the learner's first correct key anchored, and never moves it
+    /// afterwards: the session's anchor does not move either, it grades each key against the pulse of that same grid
+    /// nearest to the key, so the click and the grading are one grid however far off the beat the learner plays. Clicks
+    /// that are already in the past when the click starts are skipped by the scheduler, except the first beat if it is
+    /// only a few milliseconds past.
     /// </summary>
     private async Task StartExerciseClickOnRhythmAnchorAsync()
     {
         if (sightReadingExerciseCoordinator is { ShouldClickSound: true, RhythmAnchor: { } anchor, Score: { } score } &&
-            !ExerciseClick.IsRunningOn(anchor))
+            !ExerciseClick.IsRunning)
         {
             await ExerciseClick.StartAsync(score, anchor);
         }
@@ -2005,7 +2010,7 @@
         bool shouldRender = RefreshCanvasScene(
             practiceCoordinator.CurrentTime,
             playAlongController.VisibleCursorBeats,
-            practiceCoordinator.GetVisibleVerdicts());
+            practiceCoordinator.GetVisibleVerdicts(sightReadingExerciseCoordinator.RunMode));
         audioStatus = playAlongController.State switch
         {
             PracticeSessionState.CountingIn => "Play-along count-in.",
@@ -3424,7 +3429,7 @@
         IReadOnlyDictionary<ScoreNote, Verdict>? effectiveVerdicts = verdicts ??
             (isIdleNoteCheckingActive
                 ? noteReadingSession.Verdicts
-                : isPlayAlongReview ? practiceCoordinator.GetVisibleVerdicts() : null);
+                : isPlayAlongReview ? practiceCoordinator.GetVisibleVerdicts(sightReadingExerciseCoordinator.RunMode) : null);
         if (isPlayAlongReview && effectiveVerdicts is not null)
         {
             // A clean note is green here too, as in Wait for me (the engine's own verdicts also judge holds).
@@ -3632,7 +3637,10 @@
         if (ActiveNoteReadingMode.GetGradedAxes().HasFlag(GradedAxes.Onset) &&
             result.Verdict is Verdict.Early or Verdict.Late)
         {
-            return $"Right pitch, but {result.Verdict.ToString()!.ToLowerInvariant()}. Continue with the highlighted notes.";
+            string timing = result.BeatShift != 0
+                ? SightReadingLabels.DescribeBeatShift(result.BeatShift)
+                : result.Verdict.ToString()!.ToLowerInvariant();
+            return $"Right pitch, but {timing}. Continue with the highlighted notes.";
         }
 
         if (ActiveNoteReadingMode.GetGradedAxes().HasFlag(GradedAxes.Duration))

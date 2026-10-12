@@ -48,6 +48,14 @@ public sealed record NoteReadingPromptResult(
     public TimeSpan? OnsetDeviation { get; init; }
 
     /// <summary>
+    /// The wrong beat, if any: how many whole beats this prompt moved against the previous one's distance from its
+    /// written place (positive is late, negative early; zero is the normal case). Beats are felt pulses: dotted quarters
+    /// in compound eighth-note meter. <see cref="OnsetDeviation"/> is the offset from the nearest equivalent position
+    /// within a pulse, preserving the note's written subdivision; it can be small even for a wrong beat.
+    /// </summary>
+    public int BeatShift { get; init; }
+
+    /// <summary>
     /// Whether the learner never played this prompt (a time-driven run moved past it). A pitch-gated run waits, so
     /// this is always false there.
     /// </summary>

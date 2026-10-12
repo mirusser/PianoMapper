@@ -54,6 +54,7 @@ internal sealed class ExercisePlayAlongController(
         {
             OnTimeTolerance = onTimeTolerance,
             IgnorePitch = exercise.RunMode == NoteReadingMode.RhythmOnly,
+            GradeDuration = exercise.RunMode.GetGradedAxes().HasFlag(GradedAxes.Duration),
         };
         hasCompletedRun = false;
         await practice.StartAsync(score, gradingOptions, cancellationToken);
@@ -70,6 +71,7 @@ internal sealed class ExercisePlayAlongController(
     {
         PracticeSessionState stateBeforeUpdate = practice.State;
         await practice.UpdateAsync(cancellationToken);
+        exercise.UpdatePlayAlongProgress(practice.DuePromptCount);
         if (stateBeforeUpdate == PracticeSessionState.CountingIn &&
             practice.State == PracticeSessionState.Running &&
             !exercise.ClickWhilePlaying)

@@ -237,6 +237,85 @@ test("metronome pulse marks every beat indicator on the page and clears them tog
     }
 });
 
+test("compound metronome counts felt beats separately from subdivisions and emphasizes both pulses", async () => {
+    const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const originalFetch = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const indicator = createFakeIndicator();
+    const label = { textContent: "" };
+    const current = { textContent: "" };
+    const total = { textContent: "" };
+    const timers = [];
+    Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: {
+            cookie: "",
+            querySelectorAll: selector => ({
+                "[data-metronome-pulse]": [indicator],
+                "[data-metronome-beat]": [label],
+                "[data-metronome-beat-current]": [current],
+                "[data-metronome-beat-total]": [total],
+            })[selector] ?? [],
+        },
+    });
+    Object.defineProperty(globalThis, "fetch", {
+        configurable: true,
+        value: () => Promise.resolve({ ok: true, arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)) }),
+    });
+    Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: {
+            AudioContext: FakeAudioContext,
+            clearInterval() {},
+            clearTimeout() {},
+            setInterval: () => 1,
+            setTimeout(callback) {
+                timers.push(callback);
+                return timers.length;
+            },
+        },
+    });
+
+    try {
+        await initialize();
+        for (const beatsPerMeasure of [6, 9, 12]) {
+            timers.length = 0;
+            const groupStarts = Array.from({ length: beatsPerMeasure / 3 }, (_, index) => index * 3);
+            startMetronome(2, 0.005, beatsPerMeasure, groupStarts);
+            const pulseTimers = timers.slice(0, beatsPerMeasure * 2);
+            assert.equal(pulseTimers.length, beatsPerMeasure * 2);
+            for (const [index, pulse] of pulseTimers.entries()) {
+                pulse();
+                const eighth = index % beatsPerMeasure;
+                const beat = Math.floor(eighth / 3) + 1;
+                assert.equal(label.textContent,
+                    `Beat ${beat} of ${beatsPerMeasure / 3} · subdivision ${eighth % 3 + 1} of 3`);
+                assert.equal(current.textContent, beat);
+                assert.equal(total.textContent, beatsPerMeasure / 3);
+                assert.equal(indicator.classes.has("metronome-pulse-downbeat"), eighth === 0);
+                assert.equal(indicator.classes.has("metronome-pulse-group"), eighth > 0 && eighth % 3 === 0);
+                assert.equal(indicator.styles.get("--metronome-beat-progress"), `${beat / (beatsPerMeasure / 3)}`);
+            }
+            stopMetronome();
+            assert.equal(indicator.classes.size, 0);
+        }
+
+        timers.length = 0;
+        startMetronome(2, 0.01, 5, [0, 2]);
+        const irregularLabels = timers.slice(0, 5).map(pulse => {
+            pulse();
+            return label.textContent;
+        });
+        assert.deepEqual(irregularLabels, ["Beat 1 of 2", "Beat 2 of 2", "Beat 1 of 3", "Beat 2 of 3", "Beat 3 of 3"]);
+    } finally {
+        stopMetronome();
+        await disposeAudio();
+        restoreProperty("document", originalDocument);
+        restoreProperty("fetch", originalFetch);
+        restoreProperty("window", originalWindow);
+    }
+});
+
 test("metronome accents the downbeat strongest and each beat group start in 6/8 only", async () => {
     const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
     const originalFetch = Object.getOwnPropertyDescriptor(globalThis, "fetch");
@@ -315,6 +394,58 @@ test("metronome accents the downbeat strongest and each beat group start in 6/8 
 
         assert.equal(liveSoundClick.type, "triangle");
         assert.equal(liveSoundClick.peakGain, 0.165);
+    } finally {
+        stopMetronome();
+        await disposeAudio();
+        restoreProperty("document", originalDocument);
+        restoreProperty("fetch", originalFetch);
+        restoreProperty("window", originalWindow);
+    }
+});
+
+test("metronome started a few milliseconds after its anchor still sounds the anchor beat, but skips one long past", async () => {
+    const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const originalFetch = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: { cookie: "", querySelector: () => null, querySelectorAll: () => [] },
+    });
+    Object.defineProperty(globalThis, "fetch", {
+        configurable: true,
+        value: () => Promise.resolve({
+            ok: true,
+            arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+        }),
+    });
+    Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: {
+            AudioContext: FakeAudioContext,
+            clearInterval() {},
+            clearTimeout() {},
+            setInterval: () => 1,
+            setTimeout: () => 1,
+        },
+    });
+
+    try {
+        await initialize();
+
+        // The exercise click starts on the learner's first key, which is already a few milliseconds in the past
+        // by the time the click is requested: the downbeat still has to sound with that key.
+        createdClicks.length = 0;
+        startMetronome(1.99, 0.5, 4);
+        const justMissedDownbeat = createdClicks.map(click => click.frequency);
+        stopMetronome();
+
+        createdClicks.length = 0;
+        startMetronome(1.9, 0.5, 4);
+        const longMissedDownbeat = createdClicks.map(click => click.frequency);
+        stopMetronome();
+
+        assert.deepEqual(justMissedDownbeat, [1760]);
+        assert.deepEqual(longMissedDownbeat, []);
     } finally {
         stopMetronome();
         await disposeAudio();

@@ -72,6 +72,43 @@ public sealed class PracticeSessionTests
     }
 
     [Fact]
+    public void Update_FinalDurationGradedNoteHeldBeyondTheWrittenEnd_WaitsForReleaseBeforeFinishing()
+    {
+        var time = new FakeTimeProvider();
+        var session = new PracticeSession(CreateScore(), time);
+        session.Start(TimeSpan.Zero);
+        var heldNote = new PerformedNote
+        {
+            Pitch = new Pitch(NoteLetter.C, 0, 4),
+            StartTime = TimeSpan.FromSeconds(4),
+        };
+
+        time.Advance(TimeSpan.FromSeconds(5.2));
+        session.Update([heldNote]);
+
+        Assert.Equal(PracticeSessionState.Running, session.State);
+
+        heldNote.ReleaseTime = TimeSpan.FromSeconds(5.2);
+        session.Update([heldNote]);
+
+        Assert.Equal(PracticeSessionState.Finished, session.State);
+        Assert.Equal(Verdict.Correct, Assert.Single(session.Grade([heldNote]).Events).Verdict);
+    }
+
+    [Fact]
+    public void DuePromptCount_OnsetWindowsClose_ReturnsThePassedEntrances()
+    {
+        var time = new FakeTimeProvider();
+        var session = new PracticeSession(CreateMelodyScore(), time);
+        session.Start(TimeSpan.Zero);
+
+        time.Advance(TimeSpan.FromMilliseconds(5200));
+        session.Update();
+
+        Assert.Equal(2, session.DuePromptCount);
+    }
+
+    [Fact]
     public void IsVerdictDue_OnsetWindowCloses_ReturnsTrue()
     {
         var time = new FakeTimeProvider();

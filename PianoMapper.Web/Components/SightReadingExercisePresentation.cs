@@ -41,6 +41,9 @@ public sealed record SightReadingExercisePresentation
 
     public required ExercisePacing Pacing { get; init; }
 
+    /// <summary>The pacing fixed for the exercise on screen, which can differ from the next-run setting.</summary>
+    public required ExercisePacing RunPacing { get; init; }
+
     public required bool IsPacingAvailable { get; init; }
 
     public required bool IsPitchSetupIgnored { get; init; }
@@ -84,8 +87,6 @@ public sealed record SightReadingExercisePresentation
     public required ExerciseReview? ReviewMistakes { get; init; }
 
     public required IReadOnlyDictionary<Verdict, int>? PlayAlongVerdictCounts { get; init; }
-
-    public required TempoFeedbackTracker TempoFeedback { get; init; }
 
     public required bool IsActive { get; init; }
 

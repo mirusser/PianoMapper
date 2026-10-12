@@ -37,6 +37,41 @@ public sealed class TimingGaugeStateTests
     public void Describe_NamesTheOffsetAndItsDirection(double milliseconds, string expected) =>
         Assert.Equal(expected, GaugeWith().Describe(TimeSpan.FromMilliseconds(milliseconds)));
 
+    [Theory]
+    [InlineData(0, -1, Verdict.Early)]
+    [InlineData(0, 1, Verdict.Late)]
+    [InlineData(-200, 3, Verdict.Late)]
+    [InlineData(200, -2, Verdict.Early)]
+    public void Classify_AWrongBeatIsEarlyOrLateByItsDirectionWhateverTheOffsetFromThePulse(
+        double milliseconds,
+        int beatShift,
+        Verdict expected) =>
+        Assert.Equal(expected, GaugeWith().Classify(TimeSpan.FromMilliseconds(milliseconds), beatShift));
+
+    [Theory]
+    [InlineData(0, 1, "a beat late")]
+    [InlineData(20, -1, "a beat early")]
+    [InlineData(0, 3, "3 beats late")]
+    [InlineData(-85, -2, "2 beats early · −85 ms")]
+    [InlineData(120, 1, "a beat late · +120 ms")]
+    public void Describe_AWrongBeatNamesTheBeatsAndOnlyAddsAnOffsetThatIsOffThePulse(
+        double milliseconds,
+        int beatShift,
+        string expected) =>
+        Assert.Equal(expected, GaugeWith().Describe(TimeSpan.FromMilliseconds(milliseconds), beatShift));
+
+    [Fact]
+    public void LatestVerdictAndDescription_FollowTheLatestNotesBeatShift()
+    {
+        TimingGaugeState gauge = new([TimeSpan.FromMilliseconds(10)], Tolerance, LatestBeatShift: -1);
+
+        Assert.Equal(Verdict.Early, gauge.LatestVerdict);
+        Assert.Equal("a beat early", gauge.DescribeLatest());
+        Assert.Null(GaugeWith().LatestVerdict);
+        Assert.Null(GaugeWith().DescribeLatest());
+        Assert.Equal("On time", GaugeWith(TimeSpan.FromMilliseconds(5)).DescribeLatest());
+    }
+
     [Fact]
     public void OnTimeHalfWidth_IsTheToleranceAsAFractionOfTheScale()
     {

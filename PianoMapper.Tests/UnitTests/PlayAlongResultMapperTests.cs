@@ -161,6 +161,18 @@ public sealed class PlayAlongResultMapperTests
         Assert.Equal(1, graded.VerdictCounts[Verdict.TooLong]);
     }
 
+    [Theory]
+    [InlineData(NoteReadingMode.PitchAndRhythm, Verdict.TooShort, Verdict.Correct)]
+    [InlineData(NoteReadingMode.RhythmOnly, Verdict.TooLong, Verdict.Correct)]
+    [InlineData(NoteReadingMode.PitchHoldAndRhythm, Verdict.TooShort, Verdict.TooShort)]
+    public void MapVerdict_ModeDoesNotGradeDuration_HidesRawDurationVerdict(
+        NoteReadingMode mode,
+        Verdict rawVerdict,
+        Verdict expectedVerdict)
+    {
+        Assert.Equal(expectedVerdict, PlayAlongResultMapper.MapVerdict(rawVerdict, mode));
+    }
+
     [Fact]
     public void Map_UnmatchedNotes_AreCountedAsExtraAtSessionLevel()
     {

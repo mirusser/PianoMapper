@@ -16,13 +16,6 @@ public sealed class NoteReadingSession
     /// </summary>
     private const double ReleaseToleranceRatio = 0.25;
 
-    /// <summary>
-    /// How many beats off its expected onset a key can land and still be early or late. Further than that the learner
-    /// stopped (or lost the beat) rather than played the note off the beat, so the key restarts the beat instead of
-    /// being graded against a grid it can no longer follow: "13 s late" says nothing about timing.
-    /// </summary>
-    private const double LostBeatLimitBeats = 2;
-
     private readonly TimeProvider timeProvider;
     private readonly HashSet<int> matchedMidiNumbers = [];
     private readonly Dictionary<int, HoldAttempt> activeHolds = [];
@@ -33,10 +26,12 @@ public sealed class NoteReadingSession
     private IReadOnlySet<ScoreNote> expectedNotes = new HashSet<ScoreNote>();
     private IReadOnlyList<NoteReadingPromptResult> promptResults = [];
     private Tempo? tempo;
+    private int beatsPerPulse = 1;
     private NoteReadingMode mode = NoteReadingMode.PitchAndOrder;
     private GradedAxes gradedAxes = GradedAxes.Pitch;
     private TimeSpan timingTolerance = DefaultTimingTolerance;
     private TimeSpan? rhythmAnchor;
+    private long runningBeatOffset;
     private long startTimestamp;
     private long? firstAttemptTimestamp;
     private TimeSpan completedElapsedTime;
@@ -58,8 +53,9 @@ public sealed class NoteReadingSession
     /// <summary>
     /// The audio-clock time beat zero of the score is graded against: the explicit anchor given to <c>Reset</c>, or,
     /// without one, the moment the first correct attack of an onset-graded mode fixed it (that note's own time minus
-    /// its onset). Null until then, and for modes that do not grade onset unless an explicit anchor was given. A key
-    /// further than <see cref="LostBeatLimitBeats"/> off the grid moves it: that key becomes the beat it was played on.
+    /// its onset). Null until then, and for modes that do not grade onset unless an explicit anchor was given. It never
+    /// moves afterwards: a key is graded against the pulse of this grid nearest to where its note belongs, so a click
+    /// started on the anchor and the grading stay one grid however far off the beat the learner plays.
     /// </summary>
     public TimeSpan? RhythmAnchor => rhythmAnchor;
 
@@ -123,7 +119,11 @@ public sealed class NoteReadingSession
         gradedAxes = noteReadingMode.GetGradedAxes();
         timingTolerance = noteTimingTolerance;
         tempo = score?.Tempo;
+        beatsPerPulse = score is null
+            ? 1
+            : new MetronomeGrid(TimeSpan.Zero, score.Tempo, score.TimeSignature).BeatsPerGroup;
         rhythmAnchor = explicitRhythmAnchor;
+        runningBeatOffset = 0;
         steps = BuildSteps(score);
         mutableVerdicts.Clear();
         PublishVerdicts();
@@ -201,10 +201,10 @@ public sealed class NoteReadingSession
             mutableVerdicts.Remove(matchedNote);
         }
 
-        (Verdict onsetVerdict, TimeSpan onsetDeviation) = ClassifyOnset(step, eventTime);
+        (Verdict onsetVerdict, TimeSpan onsetDeviation, int beatShift) = ClassifyOnset(step, eventTime);
         if (GradesOnset)
         {
-            step.RecordOnset(onsetVerdict, onsetDeviation);
+            step.RecordOnset(onsetVerdict, onsetDeviation, beatShift);
         }
 
         if (onsetVerdict != Verdict.Correct)
@@ -253,6 +253,7 @@ public sealed class NoteReadingSession
             IsComplete: IsComplete)
         {
             Verdict = onsetVerdict,
+            BeatShift = beatShift,
         };
     }
 
@@ -364,28 +365,40 @@ public sealed class NoteReadingSession
     private TimeSpan GetFairElapsedTime() =>
         firstAttemptTimestamp is null ? TimeSpan.Zero : timeProvider.GetElapsedTime(firstAttemptTimestamp.Value);
 
-    private (Verdict Verdict, TimeSpan Deviation) ClassifyOnset(Step step, TimeSpan eventTime)
+    private (Verdict Verdict, TimeSpan Deviation, int BeatShift) ClassifyOnset(Step step, TimeSpan eventTime)
     {
         if (!GradesOnset || tempo is not { } scoreTempo)
         {
-            return (Verdict.Correct, TimeSpan.Zero);
+            return (Verdict.Correct, TimeSpan.Zero, 0);
         }
 
         TimeSpan onsetOffset = MusicalTime.BeatsToDuration(step.OnsetBeats, scoreTempo);
         rhythmAnchor ??= eventTime - onsetOffset;
+        // The key is read against the pulse nearest to where its note belongs, not against its place in the whole
+        // score: a learner a beat or three behind is "200 ms after a click", not "3.2 s late", and the grid the click
+        // was started on never has to move. In compound meter, equivalent positions repeat every dotted-quarter
+        // pulse, not every eighth-note click: a note must keep its written subdivision within that pulse.
+        TimeSpan pulseDuration = MusicalTime.BeatsToDuration(beatsPerPulse, scoreTempo);
         TimeSpan deviation = eventTime - (rhythmAnchor.Value + onsetOffset);
-        if (deviation.Duration() > MusicalTime.BeatsToDuration(LostBeatLimitBeats, scoreTempo))
+        long wholeBeats = (long)Math.Round((double)deviation.Ticks / pulseDuration.Ticks, MidpointRounding.AwayFromZero);
+        deviation -= TimeSpan.FromTicks(wholeBeats * pulseDuration.Ticks);
+
+        // A wrong beat: the key landed a different whole number of beats from its written place than the key before it
+        // did (a held note cut short, a skipped beat, a pause). A learner who simply stays a beat behind is marked once,
+        // where they slipped, not on every note after it.
+        int beatShift = checked((int)(wholeBeats - runningBeatOffset));
+        runningBeatOffset = wholeBeats;
+        if (beatShift != 0)
         {
-            rhythmAnchor = eventTime - onsetOffset;
-            return (Verdict.Correct, TimeSpan.Zero);
+            return (beatShift < 0 ? Verdict.Early : Verdict.Late, deviation, beatShift);
         }
 
         if (deviation < -timingTolerance)
         {
-            return (Verdict.Early, deviation);
+            return (Verdict.Early, deviation, 0);
         }
 
-        return (deviation > timingTolerance ? Verdict.Late : Verdict.Correct, deviation);
+        return (deviation > timingTolerance ? Verdict.Late : Verdict.Correct, deviation, 0);
     }
 
     private void RecordFirstCorrectAttack(Step step, TimeSpan eventTime)
@@ -563,6 +576,7 @@ public sealed class NoteReadingSession
                 OnsetVerdict = step.OnsetVerdict,
                 DurationVerdict = step.DurationVerdict,
                 OnsetDeviation = step.OnsetDeviation,
+                BeatShift = step.BeatShift,
                 ResponseTime = step.ResponseTime,
             });
         }
@@ -643,6 +657,13 @@ public sealed class NoteReadingSession
         bool IsComplete)
     {
         public Verdict? Verdict { get; init; }
+
+        /// <summary>
+        /// How many whole beats this key moved against the previous key's distance from its written place (positive is
+        /// late): non-zero is a wrong beat. Beats are felt pulses (dotted quarters in compound eighth-note meter),
+        /// not the score's denominator units. Zero when onset is not graded.
+        /// </summary>
+        public int BeatShift { get; init; }
     }
 
     public readonly record struct ReleaseResult(bool WasTracked, Verdict? Verdict, bool IsComplete)
@@ -668,22 +689,32 @@ public sealed class NoteReadingSession
 
         public TimeSpan? OnsetDeviation { get; private set; }
 
+        public int BeatShift { get; private set; }
+
         public Verdict? DurationVerdict { get; private set; }
 
         public TimeSpan? FirstCorrectAttackAt { get; set; }
 
         public TimeSpan? ResponseTime { get; set; }
 
-        /// <summary>Keeps the onset with the largest deviation, so a chord reports its worst key.</summary>
-        public void RecordOnset(Verdict verdict, TimeSpan deviation)
+        /// <summary>
+        /// Keeps the onset with the largest beat shift, then the largest deviation, so a chord reports its worst key.
+        /// </summary>
+        public void RecordOnset(Verdict verdict, TimeSpan deviation, int beatShift)
         {
-            if (OnsetDeviation is { } current && current.Duration() >= deviation.Duration())
+            if (OnsetDeviation is { } current)
             {
-                return;
+                int currentShift = Math.Abs(BeatShift);
+                int shift = Math.Abs(beatShift);
+                if (currentShift > shift || (currentShift == shift && current.Duration() >= deviation.Duration()))
+                {
+                    return;
+                }
             }
 
             OnsetVerdict = verdict;
             OnsetDeviation = deviation;
+            BeatShift = beatShift;
         }
 
         /// <summary>Keeps the first duration mistake, otherwise <see cref="Verdict.Correct"/>.</summary>

@@ -45,6 +45,9 @@ const minimumEnvelopeGain = 0.0001;
 const metronomeLookaheadSeconds = 0.2;
 const metronomeSchedulerIntervalMilliseconds = 25;
 const metronomeClickDurationSeconds = 0.04;
+// A click may start this late and still sound its first beat (immediately) instead of skipping it: an exercise starts
+// its click on the learner's first key, which is already a few milliseconds in the past by the time it is requested.
+const metronomeStartGraceSeconds = 0.05;
 // A click sent to the FP-10 is handed to the MIDI port this long before it is due: late enough that stopping the
 // metronome still cancels it, early enough that the port's own timestamp, not this page's timers, sets the beat.
 const metronomeMidiLeadMilliseconds = 40;
@@ -266,10 +269,10 @@ export function startMetronome(
     metronomeTimbre = timbre === "triangle" ? "triangle" : "sine";
     nextMetronomeBeatIndex = Math.max(
         0,
-        Math.ceil((audioContext.currentTime - anchorSeconds) / secondsPerBeat));
-    scheduleMetronomeClicks();
+        Math.ceil((audioContext.currentTime - metronomeStartGraceSeconds - anchorSeconds) / secondsPerBeat));
+    scheduleMetronomeClicks(metronomeStartGraceSeconds);
     metronomeInterval = window.setInterval(
-        scheduleMetronomeClicks,
+        () => scheduleMetronomeClicks(),
         metronomeSchedulerIntervalMilliseconds);
 }
 
@@ -302,14 +305,14 @@ export function stopMetronome() {
     clearMetronomePulse();
 }
 
-function scheduleMetronomeClicks() {
+function scheduleMetronomeClicks(lateGraceSeconds = 0) {
     if (!audioContext || audioContext.state !== "running") {
         return;
     }
 
     const firstUnsoundedBeatIndex = Math.max(
         0,
-        Math.ceil((audioContext.currentTime - metronomeAnchorSeconds) / metronomeSecondsPerBeat));
+        Math.ceil((audioContext.currentTime - lateGraceSeconds - metronomeAnchorSeconds) / metronomeSecondsPerBeat));
     nextMetronomeBeatIndex = Math.max(nextMetronomeBeatIndex, firstUnsoundedBeatIndex);
     const scheduleUntil = audioContext.currentTime + metronomeLookaheadSeconds;
     while (true) {
@@ -339,7 +342,7 @@ function scheduleMetronomeClick(startTime, isDownbeat, isGroupStart = false, bea
     const click = { pulseTimer: undefined, pulseClearTimer: undefined };
     scheduledMetronomeClicks.add(click);
     click.pulseTimer = window.setTimeout(
-        () => pulseMetronome(click, isDownbeat, beatIndex),
+        () => pulseMetronome(click, isDownbeat, isGroupStart, beatIndex),
         Math.max(0, (startTime - audioContext.currentTime) * 1000));
 
     // With the FP-10's own sound selected the click belongs on the FP-10 too, next to the notes it plays.
@@ -394,7 +397,7 @@ function scheduleExternalMidiClick(click, startTime, frequency, peakGain) {
         delayMilliseconds + (metronomeClickDurationSeconds * 1000));
 }
 
-function pulseMetronome(click, isDownbeat, beatIndex) {
+function pulseMetronome(click, isDownbeat, isGroupStart, beatIndex) {
     // The beat indicator can be on the page twice (the Timing card and the exercise panel): update them together.
     const pulses = document.querySelectorAll("[data-metronome-pulse]");
     if (pulses.length === 0) {
@@ -403,12 +406,14 @@ function pulseMetronome(click, isDownbeat, beatIndex) {
 
     for (const pulse of pulses) {
         pulse.classList.toggle("metronome-pulse-downbeat", isDownbeat);
+        pulse.classList.toggle("metronome-pulse-group", isGroupStart);
         pulse.classList.add("metronome-pulse-active");
     }
 
     const beatDetails = getMetronomeBeat(beatIndex);
     for (const label of document.querySelectorAll("[data-metronome-beat]")) {
-        label.textContent = `Beat ${beatDetails.current} of ${beatDetails.total}`;
+        label.textContent = `Beat ${beatDetails.current} of ${beatDetails.total}` +
+            (beatDetails.subdivision ? ` · subdivision ${beatDetails.subdivision} of 3` : "");
     }
 
     for (const current of document.querySelectorAll("[data-metronome-beat-current]")) {
@@ -430,12 +435,25 @@ function pulseMetronome(click, isDownbeat, beatIndex) {
 
 function clearMetronomePulse() {
     for (const pulse of document.querySelectorAll("[data-metronome-pulse]")) {
-        pulse.classList.remove("metronome-pulse-active", "metronome-pulse-downbeat");
+        pulse.classList.remove("metronome-pulse-active", "metronome-pulse-downbeat", "metronome-pulse-group");
     }
 }
 
 function getMetronomeBeat(beatIndex) {
     const beatInMeasure = beatIndex % metronomeBeatsPerMeasure;
+    // Compound meters have two or more complete groups of three eighths. Keep the felt beat distinct from
+    // its subdivisions; simple and irregular meters retain their existing group counts.
+    const isCompound = metronomeGroupStartBeatIndices.length > 1 &&
+        metronomeBeatsPerMeasure === metronomeGroupStartBeatIndices.length * 3 &&
+        metronomeGroupStartBeatIndices.every((start, index) => start === index * 3);
+    if (isCompound) {
+        return {
+            current: Math.floor(beatInMeasure / 3) + 1,
+            total: metronomeGroupStartBeatIndices.length,
+            subdivision: beatInMeasure % 3 + 1,
+        };
+    }
+
     let groupStart = 0;
     let nextGroupStart = metronomeBeatsPerMeasure;
     for (let index = 0; index < metronomeGroupStartBeatIndices.length; index++) {

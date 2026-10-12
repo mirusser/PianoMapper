@@ -1568,21 +1568,27 @@ public sealed class NoteReadingSessionTests
         Assert.Equal(Verdict.Early, session.Verdicts[secondNote]);
     }
 
-    // 120 BPM: a beat is 500 ms, so the lost-beat limit (two beats) is 1000 ms either side of the expected onset.
+    // 120 BPM: a beat (the click pulse) is 500 ms. A key is judged against the pulse nearest to where its note belongs,
+    // so its deviation is never more than half a beat, however far it is from the note's place in the score; how many
+    // whole beats it moved (against the previous key) is its beat shift. The second note is on beat one, so on the 10 s
+    // anchor its own slot is 10 500 ms.
     [Theory]
-    [InlineData(1, 11_500, Verdict.Late, 1000, 10_000)]
-    [InlineData(1, 11_501, Verdict.Correct, 0, 11_001)]
-    [InlineData(4, 11_000, Verdict.Early, -1000, 10_000)]
-    [InlineData(4, 10_999, Verdict.Correct, 0, 8_999)]
-    public void Check_RhythmOnlyKeyBeyondTheLostBeatLimit_RestartsTheBeatInsteadOfGradingIt(
-        int secondNoteBeat,
+    [InlineData(10_500, Verdict.Correct, 0, 0)]
+    [InlineData(10_740, Verdict.Late, 240, 0)]
+    [InlineData(10_760, Verdict.Late, -240, 1)]
+    [InlineData(9_900, Verdict.Early, -100, -1)]
+    [InlineData(11_500, Verdict.Late, 0, 2)]
+    [InlineData(11_650, Verdict.Late, 150, 2)]
+    [InlineData(23_200, Verdict.Late, 200, 25)]
+    [InlineData(23_300, Verdict.Late, -200, 26)]
+    public void Check_RhythmOnlyKey_IsGradedAgainstTheNearestPulseWhereverItLands(
         int secondNoteMilliseconds,
         Verdict expectedVerdict,
         int expectedDeviationMilliseconds,
-        int expectedAnchorMilliseconds)
+        int expectedBeatShift)
     {
         var firstNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
-        var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: secondNoteBeat);
+        var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 1);
         var session = new NoteReadingSession();
         session.Reset(
             CreateScore([firstNote, secondNote]),
@@ -1596,12 +1602,39 @@ public sealed class NoteReadingSessionTests
             TimeSpan.FromMilliseconds(secondNoteMilliseconds));
 
         Assert.Equal(expectedVerdict, second.Verdict);
+        Assert.Equal(expectedBeatShift, second.BeatShift);
         Assert.Equal(TimeSpan.FromMilliseconds(expectedDeviationMilliseconds), session.PromptResults[1].OnsetDeviation);
-        Assert.Equal(TimeSpan.FromMilliseconds(expectedAnchorMilliseconds), session.RhythmAnchor);
+        Assert.Equal(expectedBeatShift, session.PromptResults[1].BeatShift);
+    }
+
+    [Theory]
+    [InlineData(NoteReadingMode.RhythmOnly)]
+    [InlineData(NoteReadingMode.PitchAndRhythm)]
+    [InlineData(NoteReadingMode.PitchHoldAndRhythm)]
+    public void Check_AfterALongPause_GradesTheKeyAgainstTheLastPulseNotAFreeOnTime(NoteReadingMode mode)
+    {
+        var firstNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 1);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([firstNote, secondNote]),
+            mode,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+        session.Check(firstNote.Pitch, TimeSpan.FromSeconds(10));
+        session.Release(firstNote.Pitch, TimeSpan.FromSeconds(10.5));
+
+        // 12.7 s after its written beat: 200 ms after a pulse, not "on time" and not 12.7 s late.
+        NoteReadingSession.CheckResult second = session.Check(secondNote.Pitch, TimeSpan.FromMilliseconds(23_200));
+
+        Assert.Equal(Verdict.Late, second.Verdict);
+        Assert.Equal(TimeSpan.FromMilliseconds(200), session.PromptResults[1].OnsetDeviation);
+        Assert.Equal(25, session.PromptResults[1].BeatShift);
+        Assert.Equal(1, session.TimingMistakeCount);
     }
 
     [Fact]
-    public void Check_RhythmOnlyAfterALongPause_GradesLaterNotesAgainstTheRestartedBeat()
+    public void Check_RhythmOnlyAfterALongPause_KeepsTheAnchorSoTheClickAndTheGradingStayOneGrid()
     {
         var firstNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
         var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 1);
@@ -1613,15 +1646,341 @@ public sealed class NoteReadingSessionTests
             TimeSpan.FromMilliseconds(60),
             explicitRhythmAnchor: TimeSpan.FromSeconds(10));
         session.Check(firstNote.Pitch, TimeSpan.FromSeconds(10));
+        session.Check(secondNote.Pitch, TimeSpan.FromMilliseconds(23_200));
 
-        // The learner stops for 13 s: the next key is beat one again, not 13 s late.
-        session.Check(secondNote.Pitch, TimeSpan.FromMilliseconds(23_500));
-        NoteReadingSession.CheckResult third = session.Check(thirdNote.Pitch, TimeSpan.FromMilliseconds(24_100));
+        // The third key is on a pulse of the grid the first key fixed (23 500 ms = 10 000 ms + 27 beats).
+        NoteReadingSession.CheckResult third = session.Check(thirdNote.Pitch, TimeSpan.FromMilliseconds(23_500));
 
-        Assert.Equal(Verdict.Late, third.Verdict);
-        Assert.Equal(TimeSpan.FromMilliseconds(100), session.PromptResults[2].OnsetDeviation);
+        Assert.Equal(Verdict.Correct, third.Verdict);
+        Assert.Equal(TimeSpan.Zero, session.PromptResults[2].OnsetDeviation);
+        Assert.Equal(TimeSpan.FromSeconds(10), session.RhythmAnchor);
+    }
+
+    [Theory]
+    [InlineData(5_000)]
+    [InlineData(7_100)]
+    [InlineData(11_600)]
+    [InlineData(12_900)]
+    [InlineData(17_250)]
+    [InlineData(30_001)]
+    public void Check_KeyAnywhere_NeverMovesTheAnchorAndStaysWithinHalfABeatOfAPulse(int secondNoteMilliseconds)
+    {
+        var firstNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 1);
+        var session = new NoteReadingSession();
+        var originalAnchor = TimeSpan.FromSeconds(10);
+        session.Reset(
+            CreateScore([firstNote, secondNote]),
+            NoteReadingMode.RhythmOnly,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: originalAnchor);
+        session.Check(firstNote.Pitch, originalAnchor);
+
+        session.Check(secondNote.Pitch, TimeSpan.FromMilliseconds(secondNoteMilliseconds));
+
+        Assert.Equal(originalAnchor, session.RhythmAnchor);
+        Assert.InRange(session.PromptResults[1].OnsetDeviation!.Value.Duration(), TimeSpan.Zero, TimeSpan.FromMilliseconds(250));
+    }
+
+    [Fact]
+    public void Check_LearnerBehindTheClick_ReadsTheSameSmallOffsetOnEveryKeyInsteadOfAGrowingLag()
+    {
+        // 600 ms per note against a 500 ms beat: the written grid falls 100 ms further behind with every key, but each
+        // key is only ever read against the pulse nearest to it, so the offsets cycle around the beat instead of growing.
+        var notes = Enumerable.Range(0, 6)
+            .Select(index => CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: index))
+            .ToArray();
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore(notes),
+            NoteReadingMode.RhythmOnly,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+
+        for (int index = 0; index < notes.Length; index++)
+        {
+            session.Check(notes[index].Pitch, TimeSpan.FromMilliseconds(10_000 + (index * 600)));
+        }
+
+        // Behind the grid by 0, 100, 200, 300, 400, 500 ms: 300 and 400 are nearer the next pulse (-200, -100).
+        Assert.Equal(
+            [0, 100, 200, -200, -100, 0],
+            session.PromptResults.Select(result => (int)result.OnsetDeviation!.Value.TotalMilliseconds));
+        Assert.Equal(TimeSpan.FromSeconds(10), session.RhythmAnchor);
+    }
+
+    [Theory]
+    [InlineData(10_750, Verdict.Correct, 0, 0)]
+    [InlineData(10_800, Verdict.Late, 50, 0)]
+    [InlineData(10_700, Verdict.Early, -50, 0)]
+    [InlineData(11_250, Verdict.Late, 0, 1)]
+    public void Check_OffBeatEighth_KeepsItsHalfBeatPlaceWithinTheBeat(
+        int secondNoteMilliseconds,
+        Verdict expectedVerdict,
+        int expectedDeviationMilliseconds,
+        int expectedBeatShift)
+    {
+        // Beat 1.5 is off the pulse: its slots are 10 750, 11 250, ... so a key a pulse later is exactly on a slot but
+        // a beat after where the note belongs.
+        var firstNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 1.5);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([firstNote, secondNote]),
+            NoteReadingMode.RhythmOnly,
+            TimeSpan.FromMilliseconds(40),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+        session.Check(firstNote.Pitch, TimeSpan.FromSeconds(10));
+
+        NoteReadingSession.CheckResult second = session.Check(
+            secondNote.Pitch,
+            TimeSpan.FromMilliseconds(secondNoteMilliseconds));
+
+        Assert.Equal(expectedVerdict, second.Verdict);
+        Assert.Equal(expectedBeatShift, second.BeatShift);
+        Assert.Equal(TimeSpan.FromMilliseconds(expectedDeviationMilliseconds), session.PromptResults[1].OnsetDeviation);
+    }
+
+    [Theory]
+    [InlineData(10_550, Verdict.Correct, 50, 0)]
+    [InlineData(11_000, Verdict.Late, 500, 0)]
+    [InlineData(12_050, Verdict.Late, 50, 1)]
+    [InlineData(13_550, Verdict.Late, 50, 2)]
+    public void Check_SixEightKey_PreservesItsSubdivisionWithinTheDottedQuarterPulse(
+        int secondNoteMilliseconds,
+        Verdict expectedVerdict,
+        int expectedDeviationMilliseconds,
+        int expectedBeatShift)
+    {
+        var firstNote = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var secondNote = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 1);
+        Score score = new(
+            "test",
+            new TimeSignature(6, new NoteValue(8)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure([firstNote, secondNote], [])]);
+        var session = new NoteReadingSession();
+        session.Reset(
+            score,
+            NoteReadingMode.RhythmOnly,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+        session.Check(firstNote.Pitch, TimeSpan.FromSeconds(10));
+
+        // Eighth subdivisions last 500 ms, main beats 1500 ms. The second note belongs on the second
+        // subdivision, so its equivalent slots are 10 500, 12 000, 13 500 ms, never 11 000 ms.
+        NoteReadingSession.CheckResult second = session.Check(
+            secondNote.Pitch,
+            TimeSpan.FromMilliseconds(secondNoteMilliseconds));
+
+        Assert.Equal(expectedVerdict, second.Verdict);
+        Assert.Equal(expectedBeatShift, second.BeatShift);
+        Assert.Equal(TimeSpan.FromMilliseconds(expectedDeviationMilliseconds), session.PromptResults[1].OnsetDeviation);
+        Assert.Equal(TimeSpan.FromSeconds(10), session.RhythmAnchor);
+    }
+
+    [Theory]
+    [InlineData(1, 500, Verdict.Late)]
+    [InlineData(3, 500, Verdict.Late)]
+    [InlineData(3, -500, Verdict.Early)]
+    public void Check_CompoundNotesStayOnWrongSubdivision_ContinuesToMarkTimingErrors(
+        int onsetSpacing,
+        int deviationMilliseconds,
+        Verdict expectedVerdict)
+    {
+        Score score = CreateCompoundScore(onsetSpacing);
+        var session = new NoteReadingSession();
+        session.Reset(score, NoteReadingMode.RhythmOnly, TimeSpan.FromMilliseconds(60), TimeSpan.FromSeconds(10));
+        Pitch pitch = score.Measures[0].Notes[0].Pitch;
+        session.Check(pitch, TimeSpan.FromSeconds(10));
+
+        for (int index = 1; index < 4; index++)
+        {
+            NoteReadingSession.CheckResult result = session.Check(
+                pitch,
+                TimeSpan.FromMilliseconds(10_000 + index * onsetSpacing * 500 + deviationMilliseconds));
+
+            Assert.Equal(expectedVerdict, result.Verdict);
+            Assert.Equal(0, result.BeatShift);
+            Assert.Equal(TimeSpan.FromMilliseconds(deviationMilliseconds), session.PromptResults[index].OnsetDeviation);
+        }
+
+        Assert.Equal(1, session.FirstTryCorrectCount);
+        Assert.Equal(3, session.TimingMistakeCount);
+        Assert.Equal(TimeSpan.FromSeconds(10), session.RhythmAnchor);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public void Check_CompoundNotesReturnFromWrongSubdivisionToWrittenOnset_GradesRecoveryCorrect(int onsetSpacing)
+    {
+        Score score = CreateCompoundScore(onsetSpacing);
+        var session = new NoteReadingSession();
+        session.Reset(score, NoteReadingMode.RhythmOnly, TimeSpan.FromMilliseconds(60), TimeSpan.FromSeconds(10));
+        Pitch pitch = score.Measures[0].Notes[0].Pitch;
+        session.Check(pitch, TimeSpan.FromSeconds(10));
+        session.Check(pitch, TimeSpan.FromMilliseconds(10_000 + onsetSpacing * 500 + 500));
+
+        NoteReadingSession.CheckResult recovered = session.Check(
+            pitch, TimeSpan.FromMilliseconds(10_000 + 2 * onsetSpacing * 500));
+
+        Assert.Equal(Verdict.Correct, recovered.Verdict);
+        Assert.Equal(0, recovered.BeatShift);
+        Assert.Equal(TimeSpan.Zero, session.PromptResults[2].OnsetDeviation);
         Assert.Equal(1, session.TimingMistakeCount);
+    }
+
+    [Fact]
+    public void Check_CompoundNotesStayOneMainBeatBehind_ReportsOneBeatSlipAndKeepsRecovery()
+    {
+        Score score = CreateCompoundScore(onsetSpacing: 3);
+        var session = new NoteReadingSession();
+        session.Reset(score, NoteReadingMode.RhythmOnly, TimeSpan.FromMilliseconds(60), TimeSpan.FromSeconds(10));
+        Pitch pitch = score.Measures[0].Notes[0].Pitch;
+        session.Check(pitch, TimeSpan.FromSeconds(10));
+        session.Check(pitch, TimeSpan.FromSeconds(13));
+        session.Check(pitch, TimeSpan.FromSeconds(14.5));
+        session.Check(pitch, TimeSpan.FromSeconds(16));
+
+        Assert.Equal([0, 1, 0, 0], session.PromptResults.Select(result => result.BeatShift));
+        Assert.Equal([Verdict.Correct, Verdict.Late, Verdict.Correct, Verdict.Correct],
+            session.PromptResults.Select(result => result.OnsetVerdict));
+        Assert.Equal(1, session.TimingMistakeCount);
+    }
+
+    // The "wrong beat" mark: a key that lands a different whole number of beats from its written place than the key
+    // before it did. A lagging learner is marked once, where they slipped, not on every note after it.
+    [Fact]
+    public void Check_KeyAWholeBeatEarlierThanWritten_IsMarkedAnEarlyWrongBeatEvenOnThePulse()
+    {
+        var first = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0, noteValue: new NoteValue(2));
+        var second = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 2);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([first, second]),
+            NoteReadingMode.RhythmOnly,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+        session.Check(first.Pitch, TimeSpan.FromSeconds(10));
+
+        // The half note should hold for two beats (1000 ms); the learner came in after one, exactly on a pulse.
+        NoteReadingSession.CheckResult result = session.Check(second.Pitch, TimeSpan.FromMilliseconds(10_500));
+
+        Assert.Equal(Verdict.Early, result.Verdict);
+        Assert.Equal(-1, result.BeatShift);
         Assert.Equal(TimeSpan.Zero, session.PromptResults[1].OnsetDeviation);
+        Assert.Equal(-1, session.PromptResults[1].BeatShift);
+        Assert.Equal(Verdict.Early, session.Verdicts[second]);
+        Assert.Equal(1, session.TimingMistakeCount);
+        Assert.False(session.PromptResults[1].IsFirstTryCorrect);
+    }
+
+    [Fact]
+    public void Check_LearnerStaysABeatBehind_IsMarkedOnlyWhereTheySlipped()
+    {
+        var notes = Enumerable.Range(0, 4)
+            .Select(index => CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: index))
+            .ToArray();
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore(notes),
+            NoteReadingMode.RhythmOnly,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+
+        // 120 BPM: the first note on time, then every note exactly one beat (500 ms) after where it is written.
+        session.Check(notes[0].Pitch, TimeSpan.FromSeconds(10));
+        session.Check(notes[1].Pitch, TimeSpan.FromMilliseconds(11_000));
+        session.Check(notes[2].Pitch, TimeSpan.FromMilliseconds(11_500));
+        session.Check(notes[3].Pitch, TimeSpan.FromMilliseconds(12_000));
+
+        Assert.Equal([0, 1, 0, 0], session.PromptResults.Select(result => result.BeatShift));
+        Assert.Equal(1, session.TimingMistakeCount);
+    }
+
+    [Fact]
+    public void Check_NotesPlayedOnTheirWrittenBeats_AreNeverMarked()
+    {
+        var notes = Enumerable.Range(0, 4)
+            .Select(index => CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: index))
+            .ToArray();
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore(notes),
+            NoteReadingMode.RhythmOnly,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+
+        for (int index = 0; index < notes.Length; index++)
+        {
+            session.Check(notes[index].Pitch, TimeSpan.FromMilliseconds(10_000 + (index * 500) + 20));
+        }
+
+        Assert.All(session.PromptResults, result => Assert.Equal(0, result.BeatShift));
+        Assert.Equal(0, session.TimingMistakeCount);
+    }
+
+    [Theory]
+    [InlineData(NoteReadingMode.PitchAndRhythm)]
+    [InlineData(NoteReadingMode.PitchHoldAndRhythm)]
+    public void Check_PitchModesWithRhythm_MarkAWrongBeatToo(NoteReadingMode mode)
+    {
+        var first = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var second = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 1);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([first, second]),
+            mode,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+        session.Check(first.Pitch, TimeSpan.FromSeconds(10));
+        session.Release(first.Pitch, TimeSpan.FromMilliseconds(10_500));
+
+        // The second note belongs at 10 500 ms; 12 000 ms is three beats (1500 ms) after that.
+        NoteReadingSession.CheckResult result = session.Check(second.Pitch, TimeSpan.FromMilliseconds(12_000));
+
+        Assert.Equal(Verdict.Late, result.Verdict);
+        Assert.Equal(3, result.BeatShift);
+    }
+
+    [Fact]
+    public void Check_ChordKeysTogether_MarkTheChordOnceWhereTheLearnerSlipped()
+    {
+        var single = CreateNote(NoteLetter.A, measureIndex: 0, beatOffset: 0);
+        var lower = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 1);
+        var upper = CreateNote(NoteLetter.E, measureIndex: 0, beatOffset: 1);
+        var session = new NoteReadingSession();
+        session.Reset(
+            CreateScore([single, lower, upper]),
+            NoteReadingMode.RhythmOnly,
+            TimeSpan.FromMilliseconds(60),
+            explicitRhythmAnchor: TimeSpan.FromSeconds(10));
+        session.Check(single.Pitch, TimeSpan.FromSeconds(10));
+
+        session.Check(lower.Pitch, TimeSpan.FromMilliseconds(11_000));
+        NoteReadingSession.CheckResult secondKey = session.Check(upper.Pitch, TimeSpan.FromMilliseconds(11_000));
+
+        Assert.Equal(0, secondKey.BeatShift);
+        Assert.Equal(1, session.PromptResults[1].BeatShift);
+        Assert.Equal(Verdict.Late, session.PromptResults[1].OnsetVerdict);
+    }
+
+    [Fact]
+    public void Reset_ForgetsWhereThePreviousRunHadSlipped()
+    {
+        var first = CreateNote(NoteLetter.C, measureIndex: 0, beatOffset: 0);
+        var second = CreateNote(NoteLetter.D, measureIndex: 0, beatOffset: 1);
+        Score score = CreateScore([first, second]);
+        var session = new NoteReadingSession();
+        session.Reset(score, NoteReadingMode.RhythmOnly, TimeSpan.FromMilliseconds(60), TimeSpan.FromSeconds(10));
+        session.Check(first.Pitch, TimeSpan.FromMilliseconds(11_000));
+        session.Reset(score, NoteReadingMode.RhythmOnly, TimeSpan.FromMilliseconds(60), TimeSpan.FromSeconds(10));
+
+        NoteReadingSession.CheckResult result = session.Check(first.Pitch, TimeSpan.FromMilliseconds(11_000));
+
+        Assert.Equal(2, result.BeatShift);
     }
 
     [Fact]
@@ -1681,6 +2040,25 @@ public sealed class NoteReadingSessionTests
 
         Assert.Throws<ArgumentOutOfRangeException>(
             () => session.Reset(score, (NoteReadingMode)6, TimeSpan.FromMilliseconds(60)));
+    }
+
+    private static Score CreateCompoundScore(int onsetSpacing)
+    {
+        ScoreNote[] notes = Enumerable.Range(0, 4)
+            .Select(index => CreateNote(
+                NoteLetter.C,
+                measureIndex: index * onsetSpacing / 6,
+                beatOffset: index * onsetSpacing % 6,
+                noteValue: onsetSpacing == 3 ? new NoteValue(4, dots: 1) : new NoteValue(8)))
+            .ToArray();
+        return new Score(
+            "compound",
+            new TimeSignature(6, new NoteValue(8)),
+            new Tempo(120),
+            0,
+            notes.GroupBy(note => note.MeasureIndex)
+                .Select(group => new ScoreMeasure(group.ToArray(), []))
+                .ToArray());
     }
 
     private static ScoreNote CreateNote(

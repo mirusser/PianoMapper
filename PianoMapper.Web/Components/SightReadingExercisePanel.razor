@@ -226,10 +226,6 @@
         {
             <p class="control-note">Drill my weak notes: @Presentation.DrillUnavailableReason</p>
         }
-        @if (Presentation.IsClickRunning)
-        {
-            <TempoFeedback Feedback="Presentation.TempoFeedback" />
-        }
         @if (Presentation.IsActive)
         {
             <section class="exercise-progress" aria-label="Exercise progress">
@@ -249,6 +245,10 @@
                             <text> Run: @SightReadingLabels.DescribeVerdictCounts(Presentation.PlayAlongVerdictCounts).</text>
                         }
                     </span>
+                }
+                else if (Presentation.RunPacing == ExercisePacing.PlayAlong)
+                {
+                    <span>Progress: @Presentation.CompletedPromptCount of @Presentation.PromptCount entrances have passed.</span>
                 }
                 else
                 {
@@ -320,6 +320,7 @@
         SightReadingLabels.IsTimingGraded(Presentation.RunMode) && Presentation.CompletedPromptCount > 0;
 
     private string TimingBreakdown => SightReadingLabels.DescribeTimingBreakdown(
+        Presentation.RunMode,
         Presentation.PitchFirstTryCorrectCount,
         Presentation.CompletedPromptCount,
         Presentation.TimingMistakeCount);

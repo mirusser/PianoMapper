@@ -61,10 +61,11 @@ internal sealed class BrowserPracticeCoordinator(IBrowserScoreAudio audio, NoteT
         TimeSpan currentTime = await audio.GetCurrentTimeAsync(cancellationToken);
         CurrentTime = currentTime;
         timeProvider.SetTime(currentTime);
-        session.Update();
+        IReadOnlyList<PerformedNote> performedNotes = GetPerformedNotes(currentTime);
+        session.Update(performedNotes);
         if (State is PracticeSessionState.Running or PracticeSessionState.Finished)
         {
-            Result = session.Grade(GetPerformedNotes(currentTime));
+            Result = session.Grade(performedNotes);
         }
     }
 
@@ -82,9 +83,11 @@ internal sealed class BrowserPracticeCoordinator(IBrowserScoreAudio audio, NoteT
         return capturedPerformedNotes.ToArray();
     }
 
-    internal IReadOnlyDictionary<ScoreNote, Verdict> GetVisibleVerdicts() =>
+    internal int DuePromptCount => session?.DuePromptCount ?? 0;
+
+    internal IReadOnlyDictionary<ScoreNote, Verdict> GetVisibleVerdicts(NoteReadingMode? mode = null) =>
         session is not null && Result is not null
-            ? session.BuildVisibleVerdicts(Result)
+            ? MapVisibleVerdicts(session.BuildVisibleVerdicts(Result), mode)
             : NoVerdicts;
 
     internal IReadOnlyList<Pitch> GetNextPitches() => session?.GetNextPitches() ?? [];
@@ -97,4 +100,11 @@ internal sealed class BrowserPracticeCoordinator(IBrowserScoreAudio audio, NoteT
         capturedPerformedNoteIdentities.Clear();
         await audio.StopScoreAsync(cancellationToken);
     }
+
+    private static IReadOnlyDictionary<ScoreNote, Verdict> MapVisibleVerdicts(
+        IReadOnlyDictionary<ScoreNote, Verdict> verdicts,
+        NoteReadingMode? mode) =>
+        mode is { } runMode
+            ? verdicts.ToDictionary(pair => pair.Key, pair => PlayAlongResultMapper.MapVerdict(pair.Value, runMode))
+            : verdicts;
 }
