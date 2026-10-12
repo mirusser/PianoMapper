@@ -808,7 +808,7 @@ function withCanvasMocks(callback, { width = 640, height = 240, onCreateElement 
     }
 }
 
-function renderGrandStaffScene(scene, width = 640, height = 240, metricsByText = undefined) {
+function renderGrandStaffScene(scene, width = 640, height = 240, metricsByText = undefined, isLightMode = false) {
     return withCanvasMocks(({ createdCanvases }) => {
         const canvas = new FakeCanvas();
         canvas.clientWidth = width;
@@ -818,7 +818,7 @@ function renderGrandStaffScene(scene, width = 640, height = 240, metricsByText =
             if (metricsByText) {
                 createdCanvases[0].context.metricsByText = metricsByText;
             }
-            render(canvas, scene);
+            render(canvas, scene, false, false, undefined, isLightMode);
             return createdCanvases[0].context;
         } finally {
             dispose(canvas);
@@ -1153,6 +1153,98 @@ test("grand staff offsets a secondary beam from its primary", () => {
     const secondary = renderBeam(1).lineSegments[0];
 
     assert.ok(Math.abs((secondary.y - primary.y) - 6.6) < 0.000001);
+});
+
+for (const [mode, isLightMode, noteColor] of [["dark", false, "#60a5fa"], ["light", true, "#111827"]]) {
+    test(`grand staff draws beams and hooks in a gray distinct from the ${mode} mode note color`, () => {
+        const context = renderGrandStaffScene({
+            kind: 0,
+            lines: [],
+            glyphs: [],
+            notes: [],
+            beams: [
+                { x0: -0.5, y0: 0.2, x1: 0.5, y1: 0.3, count: 2, stemDirection: 0 },
+                { x0: 0.5, y0: 0.3, x1: 0.56, y1: 0.31, count: 1, stemDirection: 0, level: 2 },
+            ],
+            shouldClipNotesAtClefs: false,
+        }, 640, 240, undefined, isLightMode);
+
+        assert.equal(context.lineSegments.length, 3, "two primary beams and one hook");
+        for (const { strokeStyle } of context.lineSegments) {
+            const [red, green, blue] = [1, 3, 5].map(index => Number.parseInt(strokeStyle.slice(index, index + 2), 16));
+            assert.notEqual(strokeStyle, noteColor);
+            assert.ok(
+                Math.max(red, green, blue) - Math.min(red, green, blue) <= 40,
+                `beam color ${strokeStyle} is not gray-ish`);
+            assert.ok(
+                Math.min(red, green, blue) >= 0x50 && Math.max(red, green, blue) <= 0xb0,
+                `beam color ${strokeStyle} is neither a dark nor a pale gray in ${mode} mode`);
+        }
+    });
+}
+
+for (const [label, isActive] of [["a note", false], ["an active note", true]]) {
+    test(`grand staff paints ${label} head above the beam that runs through it`, () => {
+        // The head sits on the beam line: a middle note of a slanted group is not guaranteed to clear it.
+        const context = renderGrandStaffScene({
+            kind: 0,
+            lines: [],
+            glyphs: [],
+            notes: [{
+                x: 0,
+                y: 0.25,
+                isActive,
+                isFilled: true,
+                hasStem: false,
+                hasDot: false,
+                flagCount: 0,
+                label: "C4",
+            }],
+            beams: [{ x0: -0.5, y0: 0.2, x1: 0.5, y1: 0.3, count: 1, stemDirection: 0 }],
+            shouldClipNotesAtClefs: false,
+        });
+
+        const beamIndex = context.operations.findIndex(operation => operation.kind === "line");
+        const headIndex = context.operations.findIndex(operation => operation.kind === "ellipse");
+        assert.ok(beamIndex >= 0 && headIndex >= 0, "the scene draws both a beam and a head");
+        assert.ok(headIndex > beamIndex, `head painted at ${headIndex}, before the beam at ${beamIndex}`);
+    });
+}
+
+test("grand staff paints every head above the beams, but still paints stems under them", () => {
+    const context = renderGrandStaffScene({
+        kind: 0,
+        lines: [],
+        glyphs: [],
+        notes: [-0.4, 0, 0.4].map(x => ({
+            x,
+            y: 0.1,
+            isActive: false,
+            isFilled: true,
+            hasStem: true,
+            stemDirection: 0,
+            hasDot: false,
+            flagCount: 0,
+            label: "C4",
+        })),
+        beams: [{ x0: -0.4, y0: 0.4, x1: 0.4, y1: 0.4, count: 1, stemDirection: 0 }],
+        shouldClipNotesAtClefs: false,
+    });
+
+    const lastBeam = context.operations.findLastIndex(operation => operation.kind === "line");
+    const firstBeam = context.operations.findIndex(operation =>
+        operation.kind === "line" && operation.segment.lineWidth > 3);
+    const headIndexes = context.operations
+        .map((operation, index) => operation.kind === "ellipse" ? index : -1)
+        .filter(index => index >= 0);
+    const stemIndexes = context.operations
+        .map((operation, index) => operation.kind === "line" && operation.segment.lineWidth === 2 ? index : -1)
+        .filter(index => index >= 0);
+
+    assert.equal(headIndexes.length, 3);
+    assert.equal(stemIndexes.length, 3);
+    assert.ok(headIndexes.every(index => index > lastBeam), "every head follows the beam");
+    assert.ok(stemIndexes.every(index => index < firstBeam), "every stem is painted before the beam");
 });
 
 test("grand staff draws compact angled noteheads", () => {

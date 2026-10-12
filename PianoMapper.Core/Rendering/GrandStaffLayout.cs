@@ -16,7 +16,9 @@ public static class GrandStaffLayout
     // beam/stem proportions in wwwroot/js/canvas.js.
     public const double GrandStaffVerticalScale = 0.82;
     // Canvas scene Y grows upward. Move the full grand-staff system down to reserve headroom for
-    // notation above the treble staff, including octave-shift guides and high ledger notes.
+    // notation above the treble staff, including octave-shift guides and high ledger notes. That fits about three
+    // ledger lines; a score window that reaches further (a C7 has five) is moved, or shrunk, to fit by the web
+    // project's GrandStaffVerticalFit, which leaves every window that already fits exactly as placed here.
     private const double GrandStaffVerticalOffset = -0.12;
     public const double StemLength = DiatonicStep * GrandStaffVerticalScale * 6;
     // The gap between the staves holds the treble staff's low notes and note names and, since fingering moved above

@@ -145,7 +145,7 @@ const darkGrandStaffPalette = {
     activeNote: "#22d3ee",
     arpeggio: "#e2e8f0",
     barline: "#64748b",
-    beam: "#60a5fa",
+    beam: "#64748b",
     beatLine: "#334155",
     clefGlyph: "#e2e8f0",
     cursor: "#fb7185",
@@ -170,7 +170,7 @@ const lightGrandStaffPalette = {
     arpeggio: "#111827",
     background: "#fff",
     barline: "#111827",
-    beam: "#111827",
+    beam: "#6b7280",
     beatLine: "#9ca3af",
     clefGlyph: "#111827",
     cursor: "#dc2626",
@@ -627,10 +627,12 @@ function drawGrandStaff(context, state, width, height) {
         drawArpeggioMark(context, arpeggioMark, width, height, staffSpace, palette);
     }
 
+    // Beams go over the stems and under every notehead: a middle note of a slanted group is not guaranteed to clear
+    // the beam, and a head the beam runs through must still read as a head.
     const textFits = getTextFits(context, scene, width, height);
     for (const note of scene.notes) {
         if (!note.isActive) {
-            drawNote(context, note, width, height, staffSpace, undefined, textFits.get(note), palette);
+            drawNoteBody(context, note, width, height, staffSpace, undefined, textFits.get(note), palette);
         }
     }
     for (const beam of scene.beams ?? []) {
@@ -638,7 +640,17 @@ function drawGrandStaff(context, state, width, height) {
     }
     for (const note of scene.notes) {
         if (note.isActive) {
-            drawNote(context, note, width, height, staffSpace, undefined, textFits.get(note), palette);
+            drawNoteBody(context, note, width, height, staffSpace, undefined, textFits.get(note), palette);
+        }
+    }
+    for (const note of scene.notes) {
+        if (!note.isActive) {
+            drawNoteHead(context, note, width, height, staffSpace, undefined, palette);
+        }
+    }
+    for (const note of scene.notes) {
+        if (note.isActive) {
+            drawNoteHead(context, note, width, height, staffSpace, undefined, palette);
         }
     }
     drawLedgerLines(context, scene, width, height, staffSpace, palette);
@@ -1770,14 +1782,33 @@ function drawNote(
     colorOverride,
     textFit = {},
     palette = darkGrandStaffPalette) {
+    drawNoteBody(context, note, width, height, staffSpace, colorOverride, textFit, palette);
+    drawNoteHead(context, note, width, height, staffSpace, colorOverride, palette);
+}
+
+function getNoteColor(note, colorOverride, palette) {
+    return colorOverride ?? (Number.isInteger(note.verdict)
+        ? palette.verdictColors[note.verdict]
+        : note.isActive ? palette.activeNote : palette.note);
+}
+
+// Everything of a note but its head: the duration trail, stem, flags, dot, name and fingering. The grand staff draws the
+// beams between this and drawNoteHead so a head stays above them.
+function drawNoteBody(
+    context,
+    note,
+    width,
+    height,
+    staffSpace,
+    colorOverride,
+    textFit = {},
+    palette = darkGrandStaffPalette) {
     const labelFitScale = (textFit.labelScale ?? 1) * (textFit.stackScale ?? 1);
     const x = mapX(note.x, width);
     const y = mapY(note.y, height);
     const noteHeadRadiusX = staffSpace * noteHeadWidthInStaffSpaces / 2;
     const noteHeadRadiusY = staffSpace * noteHeadHeightInStaffSpaces / 2;
-    const noteColor = colorOverride ?? (Number.isInteger(note.verdict)
-        ? palette.verdictColors[note.verdict]
-        : note.isActive ? palette.activeNote : palette.note);
+    const noteColor = getNoteColor(note, colorOverride, palette);
     context.strokeStyle = noteColor;
     context.fillStyle = context.strokeStyle;
     context.lineWidth = 2;
@@ -1789,14 +1820,6 @@ function drawNote(
             context.lineTo(durationEndX, y);
             context.stroke();
         }
-    }
-
-    context.beginPath();
-    context.ellipse(x, y, noteHeadRadiusX, noteHeadRadiusY, noteHeadRotationRadians, 0, Math.PI * 2);
-    if (note.isFilled) {
-        context.fill();
-    } else {
-        context.stroke();
     }
 
     let stemEndY = y;
@@ -1859,6 +1882,26 @@ function drawNote(
         context.font = getFingeringFont(textFit.fingeringScale ?? 1);
         context.textBaseline = "middle";
         context.fillText(note.fingering, x + (textFit.fingeringOffset ?? 0), mapY(note.fingeringY, height));
+    }
+}
+
+function drawNoteHead(context, note, width, height, staffSpace, colorOverride, palette = darkGrandStaffPalette) {
+    context.strokeStyle = getNoteColor(note, colorOverride, palette);
+    context.fillStyle = context.strokeStyle;
+    context.lineWidth = 2;
+    context.beginPath();
+    context.ellipse(
+        mapX(note.x, width),
+        mapY(note.y, height),
+        staffSpace * noteHeadWidthInStaffSpaces / 2,
+        staffSpace * noteHeadHeightInStaffSpaces / 2,
+        noteHeadRotationRadians,
+        0,
+        Math.PI * 2);
+    if (note.isFilled) {
+        context.fill();
+    } else {
+        context.stroke();
     }
 }
 

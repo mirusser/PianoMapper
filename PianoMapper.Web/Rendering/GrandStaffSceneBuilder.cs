@@ -106,7 +106,7 @@ internal static class GrandStaffSceneBuilder
     // half its 0.12 staff space stroke. A tie needs no such allowance: its apex is at most 0.57 staff space above its
     // note's centre (0.12 tip bias and 0.45 height), and the lane's digits start about 1.0 above it (0.4 for the head, 1.25
     // of clearance, less a digit's 0.67 half height).
-    private const double SlurMaximumApexInStaffSpaces = (0.75 * 1.6) + 0.06;
+    internal const double SlurMaximumApexInStaffSpaces = (0.75 * 1.6) + 0.06;
     private const double OctaveShiftClearanceInStaffSpaces = 2.25;
     private const double OctaveShiftPeakRiseInStaffSpaces = 0.75;
     private const double OctaveShiftNumeralHalfHeightInStaffSpaces = 0.75;
@@ -543,7 +543,9 @@ internal static class GrandStaffSceneBuilder
         IReadOnlyList<GrandStaffTie> ties = drawTies
             ? BuildScoreTies(score, visibleNotes, renderedNotes)
             : [];
-        return new GrandStaffStaticScoreParts(
+        // A window that reaches past what its canvas shows (a C7 over the treble staff) is moved, or just far enough
+        // shrunk, to fit; every other window comes back exactly as laid out.
+        return GrandStaffVerticalFit.Apply(new GrandStaffStaticScoreParts(
             lines,
             glyphs,
             renderedNotes,
@@ -555,7 +557,8 @@ internal static class GrandStaffSceneBuilder
             arpeggioMarks,
             ties,
             timing,
-            notationMeasureLayouts);
+            notationMeasureLayouts,
+            GrandStaffVerticalFit.Identity));
     }
 
     /// <summary>
@@ -1206,7 +1209,7 @@ internal static class GrandStaffSceneBuilder
         GrandStaffLine? cursor = null;
         if (cursorX.HasValue)
         {
-            var (cursorY0, cursorY1) = GetCursorLineYBounds();
+            var (cursorY0, cursorY1) = GetCursorLineYBounds(staticParts);
             cursor = new GrandStaffLine(cursorX.Value, cursorY0, cursorX.Value, cursorY1, GrandStaffLineKind.Cursor);
         }
 
@@ -1220,7 +1223,7 @@ internal static class GrandStaffSceneBuilder
             foreach (var heldNote in heldNotes)
             {
                 var position = GrandStaffLayout.GetLivePosition(heldNote.Pitch);
-                double indicatorY = GrandStaffLayout.SeparateStaffY(position.Y, position.Staff);
+                double indicatorY = staticParts.VerticalFit.Map(GrandStaffLayout.SeparateStaffY(position.Y, position.Staff));
                 double? labelY = position.Staff == Staff.Treble
                     ? staticParts.TrebleAnnotationLabelY
                     : staticParts.BassAnnotationLabelY;
@@ -1231,13 +1234,15 @@ internal static class GrandStaffSceneBuilder
                     DurationSeconds: 0,
                     IsActive: true,
                     IsFilled: false,
-                    LabelY: showNoteLabels ? labelY ?? GrandStaffLayout.GetStaffLabelY(position.Staff) : null));
+                    LabelY: showNoteLabels
+                        ? labelY ?? staticParts.VerticalFit.Map(GrandStaffLayout.GetStaffLabelY(position.Staff))
+                        : null));
                 overlayLedgerLines.AddRange(position.LedgerLineYs.Select(
                     y => new GrandStaffLine(
                         noteX - LedgerLineHalfWidth,
-                        GrandStaffLayout.SeparateStaffY(y, position.Staff),
+                        staticParts.VerticalFit.Map(GrandStaffLayout.SeparateStaffY(y, position.Staff)),
                         noteX + LedgerLineHalfWidth,
-                        GrandStaffLayout.SeparateStaffY(y, position.Staff),
+                        staticParts.VerticalFit.Map(GrandStaffLayout.SeparateStaffY(y, position.Staff)),
                         GrandStaffLineKind.Ledger)));
             }
 
@@ -1653,6 +1658,15 @@ internal static class GrandStaffSceneBuilder
     internal static (double Y0, double Y1) GetCursorLineYBounds() =>
         (GrandStaffLayout.SeparateStaffY(GrandStaffLayout.BassLineYs[0], Staff.Bass),
             GrandStaffLayout.SeparateStaffY(GrandStaffLayout.TrebleLineYs[^1], Staff.Treble));
+
+    /// <summary>
+    /// The same span on a score window's own canvas: <see cref="GetCursorLineYBounds()"/> placed by the window's fit.
+    /// </summary>
+    internal static (double Y0, double Y1) GetCursorLineYBounds(GrandStaffStaticScoreParts staticParts)
+    {
+        var (y0, y1) = GetCursorLineYBounds();
+        return (staticParts.VerticalFit.Map(y0), staticParts.VerticalFit.Map(y1));
+    }
 
     internal static GrandStaffScene Build(
         IReadOnlyList<PerformedNote> notes,

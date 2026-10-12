@@ -2150,7 +2150,7 @@
             return null;
         }
 
-        var (cursorY0, cursorY1) = GrandStaffSceneBuilder.GetCursorLineYBounds();
+        var (cursorY0, cursorY1) = GrandStaffSceneBuilder.GetCursorLineYBounds(staticParts);
         var measureStartBeats = new double[score.Measures.Count + 1];
         for (int measureIndex = 0; measureIndex < score.Measures.Count; measureIndex++)
         {
