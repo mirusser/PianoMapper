@@ -222,6 +222,8 @@ function initializeCanvas(canvas, waveformCanvas, spectrumCanvas, analysisLayout
         scoreLayerPixelRatio: undefined,
         scoreCursor: undefined,
         liveGrandStaffCursor: undefined,
+        growingLiveNotesScene: undefined,
+        growingLiveNotes: [],
         scoreCursorElement,
         scoreCanvasWidth: undefined,
         scoreCanvasHeight: undefined,
@@ -437,6 +439,10 @@ function draw(state, knownScorePlaybackBeats = undefined, knownLiveGrandStaffPla
         const scoreLayer = prepareScoreLayer(state, width, height, pixelRatio);
         context.drawImage(scoreLayer, 0, 0, width, height);
         const staffSpace = getCachedStaffSpace(state, height);
+        scorePlaybackBeats = knownScorePlaybackBeats ?? getScorePlaybackBeats(state);
+        liveGrandStaffPlaybackBeats = knownLiveGrandStaffPlaybackBeats ??
+            getLiveGrandStaffPlaybackBeats(state);
+        drawGrowingLiveNoteDurations(context, state, width, height, liveGrandStaffPlaybackBeats, palette);
         drawScoreNoteSelection(
             context,
             state,
@@ -446,9 +452,6 @@ function draw(state, knownScorePlaybackBeats = undefined, knownLiveGrandStaffPla
             state.selectedScoreNoteAddress,
             staffSpace,
             palette);
-        scorePlaybackBeats = knownScorePlaybackBeats ?? getScorePlaybackBeats(state);
-        liveGrandStaffPlaybackBeats = knownLiveGrandStaffPlaybackBeats ??
-            getLiveGrandStaffPlaybackBeats(state);
         state.scorePlaybackHighlightKey = drawScorePlaybackHighlights(
             context,
             scene,
@@ -1073,7 +1076,8 @@ function drawAnimationFrame(state) {
         !state.scoreCursorElement ||
         state.isWaveformVisible ||
         state.isFrequencySpectrumVisible ||
-        hasScorePlaybackHighlightsChanged(state, scorePlaybackBeats);
+        hasScorePlaybackHighlightsChanged(state, scorePlaybackBeats) ||
+        hasGrowingLiveNoteDurations(state, liveGrandStaffPlaybackBeats);
     if (shouldRedrawCanvas) {
         draw(state, scorePlaybackBeats, liveGrandStaffPlaybackBeats);
         return;
@@ -1135,6 +1139,51 @@ function getLiveGrandStaffPlaybackBeats(state) {
         return getCurrentTime() / 60 * cursor.beatsPerMinute;
     } catch {
         return undefined;
+    }
+}
+
+// A live note still being held reaches the browser without a durationEndX: its scene carries a durationGrowthLimitX (the
+// end of its measure) and its duration trail is grown here, a frame at a time, from the same audio clock that moves the
+// cursor. Holding a key therefore costs no scene rebuilt and sent from C# per tick, and the trail ends exactly at the
+// cursor. The staff layer never holds these trails, so growing one repaints only the cheap blit and the trails.
+function getGrowingLiveNotes(state) {
+    const { scene } = state;
+    if (state.growingLiveNotesScene !== scene) {
+        state.growingLiveNotesScene = scene;
+        state.growingLiveNotes = scene.kind === grandStaffSceneKind
+            ? scene.notes.filter(note => Number.isFinite(note.durationGrowthLimitX))
+            : [];
+    }
+
+    return state.growingLiveNotes;
+}
+
+function hasGrowingLiveNoteDurations(state, liveGrandStaffPlaybackBeats) {
+    return Number.isFinite(liveGrandStaffPlaybackBeats) && getGrowingLiveNotes(state).length > 0;
+}
+
+function drawGrowingLiveNoteDurations(context, state, width, height, liveGrandStaffPlaybackBeats, palette) {
+    const cursor = state.liveGrandStaffCursor;
+    if (!cursor || !hasGrowingLiveNoteDurations(state, liveGrandStaffPlaybackBeats)) {
+        return;
+    }
+
+    const clockX = mapAbsoluteBeatToScoreX(
+        Math.max(0, liveGrandStaffPlaybackBeats),
+        cursor.beatsPerMeasure,
+        cursor.firstVisibleMeasure);
+    context.lineWidth = 2;
+    for (const note of getGrowingLiveNotes(state)) {
+        const x = mapX(note.x, width);
+        const durationEndX = mapX(Math.min(clockX, note.durationGrowthLimitX), width);
+        if (durationEndX > x) {
+            const y = mapY(note.y, height);
+            context.strokeStyle = getNoteColor(note, undefined, palette);
+            context.beginPath();
+            context.moveTo(x, y);
+            context.lineTo(durationEndX, y);
+            context.stroke();
+        }
     }
 }
 

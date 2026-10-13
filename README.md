@@ -41,6 +41,7 @@ Choose the route that fits what you want to try.
 | I want to… | Run | What it includes |
 | --- | --- | --- |
 | Use the complete browser app **(recommended)** | `make` | PostgreSQL, MusicXML, image recognition, and saved scores |
+| Use the complete browser app with the client compiled ahead of time | `make run-release` | The same, from a Release publish with WebAssembly AOT (a larger one-time setup, see [AOT-compiled release build](#aot-compiled-release-build)) |
 | Try MusicXML in a standalone browser PWA | `dotnet run --project PianoMapper.Web/PianoMapper.Web.csproj` | MusicXML import; no server, OMR, saved-score library, or server-saved progress |
 | Run the desktop app | `dotnet run --project PianoMapper/PianoMapper.csproj` | OpenTK/OpenAL desktop piano app |
 | Start a hosted browser app with your own prerequisites | `docker compose up --detach --wait postgres` then `dotnet run --project PianoMapper.Server/PianoMapper.Server.csproj` | Hosted browser app with PostgreSQL and image recognition |
@@ -118,6 +119,7 @@ The browser listener belongs to the focused play surface and leaves normal form 
 | Browser USB MIDI | Web MIDI support, user permission, and HTTPS or localhost |
 | `make` hosted launcher | Bash, Make, Docker, and the Docker Compose plugin |
 | Automatic image recognition | Linux x86_64 plus `curl`, `ar`, `sha256sum`, `tar`, and `unzstd` |
+| `make run-release` and `make publish-release` | Linux x86_64 plus `curl`, `gzip`, `sha512sum`, and `tar`; `make run-release` also needs everything `make` needs |
 
 On Linux x86_64, the first `make` downloads the official Audiveris 5.10.2 package (about 68 MiB), verifies its checksum, and extracts its bundled Java runtime under `.tools/`. Later runs reuse that copy; an existing `audiveris` command on `PATH` takes precedence. On other platforms, install Audiveris separately and point the hosted app at its launcher:
 
@@ -150,6 +152,14 @@ dotnet publish PianoMapper.Server/PianoMapper.Server.csproj --configuration Rele
 ```
 
 The standalone PWA has no process in which to run Audiveris or connect to PostgreSQL, so it intentionally supports MusicXML import only and keeps practice history in browser storage alone. The first PWA visit must be online so its service worker can cache the app shell; selected music files are never bundled into that cache.
+
+### AOT-compiled release build
+
+`make` runs the browser client on the .NET WebAssembly interpreter. `make run-release` instead publishes it in Release with Mono ahead-of-time (AOT) compilation and starts the server from that published output, on the same address as `make` (`http://localhost:5080`; set `ASPNETCORE_URLS` to change it). PostgreSQL and Audiveris are handled exactly as for `make`, including `ConnectionStrings__PianoMapper` and `Omr__AudiverisExecutable`. `make publish-release` only publishes, to `PianoMapper.Server/bin/Release/net10.0/publish-aot/`.
+
+AOT needs the `wasm-tools` workload, which a root-owned system SDK cannot install without `sudo`. The first run therefore downloads .NET SDK 10.0.112 (about 230 MiB, checksum-verified) and the workload (about 250 MiB) into `.tools/` (about 1.7 GiB unpacked) and AOT-compiles the app, which takes a few minutes. Later runs reuse both and start within seconds while the code is unchanged. `dotnet build`, `dotnet test`, `make`, and the SDK on your `PATH` never use or need them; delete `.tools/dotnet-sdk-10.0.112` to reclaim the space.
+
+The trade-off is size: the browser's `_framework` download grows from about 2.8 MiB to about 5.8 MiB compressed (8.9 MiB to 26 MiB unpacked) compared with a plain Release publish, and every code change costs a recompile. The published app also registers the offline service worker, so after rebuilding, close every PianoMapper tab and reopen it; a plain reload keeps showing the previous build.
 
 ## 💾 Progress storage
 

@@ -79,6 +79,12 @@ cleanup_installer() {
     fi
 }
 
+run_aot_release=false
+if [[ "${1:-}" == "--aot" ]]; then
+    run_aot_release=true
+    shift
+fi
+
 cd "${repo_root}"
 
 if [[ -z "${ConnectionStrings__PianoMapper:-}" ]]; then
@@ -103,4 +109,9 @@ if ! command -v "${audiveris_executable}" >/dev/null 2>&1; then
 fi
 
 export Omr__AudiverisExecutable="${audiveris_executable}"
+
+if [[ "${run_aot_release}" == true ]]; then
+    exec "${repo_root}/scripts/publish-aot.sh" --run "$@"
+fi
+
 exec dotnet run --project PianoMapper.Server/PianoMapper.Server.csproj "$@"

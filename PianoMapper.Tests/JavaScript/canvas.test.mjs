@@ -698,6 +698,188 @@ test("live grand-staff cursor moves the overlay without repainting the canvas", 
     }
 });
 
+// A live grand-staff note still being held carries `durationGrowthLimitX` instead of a `durationEndX`: its tail is
+// grown here, every frame, from the same audio clock that moves the cursor (see Piano.razor's live render state).
+function createHeldLiveNoteScene({ startBeat = 1, y = 0.2, isActive = true } = {}) {
+    const x = mapAbsoluteBeatToScoreX(startBeat, 4, 0);
+    return {
+        x,
+        scene: createEditableScoreScene([
+            {
+                label: "C4",
+                x,
+                y,
+                isActive,
+                isFilled: true,
+                stemDirection: 0,
+                flagCount: 0,
+                durationEndX: null,
+                // The end of the note's measure (beats 0-4).
+                durationGrowthLimitX: mapAbsoluteBeatToScoreX(4, 4, 0),
+            },
+        ]),
+    };
+}
+
+const liveCursorAtSixtyBpm = {
+    beatsPerMinute: 60,
+    beatsPerMeasure: 4,
+    firstVisibleMeasure: 0,
+    cursorY0: -0.5,
+    cursorY1: 0.5,
+};
+
+// Canvas width 640 and height 240 (FakeCanvas defaults) with the 18 px side padding of mapX.
+const mapSceneXToPixels = value => 18 + ((value + 1) / 2) * (640 - 36);
+
+test("a held live note's tail grows to the audio clock without redrawing the staff layer", async () => {
+    const harness = await createScoreCursorHarness(1);
+    const canvas = harness.createCanvas({ style: {} });
+    const { x, scene } = createHeldLiveNoteScene();
+
+    try {
+        render(canvas, scene, false, false);
+        startLiveGrandStaffCursor(canvas, liveCursorAtSixtyBpm);
+        const scoreLayer = harness.scoreLayers.at(-1).context;
+        const layerSegments = scoreLayer.lineSegments.length;
+        const mainSegments = canvas.context.lineSegments.length;
+
+        harness.audioContext.currentTime = 2.5;
+        harness.animationFrames.shift().callback();
+
+        const tails = canvas.context.lineSegments.slice(mainSegments);
+        assert.equal(tails.length, 1);
+        assert.ok(Math.abs(tails[0].x - mapSceneXToPixels(x)) < 1e-9, "the tail starts at the note head");
+        assert.ok(
+            Math.abs(tails[0].x1 - mapSceneXToPixels(mapAbsoluteBeatToScoreX(2.5, 4, 0))) < 1e-9,
+            "the tail ends where the cursor is");
+        assert.equal(tails[0].y, tails[0].y1);
+        assert.equal(tails[0].strokeStyle, "#22d3ee");
+        assert.equal(tails[0].lineWidth, 2);
+        assert.equal(scoreLayer.lineSegments.length, layerSegments, "the staff layer is not redrawn");
+
+        harness.audioContext.currentTime = 3.5;
+        harness.animationFrames.shift().callback();
+
+        const grown = canvas.context.lineSegments.at(-1);
+        assert.ok(Math.abs(grown.x1 - mapSceneXToPixels(mapAbsoluteBeatToScoreX(3.5, 4, 0))) < 1e-9);
+        assert.equal(scoreLayer.lineSegments.length, layerSegments, "the staff layer is still not redrawn");
+
+        stopLiveGrandStaffCursor(canvas);
+    } finally {
+        await harness.dispose();
+    }
+});
+
+test("a held live note's tail stops at the end of its measure until the scene is rebuilt", async () => {
+    const harness = await createScoreCursorHarness(1);
+    const canvas = harness.createCanvas({ style: {} });
+    const { scene } = createHeldLiveNoteScene();
+
+    try {
+        render(canvas, scene, false, false);
+        startLiveGrandStaffCursor(canvas, liveCursorAtSixtyBpm);
+
+        harness.audioContext.currentTime = 4.4;
+        harness.animationFrames.shift().callback();
+
+        const tail = canvas.context.lineSegments.at(-1);
+        assert.ok(Math.abs(tail.x1 - mapSceneXToPixels(mapAbsoluteBeatToScoreX(4, 4, 0))) < 1e-9);
+
+        stopLiveGrandStaffCursor(canvas);
+    } finally {
+        await harness.dispose();
+    }
+});
+
+test("a held live note has no tail before the clock reaches its head", async () => {
+    const harness = await createScoreCursorHarness(0.5);
+    const canvas = harness.createCanvas({ style: {} });
+    const { scene } = createHeldLiveNoteScene({ startBeat: 1 });
+
+    try {
+        render(canvas, scene, false, false);
+        startLiveGrandStaffCursor(canvas, liveCursorAtSixtyBpm);
+        const mainSegments = canvas.context.lineSegments.length;
+
+        harness.animationFrames.shift().callback();
+
+        assert.equal(canvas.context.lineSegments.length, mainSegments);
+
+        stopLiveGrandStaffCursor(canvas);
+    } finally {
+        await harness.dispose();
+    }
+});
+
+test("a live note that is no longer held gets no growing tail", async () => {
+    const harness = await createScoreCursorHarness(1);
+    const canvas = harness.createCanvas({ style: {} });
+    const { scene } = createHeldLiveNoteScene({ isActive: false });
+    scene.notes[0].durationGrowthLimitX = null;
+
+    try {
+        render(canvas, scene, false, false);
+        startLiveGrandStaffCursor(canvas, liveCursorAtSixtyBpm);
+        const drawImageCalls = canvas.context.drawImageCalls;
+        const mainSegments = canvas.context.lineSegments.length;
+
+        harness.audioContext.currentTime = 3;
+        harness.animationFrames.shift().callback();
+
+        assert.equal(canvas.context.drawImageCalls, drawImageCalls, "a frame without a growing tail repaints nothing");
+        assert.equal(canvas.context.lineSegments.length, mainSegments);
+
+        stopLiveGrandStaffCursor(canvas);
+    } finally {
+        await harness.dispose();
+    }
+});
+
+test("a held live note's tail follows the clock only while the live cursor runs", async () => {
+    const harness = await createScoreCursorHarness(2.5);
+    const canvas = harness.createCanvas({ style: {} });
+    const { scene } = createHeldLiveNoteScene();
+
+    try {
+        const mainSegments = canvas.context.lineSegments.length;
+        render(canvas, scene, false, false);
+
+        assert.equal(canvas.context.lineSegments.length, mainSegments, "no cursor, no clock to grow the tail from");
+
+        startLiveGrandStaffCursor(canvas, liveCursorAtSixtyBpm);
+        const withCursorSegments = canvas.context.lineSegments.length;
+
+        assert.equal(withCursorSegments, mainSegments + 1, "the tail appears as soon as the cursor starts");
+
+        stopLiveGrandStaffCursor(canvas);
+
+        assert.equal(canvas.context.lineSegments.length, withCursorSegments, "the tail goes with the cursor");
+    } finally {
+        await harness.dispose();
+    }
+});
+
+test("a held live note's tail is drawn in the light-mode active color", async () => {
+    const harness = await createScoreCursorHarness(1);
+    const canvas = harness.createCanvas({ style: {} });
+    const { scene } = createHeldLiveNoteScene();
+
+    try {
+        render(canvas, scene, false, false, undefined, true);
+        startLiveGrandStaffCursor(canvas, liveCursorAtSixtyBpm);
+
+        harness.audioContext.currentTime = 2;
+        harness.animationFrames.shift().callback();
+
+        assert.equal(canvas.context.lineSegments.at(-1).strokeStyle, "#0369a1");
+
+        stopLiveGrandStaffCursor(canvas);
+    } finally {
+        await harness.dispose();
+    }
+});
+
 test("score cursor animation repaints when the playback highlight changes", async () => {
     const harness = await createScoreCursorHarness(0.5);
     const cursorOverlay = { style: {} };

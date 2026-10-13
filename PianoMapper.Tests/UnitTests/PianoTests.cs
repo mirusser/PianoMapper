@@ -85,6 +85,27 @@ public sealed class PianoTests
     }
 
     [Theory]
+    [InlineData(true, false, false, true)]
+    [InlineData(false, false, false, false)]
+    [InlineData(true, true, false, false)]
+    [InlineData(true, false, true, false)]
+    public void IsSceneRefreshedByVisualizationTicker_State_ReturnsExpectedPolicy(
+        bool isVisualizationTickerRunning,
+        bool showPianoRoll,
+        bool hasNotationScore,
+        bool expected)
+    {
+        // A key event may leave the live grand staff to the running ticker's next tick: a chord's presses and releases
+        // then cost one rebuild instead of one per key. Every other view keeps refreshing at the event.
+        bool isRefreshedByTicker = Piano.IsSceneRefreshedByVisualizationTicker(
+            isVisualizationTickerRunning,
+            showPianoRoll,
+            hasNotationScore);
+
+        Assert.Equal(expected, isRefreshedByTicker);
+    }
+
+    [Theory]
     [InlineData(20, 0, 1, false, false, true)]
     [InlineData(20, 1, -1, false, false, true)]
     [InlineData(20, 0, -1, false, false, false)]

@@ -146,15 +146,21 @@ public static class GrandStaffLayout
             : beatOffset;
     }
 
-    public static int GetLiveFirstVisibleMeasure(
+    public static int GetLiveCurrentMeasure(
         TimeSpan currentTime,
         TimeSignature timeSignature,
         Tempo tempo)
     {
         double currentBeat = MusicalTime.DurationToBeats(currentTime, tempo);
-        int currentMeasure = Math.Max(0, (int)Math.Floor(currentBeat / timeSignature.Numerator));
-        return currentMeasure / DefaultVisibleMeasureCount * DefaultVisibleMeasureCount;
+        return Math.Max(0, (int)Math.Floor(currentBeat / timeSignature.Numerator));
     }
+
+    public static int GetLiveFirstVisibleMeasure(
+        TimeSpan currentTime,
+        TimeSignature timeSignature,
+        Tempo tempo) =>
+        GetLiveCurrentMeasure(currentTime, timeSignature, tempo)
+        / DefaultVisibleMeasureCount * DefaultVisibleMeasureCount;
 
     public static LiveNoteLayout? GetLiveNoteLayout(
         Pitch pitch,

@@ -25,4 +25,7 @@ public sealed record GrandStaffNote(
     double? FingeringY = null,
     ScoreNoteAddress? Address = null,
     ReviewMark? ReviewMark = null,
-    int? ReviewMarkGroup = null);
+    int? ReviewMarkGroup = null,
+    // A live held note whose duration trail the browser grows from the audio clock, like the cursor: the X it must not
+    // grow past, the end of its measure. Such a note has no DurationEndX of its own.
+    double? DurationGrowthLimitX = null);

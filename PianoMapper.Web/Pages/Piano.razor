@@ -720,6 +720,7 @@
     private ExercisePlayAlongController playAlongController = null!;
     private readonly AsyncTicker practiceTicker = new();
     private readonly AsyncTicker visualizationTicker = new();
+    private readonly LiveGrandStaffRenderMemo liveGrandStaffRenderMemo = new();
     private readonly AsyncTicker autoNextTicker = new();
     private string audioStatus = "Starting audio...";
     private string midiStatus = string.Empty;
@@ -3098,10 +3099,17 @@
                 throw new InvalidOperationException($"Unsupported browser input command: {command.Kind}.");
         }
 
-        if (command.Kind is BrowserInputCommandKind.NoteOn or
+        bool isPlayedNoteCommand = command.Kind is BrowserInputCommandKind.NoteOn or
             BrowserInputCommandKind.NoteOff or
             BrowserInputCommandKind.Clear or
-            BrowserInputCommandKind.ReleaseHeldNotes)
+            BrowserInputCommandKind.ReleaseHeldNotes;
+        // The running live ticker rebuilds the staff on its next tick: leaving it to do so makes a chord's keys cost one
+        // rebuild between them, not one each.
+        if (isPlayedNoteCommand &&
+            !IsSceneRefreshedByVisualizationTicker(
+                visualizationTicker.IsRunning,
+                showPianoRoll,
+                NotationScore is not null))
         {
             RefreshCanvasScene(command.EventTime);
             EnsureVisualizationRefresh();
@@ -3409,34 +3417,33 @@
         Score? notationScore = NotationScore;
         if (notationScore is null)
         {
-            var (upperLiveScene, lowerLiveScene) = GrandStaffSceneBuilder.BuildLivePair(
-                noteTimeline.Snapshot(currentTime),
-                currentTime,
-                displayTimeSignature,
-                displayTempo,
-                keyboardState.CurrentOctave,
-                showNoteLabels);
+            IReadOnlyList<PerformedNote> liveNotes = noteTimeline.Snapshot(currentTime);
             if (AudioSession.IsInitialized)
             {
-                var upperLiveRenderState = SeparateLiveGrandStaffCursor(
-                    upperLiveScene,
+                LiveGrandStaffRenderState liveRenderState = liveGrandStaffRenderMemo.GetOrBuild(
+                    liveNotes,
                     currentTime,
                     displayTimeSignature,
-                    displayTempo);
-                var lowerLiveRenderState = SeparateLiveGrandStaffCursor(
-                    lowerLiveScene,
-                    currentTime,
-                    displayTimeSignature,
-                    displayTempo);
-                canvasScene = PreserveLiveGrandStaffSceneReference(canvasScene, upperLiveRenderState.Scene);
+                    displayTempo,
+                    keyboardState.CurrentOctave,
+                    showNoteLabels,
+                    () => BuildLiveGrandStaffRenderState(liveNotes, currentTime));
+                canvasScene = PreserveLiveGrandStaffSceneReference(canvasScene, liveRenderState.UpperScene);
                 secondaryCanvasScene = PreserveLiveGrandStaffSceneReference(
                     secondaryCanvasScene,
-                    lowerLiveRenderState.Scene);
-                liveGrandStaffCursorState = upperLiveRenderState.Cursor;
-                secondaryLiveGrandStaffCursorState = lowerLiveRenderState.Cursor;
+                    liveRenderState.LowerScene);
+                liveGrandStaffCursorState = liveRenderState.UpperCursor;
+                secondaryLiveGrandStaffCursorState = liveRenderState.LowerCursor;
             }
             else
             {
+                var (upperLiveScene, lowerLiveScene) = GrandStaffSceneBuilder.BuildLivePair(
+                    liveNotes,
+                    currentTime,
+                    displayTimeSignature,
+                    displayTempo,
+                    keyboardState.CurrentOctave,
+                    showNoteLabels);
                 canvasScene = upperLiveScene;
                 secondaryCanvasScene = lowerLiveScene;
                 liveGrandStaffCursorState = null;
@@ -3572,6 +3579,35 @@
         GrandStaffScoreOverlay updated) =>
         ScoreOverlaysEqual(current, updated) ? current! : updated;
 
+    private LiveGrandStaffRenderState BuildLiveGrandStaffRenderState(
+        IReadOnlyList<PerformedNote> liveNotes,
+        TimeSpan currentTime)
+    {
+        var (upperLiveScene, lowerLiveScene) = GrandStaffSceneBuilder.BuildLivePair(
+            liveNotes,
+            currentTime,
+            displayTimeSignature,
+            displayTempo,
+            keyboardState.CurrentOctave,
+            showNoteLabels,
+            growsActiveNotesInBrowser: true);
+        var upperLiveRenderState = SeparateLiveGrandStaffCursor(
+            upperLiveScene,
+            currentTime,
+            displayTimeSignature,
+            displayTempo);
+        var lowerLiveRenderState = SeparateLiveGrandStaffCursor(
+            lowerLiveScene,
+            currentTime,
+            displayTimeSignature,
+            displayTempo);
+        return new LiveGrandStaffRenderState(
+            upperLiveRenderState.Scene,
+            upperLiveRenderState.Cursor,
+            lowerLiveRenderState.Scene,
+            lowerLiveRenderState.Cursor);
+    }
+
     internal static (GrandStaffScene Scene, LiveGrandStaffCursorState? Cursor) SeparateLiveGrandStaffCursor(
         GrandStaffScene scene,
         TimeSpan currentTime,
@@ -3601,7 +3637,8 @@
     private static GrandStaffScene PreserveLiveGrandStaffSceneReference(
         IPianoCanvasScene? current,
         GrandStaffScene updated) =>
-        current is GrandStaffScene existing && LiveGrandStaffScenesEqual(existing, updated)
+        current is GrandStaffScene existing &&
+        (ReferenceEquals(existing, updated) || LiveGrandStaffScenesEqual(existing, updated))
             ? existing
             : updated;
 
@@ -3820,6 +3857,17 @@
 
         return activeMidiNumbers;
     }
+
+    /// <summary>
+    /// Whether the running visualization ticker will rebuild the scene on its next tick anyway: true for the live grand
+    /// staff (it ticks for as long as audio is on). The piano roll and a loaded score's views stop or pace their own
+    /// ticks, so they refresh when a key event arrives.
+    /// </summary>
+    internal static bool IsSceneRefreshedByVisualizationTicker(
+        bool isVisualizationTickerRunning,
+        bool showPianoRoll,
+        bool hasNotationScore) =>
+        isVisualizationTickerRunning && !showPianoRoll && !hasNotationScore;
 
     internal static bool ShouldContinueVisualizationRefresh(
         bool showPianoRoll,

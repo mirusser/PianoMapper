@@ -1718,7 +1718,10 @@ internal static class GrandStaffSceneBuilder
     /// Builds the two rows of the live grand staff: the pair of five-measure pages chosen by
     /// <see cref="ScoreGrandStaffWindowPair.FromLivePageIndex"/>, so the cursor crosses the upper row, then the lower
     /// one, then the upper one again. Only the row holding the current beat carries a cursor line. When fitting to the
-    /// selected octave both rows share one vertical mapping, so the staves stay the same size and in step.
+    /// selected octave both rows share one vertical mapping, so the staves stay the same size and in step. With
+    /// <paramref name="growsActiveNotesInBrowser"/> a held note's tail is left to the browser to grow from the audio
+    /// clock (see <see cref="GrandStaffNote.DurationGrowthLimitX"/>), so the scene stays the same for as long as the
+    /// clock stays in one measure.
     /// </summary>
     internal static (GrandStaffScene Upper, GrandStaffScene Lower) BuildLivePair(
         IReadOnlyList<PerformedNote> notes,
@@ -1726,7 +1729,8 @@ internal static class GrandStaffSceneBuilder
         TimeSignature timeSignature,
         Tempo tempo,
         int? selectedOctave = null,
-        bool showNoteLabels = true)
+        bool showNoteLabels = true,
+        bool growsActiveNotesInBrowser = false)
     {
         int activePageIndex =
             GrandStaffLayout.GetLiveFirstVisibleMeasure(currentTime, timeSignature, tempo)
@@ -1739,14 +1743,16 @@ internal static class GrandStaffSceneBuilder
             timeSignature,
             tempo,
             pair.UpperFirstMeasure,
-            showNoteLabels);
+            showNoteLabels,
+            growsActiveNotesInBrowser);
         var lower = BuildLiveRow(
             notes,
             currentTime,
             timeSignature,
             tempo,
             pair.LowerFirstMeasure!.Value,
-            showNoteLabels);
+            showNoteLabels,
+            growsActiveNotesInBrowser);
         if (!selectedOctave.HasValue)
         {
             return (upper, lower);
@@ -1762,7 +1768,8 @@ internal static class GrandStaffSceneBuilder
         TimeSignature timeSignature,
         Tempo tempo,
         int firstVisibleMeasure,
-        bool showNoteLabels)
+        bool showNoteLabels,
+        bool growsActiveNotesInBrowser = false)
     {
         var lines = CreateStaffLines();
         var glyphs = CreateClefGlyphs();
@@ -1819,6 +1826,7 @@ internal static class GrandStaffSceneBuilder
                 bool isActiveSegment = isPerformedNoteActive
                     && segmentIndex == segments.Count - 1
                     && !segment.HasOutgoingTie;
+                bool growsInBrowser = growsActiveNotesInBrowser && isActiveSegment;
                 NoteValue? noteValue = isActiveSegment
                     ? null
                     : GetNearestLiveNoteValue(segmentDuration, timeSignature, tempo);
@@ -1834,15 +1842,18 @@ internal static class GrandStaffSceneBuilder
                     note.Pitch.ToString(),
                     renderedX,
                     noteY,
-                    segmentDuration.TotalSeconds,
+                    growsInBrowser ? 0 : segmentDuration.TotalSeconds,
                     IsActive: isActiveSegment,
                     IsFilled: isFilled,
                     HasStem: hasStem,
                     StemDirection: stemDirection,
                     HasDot: noteValue?.Dots > 0,
                     FlagCount: flagCount,
-                    DurationEndX: isActiveSegment ? Math.Max(renderedX, segment.DurationEndX) : null,
-                    LabelY: showNoteLabels ? GrandStaffLayout.GetStaffLabelY(position.Staff) : null));
+                    DurationEndX: isActiveSegment && !growsInBrowser
+                        ? Math.Max(renderedX, segment.DurationEndX)
+                        : null,
+                    LabelY: showNoteLabels ? GrandStaffLayout.GetStaffLabelY(position.Staff) : null,
+                    DurationGrowthLimitX: growsInBrowser ? measureEndX : null));
                 lines.AddRange(position.LedgerLineYs.Select(
                     y => new GrandStaffLine(
                         renderedX - LedgerLineHalfWidth,

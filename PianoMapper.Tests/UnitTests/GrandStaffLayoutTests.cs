@@ -402,6 +402,21 @@ public sealed class GrandStaffLayoutTests
         Assert.Equal(5, firstVisibleMeasure);
     }
 
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1.99, 0)]
+    [InlineData(2, 1)]
+    [InlineData(13, 6)]
+    public void GetLiveCurrentMeasure_ReturnsTheMeasureTheClockIsIn(double seconds, int expectedMeasure)
+    {
+        var signature = new TimeSignature(4, new NoteValue(4));
+        var tempo = new Tempo(120);
+
+        int measure = GrandStaffLayout.GetLiveCurrentMeasure(TimeSpan.FromSeconds(seconds), signature, tempo);
+
+        Assert.Equal(expectedMeasure, measure);
+    }
+
     [Fact]
     public void GetLiveNoteLayout_NoteInCurrentMeasureGroup_MapsOnsetAndDurationToBeatSpace()
     {
