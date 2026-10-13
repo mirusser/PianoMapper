@@ -95,6 +95,16 @@
                                             disabled="@(!AudioSession.IsInitialized)">
                                         Play / restart <kbd>P</kbd>
                                     </button>
+                                    <button type="button"
+                                            @onclick="TogglePauseScorePlaybackAsync"
+                                            disabled="@(!ScorePlaybackSession.IsActive)">
+                                        @(ScorePlaybackSession.IsPaused ? "Resume" : "Pause")
+                                    </button>
+                                    <button type="button"
+                                            @onclick="StopScorePlaybackFromControlAsync"
+                                            disabled="@(!ScorePlaybackSession.IsActive)">
+                                        Stop
+                                    </button>
                                     <label class="control-checkbox">
                                         <input type="checkbox"
                                                @bind="playScoreWithClick"
@@ -1575,7 +1585,36 @@
         audioStatus = $"Selected {SelectedMeasureRangeLabel} of {score.Title}.";
     }
 
-    private async Task StartScorePlaybackAsync()
+    private Task StartScorePlaybackAsync() => PlayScoreAsync(isResume: false);
+
+    private async Task TogglePauseScorePlaybackAsync()
+    {
+        if (ScorePlaybackSession.IsPaused)
+        {
+            await PlayScoreAsync(isResume: true);
+            return;
+        }
+
+        if (!ScorePlaybackSession.IsActive)
+        {
+            return;
+        }
+
+        await playbackTicker.StopAsync();
+        await StopExerciseClickAsync();
+        TimeSpan currentTime = await AudioSession.GetCurrentTimeAsync();
+        await ScorePlaybackSession.PauseAsync(currentTime);
+        RefreshCanvasScene(currentTime);
+        audioStatus = "Playback paused. Resume to continue from here, or stop.";
+    }
+
+    private async Task StopScorePlaybackFromControlAsync()
+    {
+        await StopScorePlaybackAsync();
+        audioStatus = "Playback stopped.";
+    }
+
+    private async Task PlayScoreAsync(bool isResume)
     {
         if (selectedScore is not { } score || !AudioSession.IsInitialized)
         {
@@ -1593,9 +1632,15 @@
             await StopMetronomeAsync();
         }
 
-        ResetNoteReadingSession();
-        ResetScoreWindowPair();
-        TimeSpan playbackAnchor = await ScorePlaybackSession.StartAsync(score);
+        if (!isResume)
+        {
+            ResetNoteReadingSession();
+            ResetScoreWindowPair();
+        }
+
+        TimeSpan playbackAnchor = isResume
+            ? await ScorePlaybackSession.ResumeAsync(score)
+            : await ScorePlaybackSession.StartAsync(score);
         if (playScoreWithClick && ScorePlaybackSession.IsActive)
         {
             await ExerciseClick.StartAsync(score, playbackAnchor);
@@ -1605,9 +1650,10 @@
         displayTempo = score.Tempo;
         RefreshCanvasScene(await AudioSession.GetCurrentTimeAsync());
         playbackTicker.Start(TickScorePlaybackAsync, CanvasRefreshInterval);
+        string verb = isResume ? "Resumed" : "Playing";
         audioStatus = playScoreWithClick
-            ? $"Playing {score.Title}, {SelectedMeasureRangeLabel}, with click."
-            : $"Playing {score.Title}, {SelectedMeasureRangeLabel}.";
+            ? $"{verb} {score.Title}, {SelectedMeasureRangeLabel}, with click."
+            : $"{verb} {score.Title}, {SelectedMeasureRangeLabel}.";
     }
 
     private async Task PlayRandomMeasureAsync()
@@ -2170,7 +2216,8 @@
             GrandStaffSceneBuilder.CreateScoreCursorMeasureLayouts(
                 staticParts,
                 firstVisibleMeasure,
-                visibleMeasureCount));
+                visibleMeasureCount),
+            anchor.PausedBeats);
     }
 
     private void UpdateScoreCursorStates()
@@ -2211,6 +2258,7 @@
         current.AnchorSeconds == anchor.AnchorSeconds &&
         current.BeatsPerMinute == anchor.BeatsPerMinute &&
         current.CompletionSeconds == anchor.CompletionSeconds &&
+        current.PausedBeats == anchor.PausedBeats &&
         current.FirstVisibleMeasure == firstVisibleMeasure &&
         current.VisibleMeasureCount == visibleMeasureCount
             ? current

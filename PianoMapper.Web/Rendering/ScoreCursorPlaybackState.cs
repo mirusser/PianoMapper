@@ -15,4 +15,5 @@ public sealed record ScoreCursorPlaybackState(
     double CursorY0,
     double CursorY1,
     int VisibleMeasureCount,
-    IReadOnlyList<ScoreCursorMeasureLayout> MeasureLayouts);
+    IReadOnlyList<ScoreCursorMeasureLayout> MeasureLayouts,
+    double? PausedBeats = null);

@@ -738,7 +738,10 @@ function releaseNodes(note, releaseTimeSeconds, onDisconnected) {
 
     note.stop(stopTime);
 
-    window.setTimeout(() => {
+    // A note released again (a scheduled score note is, when the score stops) replaces its earlier cleanup timer
+    // rather than leaving it to hold the note's nodes until the time it was first due to end.
+    window.clearTimeout(note.disconnectTimer);
+    note.disconnectTimer = window.setTimeout(() => {
         note.disconnect();
         note.envelope.disconnect();
         onDisconnected?.();

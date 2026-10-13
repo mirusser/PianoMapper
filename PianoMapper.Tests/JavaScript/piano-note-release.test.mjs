@@ -8,7 +8,9 @@ import {
     initialize,
     noteOff,
     noteOn,
+    scheduleScore,
     scheduleScoreAhead,
+    stopScore,
 } from "../../PianoMapper.Web/wwwroot/js/audio.js";
 
 // Velocity 100 maps to piano sample layer 15 and velocity 20 to layer 1; initialize() preloads the default layer (10).
@@ -245,6 +247,23 @@ test("a score scheduled ahead is anchored on the audio clock of a fresh task and
     });
 });
 
+test("stopping a score cancels the cleanup timers its notes were given when they were scheduled", async () => {
+    await withPianoAudio(async ({ pendingTimers }) => {
+        await scheduleScore([
+            { noteId: "score-0", frequency: 440, startTimeSeconds: 100, durationSeconds: 1 },
+            { noteId: "score-1", frequency: 660, startTimeSeconds: 200, durationSeconds: 1 },
+        ]);
+        assert.equal(pendingTimers.size, 2);
+
+        stopScore();
+
+        // Each note keeps one timer, now for its release, instead of also holding its nodes until the old end time.
+        assert.equal(pendingTimers.size, 2);
+        assert.ok([...pendingTimers.values()].every(delayMilliseconds => delayMilliseconds < 1000));
+        assert.equal(getActiveNoteCount(), 0);
+    });
+});
+
 function packScoreEvents(events) {
     return new Uint8Array(new Float64Array(events.flat()).buffer);
 }
@@ -265,6 +284,8 @@ async function withPianoAudio(body) {
     const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
     const sources = [];
     const gates = new Map();
+    const pendingTimers = new Map();
+    let nextTimerId = 1;
     let context;
 
     class FakeAudioContext {
@@ -338,9 +359,13 @@ async function withPianoAudio(body) {
         value: {
             AudioContext: FakeAudioContext,
             clearInterval() {},
-            clearTimeout() {},
+            clearTimeout: id => pendingTimers.delete(id),
             setInterval: () => 1,
-            setTimeout: () => 1,
+            setTimeout: (callback, delayMilliseconds) => {
+                const id = nextTimerId++;
+                pendingTimers.set(id, delayMilliseconds);
+                return id;
+            },
         },
     });
 
@@ -351,6 +376,7 @@ async function withPianoAudio(body) {
                 return context;
             },
             sources,
+            pendingTimers,
             holdLayer(suffix) {
                 const gate = {};
                 gate.promise = new Promise((resolve, reject) => {

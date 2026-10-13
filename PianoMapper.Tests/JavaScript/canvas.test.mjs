@@ -483,6 +483,32 @@ test("score cursor exact boundary belongs only to incoming canvas", async () => 
     }
 });
 
+test("a paused score cursor stays at its beat while the audio clock moves on", async () => {
+    const harness = await createScoreCursorHarness(20);
+    const canvas = harness.createCanvas();
+    const cursor = {
+        anchorSeconds: 0,
+        beatsPerMinute: 60,
+        beatsPerMeasure: 4,
+        firstVisibleMeasure: 0,
+        completionSeconds: 10,
+        cursorY0: -0.5,
+        cursorY1: 0.5,
+        visibleMeasureCount: 5,
+    };
+
+    try {
+        // The running cursor would be at beat 20, past this window and its completion time: not drawn.
+        startScoreCursor(canvas, cursor);
+        assert.equal(canvas.context.lineSegments.length, 0);
+
+        startScoreCursor(canvas, { ...cursor, pausedBeats: 2 });
+        assert.equal(canvas.context.lineSegments.length, 1);
+    } finally {
+        await harness.dispose();
+    }
+});
+
 test("score cursor follows an implicit pickup into its following page", async () => {
     const harness = await createScoreCursorHarness(17);
     const canvas = harness.createCanvas();

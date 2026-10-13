@@ -143,6 +143,113 @@ public sealed class BrowserScorePlaybackTests
         Assert.Equal(TimeSpan.FromSeconds(10.55), note.ReleaseTime);
     }
 
+    [Fact]
+    public async Task PauseAsync_Playing_StopsAudioAndFreezesTheCursorAtTheCurrentBeat()
+    {
+        var audio = new FakeScoreAudio(TimeSpan.FromSeconds(10));
+        var playback = new BrowserScorePlayback(audio);
+        await playback.StartAsync(CreateFourNoteScore());
+        audio.Calls.Clear();
+
+        await playback.PauseAsync(TimeSpan.FromSeconds(11.05));
+
+        Assert.Equal(["stop"], audio.Calls);
+        Assert.True(playback.IsPaused);
+        Assert.True(playback.IsActive);
+        Assert.Equal(2, playback.GetCursorAnchor()!.Value.PausedBeats);
+        Assert.Equal(2, playback.GetCursorBeats(TimeSpan.FromSeconds(50)));
+        Assert.Empty(playback.GetStartedNotes(TimeSpan.FromSeconds(50)));
+    }
+
+    [Fact]
+    public async Task PauseAsync_NothingPlaying_DoesNothing()
+    {
+        var audio = new FakeScoreAudio(TimeSpan.FromSeconds(10));
+        var playback = new BrowserScorePlayback(audio);
+
+        await playback.PauseAsync(TimeSpan.FromSeconds(11));
+
+        Assert.Empty(audio.Calls);
+        Assert.False(playback.IsPaused);
+        Assert.False(playback.IsActive);
+    }
+
+    [Fact]
+    public async Task ResumeAsync_PausedMidNote_SchedulesWhatIsLeftFromThePausedPosition()
+    {
+        var audio = new FakeScoreAudio(TimeSpan.FromSeconds(10));
+        var playback = new BrowserScorePlayback(audio);
+        var score = CreateFourNoteScore();
+        await playback.StartAsync(score);
+        await playback.PauseAsync(TimeSpan.FromSeconds(10.8));
+        audio.PickedAnchor = TimeSpan.FromSeconds(20.05);
+
+        TimeSpan scoreStart = await playback.ResumeAsync(score);
+
+        // 0.75 s in: the first note is over, the second has 0.25 s left (struck again), two more follow.
+        Assert.Equal(
+            [TimeSpan.Zero, TimeSpan.FromSeconds(0.25), TimeSpan.FromSeconds(0.75)],
+            audio.ScheduledEvents.Select(scheduledEvent => scheduledEvent.StartTime));
+        Assert.Equal(
+            [TimeSpan.FromSeconds(0.25), TimeSpan.FromSeconds(0.5), TimeSpan.FromSeconds(0.5)],
+            audio.ScheduledEvents.Select(scheduledEvent => scheduledEvent.Duration));
+        // Beat zero lies 0.75 s before the resumed audio, so the cursor carries on from where it paused.
+        Assert.Equal(TimeSpan.FromSeconds(19.3), scoreStart);
+        Assert.False(playback.IsPaused);
+        Assert.True(playback.IsActive);
+        Assert.Equal(1.5, playback.GetCursorBeats(TimeSpan.FromSeconds(20.05)));
+        ScoreCursorAnchor cursorAnchor = playback.GetCursorAnchor()!.Value;
+        Assert.Null(cursorAnchor.PausedBeats);
+        Assert.Equal(19.3, cursorAnchor.AnchorSeconds, 6);
+        Assert.Equal(21.3, cursorAnchor.CompletionSeconds, 6);
+        Assert.Equal(TimeSpan.FromSeconds(20.05), Assert.Single(playback.GetStartedNotes(TimeSpan.FromSeconds(20.1))).StartTime);
+    }
+
+    [Fact]
+    public async Task ResumeAsync_PausedBeforeTheFirstNote_SchedulesTheWholeScore()
+    {
+        var audio = new FakeScoreAudio(TimeSpan.FromSeconds(10));
+        var playback = new BrowserScorePlayback(audio);
+        var score = CreateFourNoteScore();
+        await playback.StartAsync(score);
+        await playback.PauseAsync(TimeSpan.FromSeconds(10));
+
+        TimeSpan scoreStart = await playback.ResumeAsync(score);
+
+        Assert.Equal(4, audio.ScheduledEvents.Count);
+        Assert.Equal(TimeSpan.FromSeconds(10.05), scoreStart);
+    }
+
+    [Fact]
+    public async Task StopAsync_Paused_EndsThePlaybackSession()
+    {
+        var playback = new BrowserScorePlayback(new FakeScoreAudio(TimeSpan.FromSeconds(10)));
+        await playback.StartAsync(CreateFourNoteScore());
+        await playback.PauseAsync(TimeSpan.FromSeconds(11));
+
+        await playback.StopAsync();
+
+        Assert.False(playback.IsPaused);
+        Assert.False(playback.IsActive);
+        Assert.Null(playback.GetCursorAnchor());
+    }
+
+    [Fact]
+    public async Task StartAsync_Paused_RestartsFromTheBeginning()
+    {
+        var audio = new FakeScoreAudio(TimeSpan.FromSeconds(10));
+        var playback = new BrowserScorePlayback(audio);
+        var score = CreateFourNoteScore();
+        await playback.StartAsync(score);
+        await playback.PauseAsync(TimeSpan.FromSeconds(11));
+
+        await playback.StartAsync(score);
+
+        Assert.False(playback.IsPaused);
+        Assert.Equal(4, audio.ScheduledEvents.Count);
+        Assert.Equal(TimeSpan.Zero, audio.ScheduledEvents[0].StartTime);
+    }
+
     private static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
     private static Score CreateScore(double beatOffset) =>
@@ -157,6 +264,26 @@ public sealed class BrowserScorePlaybackTests
                     []),
             ]);
 
+    // Four quarter notes at 120 beats per minute: one every half second, each lasting half a second.
+    private static Score CreateFourNoteScore() =>
+        new(
+            "test",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [
+                new ScoreMeasure(
+                    Enumerable.Range(0, 4)
+                        .Select(beat => new ScoreNote(
+                            new Pitch(NoteLetter.C, 0, 4),
+                            new NoteValue(4),
+                            0,
+                            beat,
+                            Staff.Treble))
+                        .ToArray(),
+                    []),
+            ]);
+
     private sealed class FakeScoreAudio(TimeSpan currentTime) : IBrowserScoreAudio
     {
         internal List<string> Calls { get; } = [];
@@ -166,7 +293,7 @@ public sealed class BrowserScorePlaybackTests
         internal TimeSpan ScheduledLead { get; private set; }
 
         /// <summary>The anchor the audio engine reports; by default the clock plus the requested lead.</summary>
-        internal TimeSpan? PickedAnchor { get; init; }
+        internal TimeSpan? PickedAnchor { get; set; }
 
         public ValueTask<TimeSpan> GetCurrentTimeAsync(CancellationToken cancellationToken = default) =>
             ValueTask.FromResult(currentTime);

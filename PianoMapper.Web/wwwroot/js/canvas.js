@@ -1106,6 +1106,11 @@ function getScorePlaybackBeats(state) {
         return undefined;
     }
 
+    // A paused score stands still at its beat while the audio clock keeps going.
+    if (typeof cursor.pausedBeats === "number") {
+        return cursor.pausedBeats;
+    }
+
     let currentTime;
     try {
         currentTime = getCurrentTime();
