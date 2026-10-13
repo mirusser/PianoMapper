@@ -605,6 +605,12 @@ public sealed class ExercisePlayAlongControllerTests
             return ValueTask.CompletedTask;
         }
 
+        public ValueTask<TimeSpan> ScheduleScoreAheadAsync(
+            IReadOnlyList<BrowserScoreAudioEvent> events,
+            TimeSpan lead,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public ValueTask StopScoreAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
     }
 }

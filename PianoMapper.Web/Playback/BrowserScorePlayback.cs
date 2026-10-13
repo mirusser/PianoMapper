@@ -12,24 +12,16 @@ internal sealed class BrowserScorePlayback(IBrowserScoreAudio audio)
 
     internal bool IsActive { get; private set; }
 
-    internal async ValueTask StartAsync(Score score, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(score);
-        TimeSpan audioClockAnchor = await audio.GetCurrentTimeAsync(cancellationToken) + SchedulingLead;
-        await StartAsync(score, audioClockAnchor, cancellationToken);
-    }
-
-    /// <summary>Schedules playback from an explicit Web Audio anchor, so another audio track can share its grid.</summary>
-    internal async ValueTask StartAsync(
-        Score score,
-        TimeSpan audioClockAnchor,
-        CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Schedules the score from an anchor the audio engine picks when it takes the notes over, and returns it so
+    /// another audio track (the click) can share its grid. Picking it here instead would leave the first notes past
+    /// by the time they arrive, because building and passing a long score's events takes longer than the lead.
+    /// </summary>
+    internal async ValueTask<TimeSpan> StartAsync(Score score, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(score);
         await audio.StopScoreAsync(cancellationToken);
-        anchor = audioClockAnchor;
-        tempo = score.Tempo;
-        var schedule = ScorePlayback.CreateSchedule(score, anchor.Value);
+        var schedule = ScorePlayback.CreateSchedule(score, TimeSpan.Zero);
         var audioEvents = schedule.Select((scheduledEvent, index) =>
                 new BrowserScoreAudioEvent(
                     $"score-{index}",
@@ -37,18 +29,18 @@ internal sealed class BrowserScorePlayback(IBrowserScoreAudio audio)
                     scheduledEvent.DueTime,
                     scheduledEvent.Duration))
             .ToArray();
-        await audio.ScheduleScoreAsync(audioEvents, cancellationToken);
-        var scheduledTimeline = new NoteTimeline();
-        scheduledNotes = schedule.Select(scheduledEvent =>
-        {
-            var note = scheduledTimeline.Start(scheduledEvent.Event.Pitch, scheduledEvent.DueTime);
-            scheduledTimeline.Complete(note, scheduledEvent.DueTime + scheduledEvent.Duration);
-            return note;
-        }).ToArray();
+        TimeSpan audioClockAnchor = await audio.ScheduleScoreAheadAsync(audioEvents, SchedulingLead, cancellationToken);
+        anchor = audioClockAnchor;
+        tempo = score.Tempo;
+        scheduledNotes = schedule.Select(scheduledEvent => PerformedNote.Completed(
+            scheduledEvent.Event.Pitch,
+            audioClockAnchor + scheduledEvent.DueTime,
+            audioClockAnchor + scheduledEvent.DueTime + scheduledEvent.Duration)).ToArray();
         IsActive = audioEvents.Length > 0;
         completionTime = schedule.Count == 0
-            ? anchor.Value
-            : schedule.Max(scheduledEvent => scheduledEvent.DueTime + scheduledEvent.Duration);
+            ? audioClockAnchor
+            : audioClockAnchor + schedule.Max(scheduledEvent => scheduledEvent.DueTime + scheduledEvent.Duration);
+        return audioClockAnchor;
     }
 
     internal double? GetCursorBeats(TimeSpan currentAudioTime)

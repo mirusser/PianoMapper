@@ -8,6 +8,28 @@ public sealed class ScoreDerivationTests
     private static readonly Pitch E4 = new(NoteLetter.E, 0, 4);
 
     [Fact]
+    public void Flatten_SameScoreAgain_ReturnsTheEventsAlreadyDerived()
+    {
+        Score score = CreateScore(C4);
+
+        IReadOnlyList<ScoreEvent> first = ScoreDerivation.Flatten(score);
+
+        Assert.Same(first, ScoreDerivation.Flatten(score));
+    }
+
+    [Fact]
+    public void Flatten_EditedCopyOfAScore_DerivesItsOwnEvents()
+    {
+        Score score = CreateScore(C4);
+        Score edited = score with { Measures = CreateScore(E4).Measures };
+        _ = ScoreDerivation.Flatten(score);
+
+        ScoreEvent editedEvent = Assert.Single(ScoreDerivation.Flatten(edited));
+
+        Assert.Equal(E4, editedEvent.Pitch);
+    }
+
+    [Fact]
     public void GroupByOnset_EventsOnTheSameBeat_FormOneChordGroup()
     {
         ScoreEvent[] events =
@@ -43,4 +65,12 @@ public sealed class ScoreDerivationTests
     {
         Assert.Empty(ScoreDerivation.GroupByOnset([]));
     }
+
+    private static Score CreateScore(Pitch pitch) =>
+        new(
+            "test",
+            new TimeSignature(4, new NoteValue(4)),
+            new Tempo(120),
+            0,
+            [new ScoreMeasure([new ScoreNote(pitch, new NoteValue(4), 0, 0, Staff.Treble)], [])]);
 }

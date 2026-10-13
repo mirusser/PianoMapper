@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Microsoft.JSInterop;
 using PianoMapper.Music;
 using PianoMapper.Web.Playback;
@@ -9,6 +10,7 @@ internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio
     private const string ModulePath = "./js/audio.js";
     private const string ExternalMidiSoundSourceName = "external-midi";
     internal const int DefaultNoteVelocity = 80;
+    private const int PackedScoreEventValueCount = 3;
 
     private IJSObjectReference? module;
     private AudioClockAnchor? anchor;
@@ -126,17 +128,19 @@ internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio
 
     public ValueTask ScheduleScoreAsync(
         IReadOnlyList<BrowserScoreAudioEvent> events,
+        CancellationToken cancellationToken = default) =>
+        GetInitializedModule().InvokeVoidAsync("scheduleScore", cancellationToken, [CreateScoreCommands(events)]);
+
+    public async ValueTask<TimeSpan> ScheduleScoreAheadAsync(
+        IReadOnlyList<BrowserScoreAudioEvent> events,
+        TimeSpan lead,
         CancellationToken cancellationToken = default)
     {
-        var commands = events.Select(scoreEvent => new
-        {
-            scoreEvent.NoteId,
-            scoreEvent.Frequency,
-            Velocity = DefaultNoteVelocity,
-            StartTimeSeconds = scoreEvent.StartTime.TotalSeconds,
-            DurationSeconds = scoreEvent.Duration.TotalSeconds,
-        }).ToArray();
-        return GetInitializedModule().InvokeVoidAsync("scheduleScore", cancellationToken, [commands]);
+        double anchorSeconds = await GetInitializedModule().InvokeAsync<double>(
+            "scheduleScoreAhead",
+            cancellationToken,
+            [PackScoreEvents(events), lead.TotalSeconds, DefaultNoteVelocity]);
+        return TimeSpan.FromSeconds(anchorSeconds);
     }
 
     public ValueTask StopScoreAsync(CancellationToken cancellationToken = default) =>
@@ -182,6 +186,32 @@ internal sealed class WebAudioSession(IJSRuntime jsRuntime) : IBrowserScoreAudio
 
         await module.InvokeVoidAsync("dispose");
         await module.DisposeAsync();
+    }
+
+    private static object[] CreateScoreCommands(IReadOnlyList<BrowserScoreAudioEvent> events) =>
+        events.Select(scoreEvent => (object)new
+        {
+            scoreEvent.NoteId,
+            scoreEvent.Frequency,
+            Velocity = DefaultNoteVelocity,
+            StartTimeSeconds = scoreEvent.StartTime.TotalSeconds,
+            DurationSeconds = scoreEvent.Duration.TotalSeconds,
+        }).ToArray();
+
+    // Frequency, start and duration of every event as one byte array, which Blazor passes across in a few milliseconds
+    // where a thousand event objects took a tenth of a second of WebAssembly time. The audio engine names the notes by
+    // their position, so their ids are not sent.
+    private static byte[] PackScoreEvents(IReadOnlyList<BrowserScoreAudioEvent> events)
+    {
+        var values = new double[events.Count * PackedScoreEventValueCount];
+        for (int index = 0; index < events.Count; index++)
+        {
+            values[index * PackedScoreEventValueCount] = events[index].Frequency;
+            values[(index * PackedScoreEventValueCount) + 1] = events[index].StartTime.TotalSeconds;
+            values[(index * PackedScoreEventValueCount) + 2] = events[index].Duration.TotalSeconds;
+        }
+
+        return MemoryMarshal.AsBytes(values.AsSpan()).ToArray();
     }
 
     private async ValueTask<IJSObjectReference> ImportModuleAsync(CancellationToken cancellationToken) =>

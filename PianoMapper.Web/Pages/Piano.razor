@@ -1595,8 +1595,7 @@
 
         ResetNoteReadingSession();
         ResetScoreWindowPair();
-        TimeSpan playbackAnchor = await AudioSession.GetCurrentTimeAsync() + BrowserSchedulingLead;
-        await ScorePlaybackSession.StartAsync(score, playbackAnchor);
+        TimeSpan playbackAnchor = await ScorePlaybackSession.StartAsync(score);
         if (playScoreWithClick && ScorePlaybackSession.IsActive)
         {
             await ExerciseClick.StartAsync(score, playbackAnchor);

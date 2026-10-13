@@ -6,34 +6,42 @@ namespace PianoMapper.Tests.UnitTests;
 public sealed class BrowserScorePlaybackTests
 {
     [Fact]
-    public async Task StartAsync_Score_SchedulesAllEventsAheadOfAudioClock()
+    public async Task StartAsync_Score_SchedulesEventsAsOffsetsFromTheAnchorTheAudioEnginePicks()
     {
         var audio = new FakeScoreAudio(TimeSpan.FromSeconds(10));
         var playback = new BrowserScorePlayback(audio);
         var score = CreateScore(beatOffset: 2);
 
-        await playback.StartAsync(score);
+        TimeSpan anchor = await playback.StartAsync(score);
 
         Assert.Equal(["stop", "schedule"], audio.Calls);
+        Assert.Equal(TimeSpan.FromMilliseconds(50), audio.ScheduledLead);
         var scheduledEvent = Assert.Single(audio.ScheduledEvents);
-        Assert.Equal(TimeSpan.FromSeconds(11.05), scheduledEvent.StartTime);
+        Assert.Equal(TimeSpan.FromSeconds(1), scheduledEvent.StartTime);
         Assert.Equal(TimeSpan.FromSeconds(0.5), scheduledEvent.Duration);
+        Assert.Equal(TimeSpan.FromSeconds(10.05), anchor);
         Assert.True(playback.IsActive);
     }
 
     [Fact]
-    public async Task StartAsync_ExplicitAudioClockAnchor_SchedulesFromThatAnchor()
+    public async Task StartAsync_AudioEnginePicksALaterAnchor_CursorAndNotesFollowIt()
     {
-        var audio = new FakeScoreAudio(TimeSpan.FromSeconds(10));
+        var audio = new FakeScoreAudio(TimeSpan.FromSeconds(10))
+        {
+            PickedAnchor = TimeSpan.FromSeconds(10.4),
+        };
         var playback = new BrowserScorePlayback(audio);
-        TimeSpan anchor = TimeSpan.FromSeconds(42.25);
 
-        await playback.StartAsync(CreateScore(beatOffset: 2), anchor);
+        TimeSpan anchor = await playback.StartAsync(CreateScore(beatOffset: 2));
 
-        BrowserScoreAudioEvent scheduledEvent = Assert.Single(audio.ScheduledEvents);
-        Assert.Equal(TimeSpan.FromSeconds(43.25), scheduledEvent.StartTime);
+        Assert.Equal(TimeSpan.FromSeconds(10.4), anchor);
         ScoreCursorAnchor cursorAnchor = Assert.IsType<ScoreCursorAnchor>(playback.GetCursorAnchor());
-        Assert.Equal(anchor.TotalSeconds, cursorAnchor.AnchorSeconds, 6);
+        Assert.Equal(10.4, cursorAnchor.AnchorSeconds, 6);
+        Assert.Equal(11.9, cursorAnchor.CompletionSeconds, 6);
+        Assert.Empty(playback.GetStartedNotes(TimeSpan.FromSeconds(11.3)));
+        PerformedNote note = Assert.Single(playback.GetStartedNotes(TimeSpan.FromSeconds(11.4)));
+        Assert.Equal(TimeSpan.FromSeconds(11.4), note.StartTime);
+        Assert.Equal(TimeSpan.FromSeconds(11.9), note.ReleaseTime);
     }
 
     [Fact]
@@ -155,16 +163,28 @@ public sealed class BrowserScorePlaybackTests
 
         internal IReadOnlyList<BrowserScoreAudioEvent> ScheduledEvents { get; private set; } = [];
 
+        internal TimeSpan ScheduledLead { get; private set; }
+
+        /// <summary>The anchor the audio engine reports; by default the clock plus the requested lead.</summary>
+        internal TimeSpan? PickedAnchor { get; init; }
+
         public ValueTask<TimeSpan> GetCurrentTimeAsync(CancellationToken cancellationToken = default) =>
             ValueTask.FromResult(currentTime);
 
         public ValueTask ScheduleScoreAsync(
             IReadOnlyList<BrowserScoreAudioEvent> events,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("Score playback schedules ahead of the audio clock instead.");
+
+        public ValueTask<TimeSpan> ScheduleScoreAheadAsync(
+            IReadOnlyList<BrowserScoreAudioEvent> events,
+            TimeSpan lead,
             CancellationToken cancellationToken = default)
         {
             Calls.Add("schedule");
             ScheduledEvents = events;
-            return ValueTask.CompletedTask;
+            ScheduledLead = lead;
+            return ValueTask.FromResult(PickedAnchor ?? currentTime + lead);
         }
 
         public ValueTask StopScoreAsync(CancellationToken cancellationToken = default)

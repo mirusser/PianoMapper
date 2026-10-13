@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Microsoft.JSInterop;
 using PianoMapper.Music;
 using PianoMapper.Web.Audio;
@@ -188,6 +189,32 @@ public sealed class WebAudioSessionTests
     }
 
     [Fact]
+    public async Task ScheduleScoreAheadAsync_InitializedSession_PassesOffsetsAndLeadAndReturnsThePickedAnchor()
+    {
+        var calls = new List<string>();
+        var module = new RecordingJsModule(calls, new AudioClockAnchor(1000, 2));
+        var runtime = new RecordingJsRuntime(calls, module);
+        await using var session = new WebAudioSession(runtime);
+        await session.InitializeAsync();
+
+        TimeSpan anchor = await session.ScheduleScoreAheadAsync(
+            [
+                new BrowserScoreAudioEvent("score-0", 440, TimeSpan.FromSeconds(0.5), TimeSpan.FromSeconds(0.25)),
+                new BrowserScoreAudioEvent("score-1", 660, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.5)),
+            ],
+            TimeSpan.FromMilliseconds(50));
+
+        Assert.Equal(TimeSpan.FromSeconds(4.25), anchor);
+        var arguments = module.Arguments["scheduleScoreAhead"]!;
+        // One byte array of frequency, start and duration per event: Blazor passes bytes across in a few milliseconds,
+        // where a thousand event objects took a tenth of a second of WebAssembly time.
+        byte[] packedEvents = Assert.IsType<byte[]>(arguments[0]);
+        Assert.Equal([440, 0.5, 0.25, 660, 1, 0.5], MemoryMarshal.Cast<byte, double>(packedEvents).ToArray());
+        Assert.Equal(0.05, arguments[1]);
+        Assert.Equal(WebAudioSession.DefaultNoteVelocity, arguments[2]);
+    }
+
+    [Fact]
     public async Task MetronomeCommands_InitializedSession_StartsStopsAndChangesSound()
     {
         var calls = new List<string>();
@@ -250,6 +277,7 @@ public sealed class WebAudioSessionTests
             {
                 "initialize" => anchor,
                 "getCurrentTime" => 3.0,
+                "scheduleScoreAhead" => 4.25,
                 "getSoundSource" => soundSource,
                 "canStartWithoutUserGesture" => canStartWithoutUserGesture,
                 _ => default(TValue),

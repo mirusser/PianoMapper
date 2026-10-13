@@ -196,6 +196,49 @@ export function getCurrentTime() {
 }
 
 export async function scheduleScore(events) {
+    await prepareScoreSound(events);
+    createScoreNotes(events, 0);
+}
+
+// Schedules a score whose event times are offsets from an anchor this function picks (`leadSeconds` after the audio
+// clock) and returns that anchor in audio-clock seconds. The caller cannot pick it: it does not know how long building
+// and passing the events takes, and Firefox neither refreshes `currentTime` during a task nor gives the audio thread
+// the nodes a task created until it ends. An anchor read before that work left the first notes already past when
+// they arrived, and a past note is silent or cut short. So the anchor is read at the start of a task of its own, and
+// that task ends right after the notes are created.
+export async function scheduleScoreAhead(packedEvents, leadSeconds, velocity) {
+    const events = unpackScoreEvents(packedEvents, velocity);
+    await prepareScoreSound(events);
+    await nextTask();
+    const anchorSeconds = audioContext.currentTime + leadSeconds;
+    createScoreNotes(events, anchorSeconds);
+    await nextTask();
+    return anchorSeconds;
+}
+
+// A long score's events arrive as one byte array of float64 triples (frequency, start offset, duration), which Blazor
+// hands over in a few milliseconds where a thousand event objects took a tenth of a second of WebAssembly time.
+function unpackScoreEvents(packedEvents, velocity) {
+    const values = new Float64Array(packedEvents.slice().buffer);
+    const events = [];
+    for (let index = 0; index < values.length; index += 3) {
+        events.push({
+            noteId: `score-${index / 3}`,
+            frequency: values[index],
+            velocity,
+            startTimeSeconds: values[index + 1],
+            durationSeconds: values[index + 2],
+        });
+    }
+
+    return events;
+}
+
+function nextTask() {
+    return new Promise(resolve => setTimeout(resolve));
+}
+
+async function prepareScoreSound(events) {
     ensureReady();
     if (soundSource === "piano") {
         const velocities = [...new Set(events.map(event => event.velocity ?? defaultPianoVelocity))];
@@ -203,11 +246,13 @@ export async function scheduleScore(events) {
     } else if (soundSource === externalMidiSoundSource) {
         ensureMidiOutputAvailable();
     }
+}
 
+function createScoreNotes(events, anchorSeconds) {
     stopScore();
 
     for (const event of events) {
-        const startTime = Math.max(event.startTimeSeconds, audioContext.currentTime);
+        const startTime = Math.max(anchorSeconds + event.startTimeSeconds, audioContext.currentTime);
         const note = createNote(
             event.noteId,
             event.frequency,

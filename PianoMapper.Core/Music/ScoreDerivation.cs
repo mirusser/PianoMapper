@@ -1,10 +1,20 @@
+using System.Runtime.CompilerServices;
+
 namespace PianoMapper.Music;
 
 public static class ScoreDerivation
 {
     private const double BeatComparisonTolerance = 1e-9;
 
-    public static IReadOnlyList<ScoreEvent> Flatten(Score score)
+    private static readonly ConditionalWeakTable<Score, IReadOnlyList<ScoreEvent>> FlattenedScores = new();
+
+    /// <summary>
+    /// Derived once per score instance (a score never changes; an edit makes a new one): a long score takes tens of
+    /// milliseconds to flatten, and starting playback, note checking and practice would each repeat it on the same score.
+    /// </summary>
+    public static IReadOnlyList<ScoreEvent> Flatten(Score score) => FlattenedScores.GetValue(score, DeriveEvents);
+
+    private static IReadOnlyList<ScoreEvent> DeriveEvents(Score score)
     {
         var notes = score.Measures
             .SelectMany(measure => measure.Notes)

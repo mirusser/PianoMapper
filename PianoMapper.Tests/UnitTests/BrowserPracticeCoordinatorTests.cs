@@ -226,6 +226,12 @@ public sealed class BrowserPracticeCoordinatorTests
             return ValueTask.CompletedTask;
         }
 
+        public ValueTask<TimeSpan> ScheduleScoreAheadAsync(
+            IReadOnlyList<BrowserScoreAudioEvent> events,
+            TimeSpan lead,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public ValueTask StopScoreAsync(CancellationToken cancellationToken = default)
         {
             StopCount++;

@@ -8,6 +8,7 @@ import {
     initialize,
     noteOff,
     noteOn,
+    scheduleScoreAhead,
 } from "../../PianoMapper.Web/wwwroot/js/audio.js";
 
 // Velocity 100 maps to piano sample layer 15 and velocity 20 to layer 1; initialize() preloads the default layer (10).
@@ -197,6 +198,61 @@ test("a failed sample load does not swallow a later note off for an earlier note
     });
 });
 
+test("a score scheduled ahead is anchored on the audio clock of a fresh task and handed over in a task of its own", async () => {
+    await withPianoAudio(async ({ context, sources }) => {
+        const originalSetTimeout = globalThis.setTimeout;
+        const tasks = [];
+        globalThis.setTimeout = callback => tasks.push(callback);
+        try {
+            let anchor;
+            const scheduling = scheduleScoreAhead(
+                packScoreEvents([[440, 0, 0.2], [660, 0.25, 0.2]]),
+                0.05,
+                slowVelocity).then(value => {
+                    anchor = value;
+                });
+
+            // Firefox refreshes the audio clock only between tasks, so the call's own task must not pick the anchor.
+            await settleMicrotasks();
+            assert.equal(sources.length, 0);
+            assert.equal(tasks.length, 1);
+
+            context.currentTime = 2.3;
+            tasks.shift()();
+            await settleMicrotasks();
+
+            // Firefox hands an audio thread the nodes a task created only when that task ends: end it right away.
+            assert.equal(sources.length, 2);
+            assertCloseTo(sources[0].startTimes[0], 2.35);
+            assertCloseTo(sources[0].stopTimes[0], 2.35 + 0.2 + releaseSeconds);
+            assertCloseTo(sources[1].startTimes[0], 2.6);
+            assert.equal(anchor, undefined);
+            assert.equal(tasks.length, 1);
+
+            tasks.shift()();
+            await scheduling;
+
+            assertCloseTo(anchor, 2.35);
+        } finally {
+            globalThis.setTimeout = originalSetTimeout;
+        }
+
+        // The packed events sound as the same frequencies and velocity would through noteOn.
+        await noteOn("reference-0", 440, 5, null, slowVelocity);
+        await noteOn("reference-1", 660, 5, null, slowVelocity);
+        assert.deepEqual(sources[0].rates, sources[2].rates);
+        assert.deepEqual(sources[1].rates, sources[3].rates);
+    });
+});
+
+function packScoreEvents(events) {
+    return new Uint8Array(new Float64Array(events.flat()).buffer);
+}
+
+function settleMicrotasks() {
+    return new Promise(resolve => setImmediate(resolve));
+}
+
 function assertCloseTo(actual, expected) {
     assert.ok(Math.abs(actual - expected) < 1e-9, `expected ${actual} to equal ${expected}`);
 }
@@ -240,7 +296,8 @@ async function withPianoAudio(body) {
             const source = {
                 startTimes: [],
                 stopTimes: [],
-                playbackRate: { setValueAtTime() {} },
+                rates: [],
+                playbackRate: { setValueAtTime(value) { source.rates.push(value); } },
                 connect() {},
                 disconnect() {},
                 start(when) {
