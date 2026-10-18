@@ -1,0 +1,40 @@
+# Pinned runtime set for the optional alternate recognizer (oemer). Install with --no-deps; see scripts/install-oemer.sh.
+#
+# Why --no-deps and why these pins:
+# - oemer 0.1.8 declares onnxruntime-gpu, which this CPU-only setup must not pull in.
+# - onnxruntime 1.20.1: newer releases (1.31) reject oemer's ConvTranspose model with
+#   "Attribute pads must not contain negative values".
+# - opencv-python-headless 4.11.0.86: OpenCV 5 changes the HoughLinesP output shape, which breaks oemer/bbox.py.
+# - Python 3.13: onnxruntime 1.20.1 has no wheels for newer interpreters.
+oemer==0.1.8
+onnxruntime==1.20.1
+opencv-python-headless==4.11.0.86
+certifi==2026.7.22
+charset-normalizer==3.5.2
+cloudpickle==3.1.2
+coloredlogs==15.0.1
+contourpy==1.4.0
+cycler==0.12.1
+flatbuffers==25.12.19
+fonttools==4.67.0
+humanfriendly==10.0
+idna==3.20
+joblib==1.6.0
+kiwisolver==1.5.1
+matplotlib==3.11.2
+mpmath==1.3.0
+narwhals==2.27.1
+numpy==2.5.4
+packaging==26.3
+pillow==12.3.0
+protobuf==7.36.2
+pyparsing==3.3.3
+python-dateutil==2.9.0.post0
+requests==2.34.2
+scikit-learn==1.9.1
+scipy==1.18.1
+six==1.17.0
+sympy==1.14.0
+threadpoolctl==3.7.0
+typing-extensions==4.16.0
+urllib3==2.8.0

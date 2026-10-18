@@ -301,8 +301,15 @@ internal sealed class AudiverisMusicXmlNormalizer
                 group.Key,
                 group.OrderBy(GetHorizontalPosition)));
 
+    // A whole-measure rest fills its measure, so Audiveris gives it no default-x; it begins at the
+    // measure's start, ahead of any positioned note.
     private static double GetHorizontalPosition(XElement note)
     {
+        if (IsWholeMeasureRest(note))
+        {
+            return double.NegativeInfinity;
+        }
+
         string? value = note.Attributes()
             .FirstOrDefault(attribute => attribute.Name.LocalName == "default-x")?
             .Value;
@@ -313,6 +320,9 @@ internal sealed class AudiverisMusicXmlNormalizer
 
         return position;
     }
+
+    private static bool IsWholeMeasureRest(XElement note) =>
+        Child(note, "rest")?.Attribute("measure")?.Value == "yes";
 
     private static void RemoveChild(XElement parent, string name) => Child(parent, name)?.Remove();
 

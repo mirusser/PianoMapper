@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Net;
 using System.Text;
+using PianoMapper.Scores;
 using PianoMapper.Web.Importing;
 
 namespace PianoMapper.Tests.UnitTests;
@@ -88,6 +89,124 @@ public sealed class ScoreFileImporterTests
             () => importer.ReadAsync(source, "score.png"));
 
         Assert.Equal("Audiveris is not installed.", exception.Message);
+    }
+
+    [Fact]
+    public async Task ReadWithAlternateRecognizerAsync_Png_PostsToTheAlternateRoute()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new AsyncOnlyReadStream(CreateCompressedScore())),
+        });
+        var importer = new ScoreFileImporter(new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://localhost/"),
+        });
+        byte[] imageBytes = [0x89, 0x50, 0x4e, 0x47];
+        await using var source = new MemoryStream(imageBytes);
+
+        var result = await importer.ReadWithAlternateRecognizerAsync(source, "photo.png");
+
+        Assert.Equal("photo", result.Score.Title);
+        Assert.Equal(HttpMethod.Post, handler.Request?.Method);
+        Assert.Equal("https://localhost/api/score-images/convert-alternate", handler.Request?.RequestUri?.ToString());
+        Assert.Equal("image/png", handler.ContentType);
+        Assert.Equal("photo.png", handler.SourceName);
+        Assert.Equal(imageBytes, handler.RequestContent);
+    }
+
+    [Fact]
+    public async Task ReadWithAlternateRecognizerAsync_ServerReportsMeasures_ListsThemAfterTheRecognizerNotice()
+    {
+        var handler = new RecordingHttpMessageHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new AsyncOnlyReadStream(CreateCompressedScore())),
+            };
+            response.Headers.Add(ScoreImageApi.ImportWarningsHeader, "measures 1, 9 may be misread|another note");
+            return response;
+        });
+        var importer = new ScoreFileImporter(new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://localhost/"),
+        });
+        await using var source = new MemoryStream([0xff, 0xd8, 0xff, 0xd9]);
+
+        var result = await importer.ReadWithAlternateRecognizerAsync(source, "photo.jpg");
+
+        Assert.Equal(
+            [ScoreFileImporter.AlternateRecognizerWarning, "measures 1, 9 may be misread", "another note"],
+            result.Warnings.Select(warning => warning.Construct));
+    }
+
+    [Fact]
+    public async Task ReadWithAlternateRecognizerAsync_ServerReportsNothing_StillNamesTheAlternateRecognizer()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new AsyncOnlyReadStream(CreateCompressedScore())),
+        });
+        var importer = new ScoreFileImporter(new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://localhost/"),
+        });
+        await using var source = new MemoryStream([0xff, 0xd8, 0xff, 0xd9]);
+
+        var result = await importer.ReadWithAlternateRecognizerAsync(source, "photo.jpg");
+
+        var warning = Assert.Single(result.Warnings);
+        Assert.Equal(ScoreFileImporter.AlternateRecognizerWarning, warning.Construct);
+        Assert.Equal(1, warning.Count);
+    }
+
+    [Fact]
+    public async Task ReadWithAlternateRecognizerAsync_AlternateUnavailable_ThrowsServerMessage()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+        {
+            Content = new StringContent("The alternate recognizer is not set up."),
+        });
+        var importer = new ScoreFileImporter(new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://localhost/"),
+        });
+        await using var source = new MemoryStream([0x89, 0x50, 0x4e, 0x47]);
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(
+            () => importer.ReadWithAlternateRecognizerAsync(source, "score.png"));
+
+        Assert.Equal("The alternate recognizer is not set up.", exception.Message);
+    }
+
+    [Fact]
+    public async Task ReadWithAlternateRecognizerAsync_MusicXmlFile_ThrowsWithoutCallingTheServer()
+    {
+        var handler = new RecordingHttpMessageHandler(_ =>
+            throw new InvalidOperationException("The OMR endpoint should not be called for MusicXML."));
+        var importer = new ScoreFileImporter(new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://localhost/"),
+        });
+        await using var source = new MemoryStream(Encoding.UTF8.GetBytes(CreateScoreXml()));
+
+        await Assert.ThrowsAsync<NotSupportedException>(
+            () => importer.ReadWithAlternateRecognizerAsync(source, "lesson.musicxml"));
+
+        Assert.Null(handler.Request);
+    }
+
+    [Theory]
+    [InlineData("photo.jpg", true)]
+    [InlineData("photo.JPEG", true)]
+    [InlineData("photo.png", true)]
+    [InlineData("lesson.mxl", false)]
+    [InlineData("lesson.musicxml", false)]
+    [InlineData("photo.gif", false)]
+    [InlineData("photo", false)]
+    public void IsImageFile_FileName_MatchesTheImagesTheServerRecognizes(string sourceName, bool expected)
+    {
+        Assert.Equal(expected, ScoreFileImporter.IsImageFile(sourceName));
     }
 
     private static string CreateScoreXml() => """

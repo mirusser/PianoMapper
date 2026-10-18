@@ -16,11 +16,25 @@
 {
     <p role="status">@status</p>
 }
+@if (failedImage is not null)
+{
+    <p class="control-note">
+        The alternate recognizer is an optional second attempt on the same image. It takes several minutes and is
+        less precise: it can misread rhythms and rests, so check the result against your image. If this server has not
+        set it up, you will be told.
+    </p>
+    <div class="controls">
+        <button class="button-quiet" type="button" @onclick="TryAlternateRecognizerAsync" disabled="@isLoadingScore">
+            Try alternate recognizer (slower, less precise)
+        </button>
+    </div>
+}
 <details class="learning-disclosure">
     <summary>Supported score files</summary>
     <p>
         MusicXML loads directly. JPEG and PNG sheet-music images are converted with the server's Audiveris
-        optical music recognition engine; recognition may need correction in an external score editor.
+        optical music recognition engine; recognition may need correction in an external score editor. When Audiveris
+        cannot read an image, you can try the server's optional alternate recognizer on it.
     </p>
 </details>
 
@@ -29,6 +43,8 @@
 
     private int inputGeneration;
     private string? status;
+    private byte[]? failedImage;
+    private string? failedImageName;
     private bool isLoadingScore;
     private bool wasLoaded;
 
@@ -44,6 +60,7 @@
         {
             inputGeneration++;
             status = null;
+            failedImage = null;
         }
 
         wasLoaded = HasLoadedScore;
@@ -60,11 +77,18 @@
 
         isLoadingScore = true;
         status = null;
+        failedImage = null;
+        byte[]? imageBytes = null;
         try
         {
             await using var source = file.OpenReadStream(MaximumFileSizeBytes);
             using var buffer = new MemoryStream((int)file.Size);
             await source.CopyToAsync(buffer);
+            if (ScoreFileImporter.IsImageFile(file.Name))
+            {
+                imageBytes = buffer.ToArray();
+            }
+
             buffer.Position = 0;
 
             var result = await Importer.ReadAsync(buffer, file.Name);
@@ -75,6 +99,42 @@
             exception is IOException or InvalidDataException or NotSupportedException or ArgumentException or HttpRequestException)
         {
             status = $"Could not load score: {exception.Message}";
+            if (imageBytes is not null)
+            {
+                failedImage = imageBytes;
+                failedImageName = file.Name;
+            }
+        }
+        finally
+        {
+            isLoadingScore = false;
+        }
+    }
+
+    // The second attempt is only ever started by the learner, from the offer shown after the standard one failed.
+    private async Task TryAlternateRecognizerAsync()
+    {
+        if (failedImage is null || failedImageName is null)
+        {
+            return;
+        }
+
+        byte[] image = failedImage;
+        string imageName = failedImageName;
+        failedImage = null;
+        isLoadingScore = true;
+        status = "Running the alternate recognizer. This can take several minutes.";
+        try
+        {
+            using var source = new MemoryStream(image, writable: false);
+            var result = await Importer.ReadWithAlternateRecognizerAsync(source, imageName);
+            await ScoreLoaded.InvokeAsync(result.Score);
+            status = ScoreImportStatus.Describe(result);
+        }
+        catch (Exception exception) when (
+            exception is IOException or InvalidDataException or NotSupportedException or ArgumentException or HttpRequestException)
+        {
+            status = $"Could not load score with the alternate recognizer: {exception.Message}";
         }
         finally
         {

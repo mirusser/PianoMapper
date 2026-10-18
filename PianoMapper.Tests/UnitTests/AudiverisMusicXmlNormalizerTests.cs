@@ -128,6 +128,99 @@ public sealed class AudiverisMusicXmlNormalizerTests
         Assert.Empty(phantomMeasure.Rests);
     }
 
+    // Audiveris gives a whole-measure rest no default-x (it has no horizontal position: it fills the
+    // measure), unlike every pitched note and ordinary rest it exports.
+    [Fact]
+    public void Normalize_WholeMeasureRestHasNoDefaultX_KeepsTheRestInsteadOfThrowing()
+    {
+        byte[] source = CreateCompressedMusicXml("""
+            <score-partwise>
+              <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+              <part id="P1">
+                <measure number="1">
+                  <attributes>
+                    <divisions>6</divisions>
+                    <time><beats>4</beats><beat-type>4</beat-type></time>
+                  </attributes>
+                  <note>
+                    <rest measure="yes" /><duration>24</duration><voice>1</voice>
+                  </note>
+                </measure>
+                <measure number="2">
+                  <note default-x="10">
+                    <pitch><step>C</step><octave>4</octave></pitch>
+                    <duration>24</duration><voice>1</voice><type>whole</type>
+                  </note>
+                </measure>
+              </part>
+            </score-partwise>
+            """);
+
+        byte[] normalized = new AudiverisMusicXmlNormalizer().Normalize(source);
+        using var stream = new MemoryStream(normalized);
+        var score = new MusicXmlScoreReader().Read(stream, "recognized.mxl");
+
+        Assert.Equal(2, score.Measures.Count);
+        Assert.Empty(score.Measures[0].Notes);
+        Assert.Single(score.Measures[0].Rests);
+        Assert.Single(score.Measures[1].Notes);
+    }
+
+    [Fact]
+    public void Normalize_WholeMeasureRestSharesMeasureWithFingeringTuplets_KeepsTheRestAndRebuildsTheTuplets()
+    {
+        byte[] source = CreateCompressedMusicXml("""
+            <score-partwise>
+              <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+              <part id="P1">
+                <measure number="1">
+                  <attributes>
+                    <divisions>6</divisions>
+                    <time><beats>4</beats><beat-type>4</beat-type></time>
+                    <staves>2</staves>
+                  </attributes>
+                  <note>
+                    <rest measure="yes" /><duration>24</duration><voice>1</voice><staff>1</staff>
+                  </note>
+                  <backup><duration>24</duration></backup>
+                  <note default-x="10">
+                    <pitch><step>C</step><octave>3</octave></pitch>
+                    <duration>4</duration><voice>5</voice><type>quarter</type>
+                    <time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>
+                    <staff>2</staff><notations><tuplet type="start" number="1" placement="below" /></notations>
+                  </note>
+                  <note default-x="20">
+                    <pitch><step>D</step><octave>3</octave></pitch>
+                    <duration>4</duration><voice>5</voice><type>quarter</type>
+                    <time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>
+                    <staff>2</staff>
+                  </note>
+                  <note default-x="30">
+                    <rest /><duration>4</duration><voice>5</voice><type>quarter</type>
+                    <time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>
+                    <staff>2</staff><notations><tuplet type="stop" number="1" /></notations>
+                  </note>
+                  <note default-x="40">
+                    <pitch><step>E</step><octave>3</octave></pitch>
+                    <duration>6</duration><voice>5</voice><type>quarter</type><staff>2</staff>
+                  </note>
+                </measure>
+              </part>
+            </score-partwise>
+            """);
+
+        byte[] normalized = new AudiverisMusicXmlNormalizer().Normalize(source);
+        using var stream = new MemoryStream(normalized);
+        var score = new MusicXmlScoreReader().Read(stream, "recognized.mxl");
+
+        var measure = Assert.Single(score.Measures);
+        Assert.Single(measure.Rests, rest => rest.Staff == Staff.Treble);
+        Assert.Single(measure.Rests, rest => rest.Staff == Staff.Bass);
+        Assert.Equal(3, measure.Notes.Count(note => note.Staff == Staff.Bass));
+        Assert.All(measure.Notes, note => Assert.Equal(Math.Floor(note.BeatOffset), note.BeatOffset));
+        Assert.Single(measure.Notes, note => note.Fingering is not null);
+    }
+
     private static byte[] CreateCompressedMusicXml(string scoreXml)
     {
         const string containerXml = """

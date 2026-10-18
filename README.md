@@ -25,7 +25,7 @@ PianoMapper is a .NET 10 application with three clients: an OpenTK desktop app, 
 ### Bring your own music
 
 - Import `.mxl`, `.musicxml`, and `.xml` files for piano scores, including chords, ties, rests, tuplets, beams, octave shifts, fingering, and a focused subset of articulations and ornaments.
-- Import `.jpg`, `.jpeg`, and `.png` sheet music through the hosted Audiveris recognition path, then correct fingerings directly on the grand staff.
+- Import `.jpg`, `.jpeg`, and `.png` sheet music through the hosted Audiveris recognition path, then correct fingerings directly on the grand staff. When Audiveris cannot read an image, you can opt in to a slower, less precise second attempt with the optional [alternate recognizer](#alternate-image-recognition-optional).
 - Save, update, load, and delete imported scores in the hosted browser app’s PostgreSQL-backed library. Source files are not retained after conversion.
 
 ### Keep the browser experience local and resilient
@@ -119,6 +119,7 @@ The browser listener belongs to the focused play surface and leaves normal form 
 | Browser USB MIDI | Web MIDI support, user permission, and HTTPS or localhost |
 | `make` hosted launcher | Bash, Make, Docker, and the Docker Compose plugin |
 | Automatic image recognition | Linux x86_64 plus `curl`, `ar`, `sha256sum`, `tar`, and `unzstd` |
+| Alternate image recognition (optional) | [`uv`](https://docs.astral.sh/uv/) to run `scripts/install-oemer.sh` (about 650 MiB on disk, Python 3.13 fetched by `uv` if missing) |
 | `make run-release` and `make publish-release` | Linux x86_64 plus `curl`, `gzip`, `sha512sum`, and `tar`; `make run-release` also needs everything `make` needs |
 
 On Linux x86_64, the first `make` downloads the official Audiveris 5.10.2 package (about 68 MiB), verifies its checksum, and extracts its bundled Java runtime under `.tools/`. Later runs reuse that copy; an existing `audiveris` command on `PATH` takes precedence. On other platforms, install Audiveris separately and point the hosted app at its launcher:
@@ -134,6 +135,19 @@ ConnectionStrings__PianoMapper='Host=db.example;Database=pianomapper;Username=pi
 ```
 
 `Omr__TimeoutSeconds` controls image-recognition timeout and defaults to 180 seconds.
+
+### Alternate image recognition (optional)
+
+Audiveris sometimes cannot read a photo, for example when it misses a staff. When an image import fails, the app offers **Try alternate recognizer (slower, less precise)**. It is never run automatically and never replaces an Audiveris result. It runs [oemer](https://github.com/BreezeWhite/oemer), a Python recognizer, as a separate process on the server, so nothing from its Python stack is part of the .NET build or the AOT release build. It is off until it is installed and configured:
+
+```bash
+scripts/install-oemer.sh                                   # creates .tools/oemer/venv with pinned dependencies and models
+Omr__OemerExecutable=$PWD/.tools/oemer/venv/bin/oemer make # make finds that copy on its own, so the variable is optional there
+```
+
+The pins (`scripts/oemer-requirements.txt`) matter: oemer 0.1.8 only runs with `onnxruntime` 1.20.1 on CPU and `opencv-python-headless` 4.11.0.86 on Python 3.13, and the script installs them with `--no-deps` so oemer's own `onnxruntime-gpu` requirement is not pulled in. The two ONNX models (about 105 MiB) are downloaded once, checksum-verified. Without it, the offer answers that the alternate recognizer is not set up.
+
+A run takes minutes on a CPU (about three minutes for a five-system page on 16 cores). `Omr__OemerTimeoutSeconds` bounds it and defaults to 600 seconds. The server repairs oemer's MusicXML before importing it and lists measures whose notes do not fill their bar as "may be misread" under **Simplified on import**; it cannot detect every error, such as a whole note read as a whole rest.
 
 ## 📦 Publish the browser app
 
@@ -202,6 +216,7 @@ The browser’s manual coverage and current evidence live in [the browser test m
 - MusicXML import is intentionally focused: more than two aggregate staves, grace notes, tempo or time-signature changes, stem values `none`/`double`, and unsupported musical semantics fail with a readable error. Accepted presentation-only constructs that have no representation are reported as warnings.
 - Tuplets play at the correct duration for any imported ratio, but only a beamed 3:2 triplet currently receives a rendered numeral. Imported-score rests affect spacing and timing but are not yet drawn; imported tied notes remain separate noteheads without a drawn tie curve.
 - OMR output depends on scan quality and Audiveris. Review every recognized score, especially rhythm and fingering, before using it for practice.
+- The alternate recognizer reads one grand-staff part and ignores octave-shift lines, dynamics, and pedal marks, and sometimes splits or misreads rests and rhythms. Treat its result as a draft to check against your image.
 - Timed exercises use the audio clock and do not yet compensate for output latency. Hardware with a large latency can make an on-beat player appear slightly late.
 - Web MIDI depends on browser support, permission, and secure context. Sustain-pedal control changes are not interpreted; duration checking ends when a key sends note-off.
 - Accounts and mobile-specific layout are outside the current browser release. The hosted server keeps one shared progress history, not one per learner. Clearing history deletes the saved copy too, but a browser that still holds older sessions re-uploads them on its next sync, so clear on each device that has used the app.

@@ -46,6 +46,8 @@ Set them on the same line as `make`, for example `Omr__AudiverisExecutable=/opt/
 | --- | --- | --- |
 | `ConnectionStrings__PianoMapper` | Use this PostgreSQL connection instead of the compose one. Skips the Docker check and `docker compose up`. | `make`: from `appsettings.Development.json`. `make run-release`: the compose database on port 5434. |
 | `Omr__AudiverisExecutable` | Path to the Audiveris launcher. | `audiveris` on `PATH`, else `.tools/audiveris-5.10.2/opt/audiveris/bin/Audiveris` |
+| `Omr__OemerExecutable` | Path to the optional alternate recognizer (oemer). Off when unset. See [Alternate image recognition](../README.md#alternate-image-recognition-optional). | `.tools/oemer/venv/bin/oemer` when `scripts/install-oemer.sh` has created it, otherwise unset |
+| `Omr__OemerTimeoutSeconds` | How long one alternate-recognizer run may take before it is stopped. | `600` |
 | `ASPNETCORE_URLS` | Address of the published server. Only `make run-release` reads it. | `http://localhost:5080` |
 
 Arguments are not forwarded by `make`. To pass extra arguments to the app, call the script directly: `./scripts/run-web.sh <args>` forwards them to `dotnet run`, and `./scripts/publish-aot.sh --run <args>` forwards them to the published server.

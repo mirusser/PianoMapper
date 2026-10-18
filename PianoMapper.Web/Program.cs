@@ -11,7 +11,13 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 builder.Services.AddScoped(_ => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
-builder.Services.AddScoped<ScoreFileImporter>();
+// Recognizing a score image can outlast HttpClient's default 100 second timeout (the optional alternate recognizer takes
+// minutes); the server bounds every recognition run with its own timeout, so the importer's client waits for it.
+builder.Services.AddScoped(_ => new ScoreFileImporter(new HttpClient
+{
+    BaseAddress = new Uri(builder.HostEnvironment.BaseAddress),
+    Timeout = Timeout.InfiniteTimeSpan,
+}));
 builder.Services.AddScoped<WebAudioSession>();
 builder.Services.AddScoped<IBrowserScoreAudio>(services => services.GetRequiredService<WebAudioSession>());
 builder.Services.AddScoped<IBrowserMetronomeAudio>(services => services.GetRequiredService<WebAudioSession>());

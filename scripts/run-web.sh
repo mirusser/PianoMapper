@@ -11,6 +11,7 @@ readonly repo_root
 readonly tools_directory="${repo_root}/.tools"
 readonly audiveris_directory="${tools_directory}/audiveris-${audiveris_version}"
 readonly local_audiveris="${audiveris_directory}/opt/audiveris/bin/Audiveris"
+readonly local_oemer="${tools_directory}/oemer/venv/bin/oemer"
 
 require_command() {
     local command_name="$1"
@@ -109,6 +110,12 @@ if ! command -v "${audiveris_executable}" >/dev/null 2>&1; then
 fi
 
 export Omr__AudiverisExecutable="${audiveris_executable}"
+
+# The alternate recognizer is optional and never installed implicitly: it is used only when scripts/install-oemer.sh has
+# created the repo-local copy, or when Omr__OemerExecutable is already set.
+if [[ -z "${Omr__OemerExecutable:-}" && -x "${local_oemer}" ]]; then
+    export Omr__OemerExecutable="${local_oemer}"
+fi
 
 if [[ "${run_aot_release}" == true ]]; then
     exec "${repo_root}/scripts/publish-aot.sh" --run "$@"
